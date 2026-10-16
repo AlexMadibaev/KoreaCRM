@@ -1,0 +1,14 @@
+[Unit]
+Description=Korea CRM configuration backup
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=koreacrm
+Group=koreacrm
+WorkingDirectory=/opt/koreacrm
+EnvironmentFile=/etc/koreacrm/backup.env
+Environment=CONFIG_ROOT=/opt/koreacrm
+ExecStart=/usr/bin/node /opt/koreacrm/tools/config-backup.mjs backup
+UMask=0077

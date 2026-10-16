@@ -1,0 +1,10 @@
+export type PosStore = { id: string; name: string; code: string };
+export type PosProduct = { id: string; name: string; sku: string; status: string; barcodes: { value: string }[] };
+export type PosStock = { productId: string; quantity: number; reservedQuantity: number };
+export type PosSettings = { active: boolean; priceMinor: number | null } | null;
+export type PosCustomer = { id: string; firstName: string; lastName: string | null; phone: string; discountPercent: string; bonusBalanceMinor: string };
+export type PosPaymentMethod = { id: string; code: string; name: string; kind: 'CASH' | 'CARD' | 'QR' | 'TRANSFER' | 'BONUS' | 'DEBT' | 'CUSTOM'; active: boolean };
+export type PosShift = { id: string; deviceId: string; status: 'OPEN' | 'CLOSED'; expectedCashMinor: string };
+export type PosReturn = { id: string; operationId: string; amountMinor: string; reason: string; createdAt: string; cashShiftId: string; items: { id: string; saleItemId: string; quantity: number; amountMinor: string }[] };
+export type PosSale = { id: string; number: string; status?: 'COMPLETED' | 'VOIDED'; returns: PosReturn[]; totalMinor: string; discountMinor: string; createdAt: string; store: { name: string; code: string; address: string | null; phone: string | null }; employee: { name: string }; items: { id: string; quantity: number; priceMinor: string; discountMinor: string; totalMinor: string; product: { name: string; sku: string } }[]; payments: { id: string; amountMinor: string; paymentMethod: PosPaymentMethod }[]; customer: PosCustomer | null };
+export type PosPage<T> = { items: T[]; total: number; page: number; limit: number };

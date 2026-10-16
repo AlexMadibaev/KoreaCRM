@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Korea CRM configuration backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:45:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=koreacrm-config-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,12 @@
+**/node_modules
+**/.next*
+**/dist
+**/target*
+.git
+.env*
+.mvp-local
+.pnpm-store
+.turbo
+backups
+tools
+*.tsbuildinfo

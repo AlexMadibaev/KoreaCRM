@@ -1,0 +1,11 @@
+[Unit]
+Description=Run Korea CRM PostgreSQL backup daily
+
+[Timer]
+OnCalendar=*-*-* 02:15:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=koreacrm-postgres-backup.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
+
+const apiUrl = process.env.TEST_API_URL ?? 'http://127.0.0.1:3002';
+const headers = { Authorization: 'Bearer demo-local-token', 'Content-Type': 'application/json' };
+const stock = async () => (await fetch(`${apiUrl}/stores/demo-store/stock`, { headers }).then(response => response.json())).items.find(item => item.productId === 'demo-cleanser').quantity;
+const before = await stock();
+const request = { operationId: randomUUID(), deviceId: 'POS-price-test', items: [{ productId: 'demo-cleanser', quantity: 1, priceMinor: '75000', discountMinor: '0' }], payments: [{ paymentMethodId: 'demo-card', amountMinor: '75000' }] };
+const post = (path) => fetch(`${apiUrl}/stores/demo-store/sales${path}`, { method: 'POST', headers, body: JSON.stringify(request) });
+const online = await post('');
+assert.equal(online.status, 400);
+assert.equal(await stock(), before);
+const synced = await post('/sync');
+assert.equal(synced.status, 201);
+const receipt = await synced.json();
+assert.equal(receipt.items[0].priceMinor, '75000');
+assert.equal(receipt.totalMinor, '75000');
+assert.equal(await stock(), before - 1);
+const replay = await post('/sync');
+assert.equal(replay.status, 200);
+assert.equal((await replay.json()).id, receipt.id);
+assert.equal(await stock(), before - 1);
+console.log(JSON.stringify({ onlineStatus: online.status, syncStatus: synced.status, receipt: receipt.number, priceMinor: receipt.items[0].priceMinor, stockBefore: before, stockAfter: before - 1, replayStatus: replay.status }));
