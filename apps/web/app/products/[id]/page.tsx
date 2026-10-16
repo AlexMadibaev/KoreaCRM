@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ProductForm } from '../../../components/product-form';
+import { ProductPriceEditor } from '../../../components/product-price-editor';
 import { api, type Product } from '../../../lib/api';
 
 export default function ProductDetailPage() {
@@ -36,5 +37,6 @@ export default function ProductDetailPage() {
       <div className="md:col-span-2"><dt className="text-sm text-slate-500">Описание</dt><dd>{product.description || '—'}</dd></div>
       {([['country', 'Страна'], ['shade', 'Оттенок'], ['volume', 'Объём'], ['weight', 'Вес'], ['line', 'Линейка'], ['collection', 'Коллекция'], ['gender', 'Пол'], ['skinType', 'Тип кожи'], ['productType', 'Тип товара']] as const).map(([key, label]) => <div key={key}><dt className="text-sm text-slate-500">{label}</dt><dd>{product[key] || '—'}</dd></div>)}
     </dl>}
+    <ProductPriceEditor productId={product.id} />
   </section>;
 }
