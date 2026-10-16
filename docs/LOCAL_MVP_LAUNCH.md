@@ -2,6 +2,8 @@
 
 На этом компьютере MVP запускается с отдельной базой `koreacrm_mvp`. Тестовая база остаётся отдельно.
 
+Эта инструкция относится к исходному Windows ПК. Для чистого клона из GitHub используйте [техническую карту](TECHNICAL_SETUP.md): локальный кластер `tools/pg-test-data` не входит в репозиторий.
+
 1. Откройте PowerShell в `D:\KoreaCRM`.
 2. Выполните `powershell -ExecutionPolicy Bypass -File .\tools\start-mvp.ps1`.
 3. Дождитесь сообщения `MVP ready` и откройте `http://127.0.0.1:3010/login`.
