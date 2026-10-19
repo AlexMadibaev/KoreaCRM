@@ -37,13 +37,18 @@ button:disabled { opacity: .5; }
 .camera-scanner .error { margin: 10px 0 0; }
 
 .pos { max-width: none; min-height: 100vh; padding: 0 34px 30px; }
-.topbar { min-height: 82px; margin: 0 -34px 27px; padding: 14px 34px; border-bottom: 1px solid #e7ece9; background: #fff; gap: 22px; box-shadow: 0 2px 12px #182e2710; }
+.topbar { min-height: 82px; margin: 0 -34px 27px; padding: 14px 34px; border-bottom: 1px solid #e7ece9; background: #fff; gap: 16px; flex-wrap: wrap; box-shadow: 0 2px 12px #182e2710; }
 .topbar-brand { display: flex; min-width: 290px; align-items: center; gap: 13px; margin-right: auto; }
 .topbar h1 { font-size: 21px; line-height: 1.12; letter-spacing: -.035em; }
 .topbar label { width: 220px; color: #73847f; font-size: 11px; font-weight: 700; }
 .topbar select { margin-top: 3px; border-color: #e1e9e4; background-color: #f8faf8; color: #253a34; font-size: 14px; font-weight: 650; }
 .topbar button { white-space: nowrap; }
 .topbar .quiet { margin-left: 0; }
+.cashier-identity { display: grid; min-width: 150px; max-width: 230px; gap: 2px; padding: 7px 12px; border: 1px solid #d3e7db; border-radius: 10px; background: #f3faf5; }
+.cashier-identity span { color: #6c9180; font-size: 9px; font-weight: 800; letter-spacing: .12em; }
+.cashier-identity strong { overflow: hidden; color: #174d3a; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.cashier-identity small { overflow: hidden; color: #6e8778; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.cashier-switch { border-color: #c6d9ce; color: #245943; }
 .connection-pill { display: inline-flex; align-items: center; gap: 7px; min-width: max-content; padding: 8px 12px; border: 1px solid #e8e6db; border-radius: 999px; background: #faf8f0; color: #9b8350; font-size: 12px; font-weight: 650; }
 .connection-pill i { width: 7px; height: 7px; border-radius: 50%; background: #c9a76e; }
 .connection-pill.is-ready { border-color: #cfe8dc; background: #eff8f2; color: #277052; }
