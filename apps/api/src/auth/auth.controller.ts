@@ -6,6 +6,7 @@ import { AuthService } from './auth.service';
 import { AccessGuard } from './guards';
 
 const loginSchema = z.object({ login: z.string().min(1), password: z.string().min(1), deviceId: z.string().min(1).optional() });
+const posCodeSchema = z.object({ code: z.string().trim().min(13).max(64), deviceId: z.string().min(1).max(150) });
 const refreshSchema = z.object({ refreshToken: z.string().min(1), deviceId: z.string().min(1).optional() });
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -23,6 +24,12 @@ export class AuthController {
   login(@Body() body: unknown) {
     const input = parse(loginSchema, body);
     return this.auth.login(input.login, input.password, input.deviceId);
+  }
+
+  @Post('pos-code')
+  loginWithPosCode(@Body() body: unknown, @Req() request: Request) {
+    const input = parse(posCodeSchema, body);
+    return this.auth.loginWithPosCode(input.code, input.deviceId, request.ip ?? 'unknown');
   }
 
   @Post('refresh')

@@ -4,6 +4,7 @@ import { hash } from 'argon2';
 import type { z } from 'zod';
 import { DatabaseService } from '../database.service';
 import type { AccessContext } from '../auth/policy';
+import { hashPosCode, newPosCodes } from '../auth/pos-code';
 import { employeeActivitySchema, employeeCreateSchema, employeeListSchema, employeePatchSchema, roleCreateSchema, rolePatchSchema } from './employees.schemas';
 
 const userPublic = { id: true, name: true, login: true, active: true, allStores: true, createdAt: true, roleId: true, role: { select: { id: true, code: true, name: true, permissions: { select: { permission: { select: { code: true } } } } } }, stores: { select: { storeId: true } } } as const;
@@ -37,6 +38,36 @@ export class EmployeesService {
       this.db.auditLog.count({ where }),
     ]);
     return { items, total, page: query.page, limit: query.limit };
+  }
+
+  private async posCodeTarget(id: string, actor: AccessContext) {
+    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, name: true, active: true, allStores: true, stores: { select: { storeId: true } }, role: { select: { permissions: { select: { permission: { select: { code: true } } } } } } } });
+    if (!employee) throw new NotFoundException('Employee not found');
+    if (!actor.allStores && (employee.allStores || !employee.stores.length || employee.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
+    if (employee.role.permissions.some(item => !actor.permissions.includes(item.permission.code))) throw new ForbiddenException('Employee has permissions outside your role');
+    return employee;
+  }
+
+  async issuePosCodes(id: string, actor: AccessContext) {
+    const employee = await this.posCodeTarget(id, actor);
+    if (!employee.active || !employee.role.permissions.some(item => item.permission.code === 'sales.create')) throw new BadRequestException('Employee must be active and allowed to sell');
+    const codes = newPosCodes();
+    await this.db.$transaction(async tx => {
+      await tx.user.update({ where: { id }, data: { posQrHash: hashPosCode(codes.qrCode), posEanHash: hashPosCode(codes.ean13) } });
+      await tx.refreshToken.updateMany({ where: { userId: id, deviceId: { not: null }, revokedAt: null }, data: { revokedAt: new Date() } });
+      await tx.auditLog.create({ data: { userId: actor.userId, action: 'POS_CODES_ISSUED', entityType: 'User', entityId: id } });
+    });
+    return { employeeName: employee.name, ...codes };
+  }
+
+  async revokePosCodes(id: string, actor: AccessContext) {
+    await this.posCodeTarget(id, actor);
+    await this.db.$transaction(async tx => {
+      await tx.user.update({ where: { id }, data: { posQrHash: null, posEanHash: null } });
+      await tx.refreshToken.updateMany({ where: { userId: id, deviceId: { not: null }, revokedAt: null }, data: { revokedAt: new Date() } });
+      await tx.auditLog.create({ data: { userId: actor.userId, action: 'POS_CODES_REVOKED', entityType: 'User', entityId: id } });
+    });
+    return { success: true };
   }
 
   private async allowedRole(roleId: string, actor: AccessContext) {

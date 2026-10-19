@@ -127,3 +127,9 @@ body { margin: 0; font-family: Arial, Helvetica, sans-serif; color: #20233b; }
 .crm-top-products-empty { color: #85889a; font-size: 13px; padding: 8px 0; }
 .crm-dashboard-archive { display: inline-flex; align-items: center; gap: 8px; margin: -7px 0 20px; color: #777a8d; font-size: 12px; cursor: pointer; }
 .crm-dashboard-archive input { accent-color: #654ad0; width: 15px; height: 15px; }
+@media print {
+  body:has(.pos-code-print-card) * { visibility: hidden; }
+  body:has(.pos-code-print-card) .pos-code-print-card,
+  body:has(.pos-code-print-card) .pos-code-print-card * { visibility: visible; }
+  .pos-code-print-card { position: absolute; inset: 0 auto auto 0; width: 110mm; border: 0; box-shadow: none; }
+}

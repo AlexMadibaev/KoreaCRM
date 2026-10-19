@@ -26,6 +26,10 @@ button:disabled { opacity: .5; }
 .login-form label { margin-top: 16px; }
 .login-form .muted { margin: 18px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .login-form .primary { margin-top: 24px; }
+.login-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 8px; padding: 4px; border-radius: 11px; background: #edf3ef; }
+.login-modes button { min-height: 37px; border: 0; background: transparent; color: #61766c; }
+.login-modes button.selected { background: #fff; color: #0b554b; box-shadow: 0 2px 8px #24473f16; }
+.scan-hint { margin: 9px 0 0; color: #6e8178; font-size: 12px; line-height: 1.5; }
 
 .pos { max-width: none; min-height: 100vh; padding: 0 34px 30px; }
 .topbar { min-height: 82px; margin: 0 -34px 27px; padding: 14px 34px; border-bottom: 1px solid #e7ece9; background: #fff; gap: 22px; box-shadow: 0 2px 12px #182e2710; }

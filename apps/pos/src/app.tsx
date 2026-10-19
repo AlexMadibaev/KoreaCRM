@@ -48,6 +48,7 @@ export function App() {
   const [registrationRequested, setRegistrationRequested] = useState(() => Boolean(localStorage.getItem(savedStoreKey)));
   const [registerNonce, setRegisterNonce] = useState(0);
   const [signedIn, setSignedIn] = useState(false), [login, setLogin] = useState(''), [password, setPassword] = useState(''), [permissions, setPermissions] = useState<string[]>([]);
+  const [loginMode, setLoginMode] = useState<'password' | 'scan'>('password'), [scanCode, setScanCode] = useState('');
   const [userId, setUserId] = useState('');
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null), [cacheProgress, setCacheProgress] = useState(''), [cacheError, setCacheError] = useState(''), [cacheBusy, setCacheBusy] = useState(false);
   const [queueSummary, setQueueSummary] = useState<QueueSummary | null>(null), [queueNotice, setQueueNotice] = useState('');
@@ -66,7 +67,8 @@ export function App() {
   const [stockNotice, setStockNotice] = useState('');
   const [receipt, setReceipt] = useState<PosSale | null>(null), [pending, setPending] = useState<PendingSale | null>(() => { try { const saved = localStorage.getItem(pendingKey); return saved ? JSON.parse(saved) as PendingSale : null; } catch { return null; } });
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [printerHost, setPrinterHost] = useState(() => localStorage.getItem('koreacrm-pos-printer-host') ?? '');
-  const searchRef = useRef<HTMLInputElement>(null), customerRef = useRef<HTMLInputElement>(null), discountRef = useRef<HTMLInputElement>(null), paymentRef = useRef<HTMLSelectElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null), scanRef = useRef<HTMLInputElement>(null), customerRef = useRef<HTMLInputElement>(null), discountRef = useRef<HTMLInputElement>(null), paymentRef = useRef<HTMLSelectElement>(null);
+  useEffect(() => { if (!signedIn && loginMode === 'scan') scanRef.current?.focus(); }, [signedIn, loginMode]);
   const can = (permission: string) => permissions.includes(permission);
   const paymentRows = tenders.map(tender => ({ methodId: tender.methodId, amountMinor: tender.amountMinor, kind: methods.find(method => method.id === tender.methodId)?.kind ?? '' }));
   const cashPayment = paymentRows.some(row => row.kind === 'CASH');
@@ -78,6 +80,21 @@ export function App() {
   const paid = tenders.reduce((total, tender) => total + BigInt(validMinor(tender.amountMinor) ? tender.amountMinor : '0'), 0n);
   const projectedShift = shift ? projectShiftCash(shift.expectedCashMinor, shift.id, methods.filter(method => method.kind === 'CASH').map(method => method.id), queueEntries) : null;
 
+  async function finishOnlineSignIn(identityLogin: string, normalizedApiUrl: string, passwordForOffline?: string) {
+      setServerReachable(true); localStorage.setItem(apiUrlKey, normalizedApiUrl);
+      const [me, available, paymentMethods] = await Promise.all([client.get<{ userId: string; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods')]);
+      if (!me.permissions.includes('sales.create')) throw new Error('Нет права оформлять продажи');
+      const active = paymentMethods.filter(method => method.active && (!hasDesktopCache() || method.kind !== 'BONUS') && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
+      if (!active.length || !available.length) throw new Error('Нет доступного магазина или способа оплаты');
+      const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === localStorage.getItem(savedStoreKey)) ?? available[0]!;
+      if (hasDesktopCache() && passwordForOffline) {
+        try { await saveOfflineSession({ deviceId, apiUrl: normalizedApiUrl, login: identityLogin, password: passwordForOffline, userId: me.userId, store: chosen, methods: active, permissions: me.permissions }); }
+        catch (cacheFailure) { setCacheError(`Локальный вход не сохранён: ${message(cacheFailure)}`); }
+      }
+      setLogin(identityLogin);
+      setUserId(me.userId); setPermissions(me.permissions); setStores(available); setMethods(active); setStoreId(chosen.id);
+      setTenders([{ id: crypto.randomUUID(), methodId: active.find(method => method.kind === 'CASH')?.id ?? active[0]!.id, amountMinor: '0', reference: '' }]); setPassword(''); setScanCode(''); setOfflineSignedIn(false); setSignedIn(true);
+  }
   async function signIn(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
     try {
@@ -85,19 +102,7 @@ export function App() {
       if (!['http:', 'https:'].includes(parsedApiUrl.protocol)) throw new Error('Укажите HTTP или HTTPS адрес сервера');
       const normalizedApiUrl = apiUrl.trim().replace(/\/+$/, '');
       await client.login(login, password);
-      setServerReachable(true);
-      localStorage.setItem(apiUrlKey, normalizedApiUrl);
-      const [me, available, paymentMethods] = await Promise.all([client.get<{ userId: string; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods')]);
-      if (!me.permissions.includes('sales.create')) throw new Error('Нет права оформлять продажи');
-      const active = paymentMethods.filter(method => method.active && (!hasDesktopCache() || method.kind !== 'BONUS') && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
-      if (!active.length || !available.length) throw new Error('Нет доступного магазина или способа оплаты');
-      const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === localStorage.getItem(savedStoreKey)) ?? available[0]!;
-      if (hasDesktopCache()) {
-        try { await saveOfflineSession({ deviceId, apiUrl: normalizedApiUrl, login, password, userId: me.userId, store: chosen, methods: active, permissions: me.permissions }); }
-        catch (cacheFailure) { setCacheError(`Локальный вход не сохранён: ${message(cacheFailure)}`); }
-      }
-      setUserId(me.userId); setPermissions(me.permissions); setStores(available); setMethods(active); setStoreId(chosen.id);
-      setTenders([{ id: crypto.randomUUID(), methodId: active.find(method => method.kind === 'CASH')?.id ?? active[0]!.id, amountMinor: '0', reference: '' }]); setPassword(''); setOfflineSignedIn(false); setSignedIn(true);
+      await finishOnlineSignIn(login, normalizedApiUrl, password);
     } catch (caught) {
       if (hasDesktopCache() && connectionFailed(caught)) {
         try {
@@ -122,7 +127,18 @@ export function App() {
     }
     finally { setBusy(false); }
   }
-  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* Clear local session even if server is unreachable. */ } finally { if (hasDesktopCache()) await clearOfflineSession(deviceId, apiUrl.trim().replace(/\/+$/, ''), login).catch(() => undefined); offlinePasswordRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setCart([]); setCartDiscountValue('0'); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setBusy(false); } }
+  async function signInWithCode(event: FormEvent) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const parsedApiUrl = new URL(apiUrl.trim());
+      if (!['http:', 'https:'].includes(parsedApiUrl.protocol)) throw new Error('Укажите HTTP или HTTPS адрес сервера');
+      const normalizedApiUrl = apiUrl.trim().replace(/\/+$/, '');
+      const identityLogin = await client.loginWithPosCode(scanCode.trim());
+      await finishOnlineSignIn(identityLogin, normalizedApiUrl);
+    } catch (caught) { setError(message(caught)); }
+    finally { setBusy(false); }
+  }
+  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* Clear local session even if server is unreachable. */ } finally { if (hasDesktopCache() && loginMode === 'password') await clearOfflineSession(deviceId, apiUrl.trim().replace(/\/+$/, ''), login).catch(() => undefined); offlinePasswordRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setCart([]); setCartDiscountValue('0'); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setBusy(false); } }
   const refreshQueueSummary = useCallback(async () => {
     if (!hasDesktopCache() || !userId || !storeId) return;
     const [summary, entries] = await Promise.all([syncQueueSummary(userId, storeId), listSyncQueue(userId, storeId)]);
@@ -154,13 +170,13 @@ export function App() {
           const refreshed = page.items.find(value => value.id === shift.id && value.status === 'OPEN') ?? null;
           setShift(refreshed); setClosingCash(refreshed?.expectedCashMinor ?? '0');
           const store = stores.find(value => value.id === storeId);
-          if (store && hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, store, refreshed);
+          if (store && hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, store, refreshed);
         } catch (caught) { setCacheError(`Данные смены после синхронизации не обновлены: ${message(caught)}`); }
       }
       await refreshQueueSummary();
     } catch (caught) { setQueueNotice(`Не удалось проверить очередь: ${message(caught)}`); }
     finally { syncBusyRef.current = false; }
-  }, [signedIn, offlineSignedIn, deviceReady, userId, storeId, client, refreshQueueSummary, shift, permissions, stores, deviceId, apiUrl, login]);
+  }, [signedIn, offlineSignedIn, deviceReady, userId, storeId, client, refreshQueueSummary, shift, permissions, stores, deviceId, apiUrl, login, loginMode]);
   async function retryConflict(entry: QueueEntry) {
     if (!deviceReady || offlineSignedIn || !userId || !storeId) return;
     setBusy(true); setError('');
@@ -237,11 +253,11 @@ export function App() {
         if (!active) return;
         const opened = (shiftPage as PosPage<PosShift>).items.find(value => value.deviceId === deviceId && value.status === 'OPEN') ?? null;
         setShift(opened); setClosingCash(opened?.expectedCashMinor ?? '0'); setCustomers((customerPage as PosPage<PosCustomer> | undefined)?.items ?? []); setDeviceReady(true); localStorage.setItem(savedStoreKey, storeId);
-        if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Локальный вход не готов: ${message(caught)}`));
+        if (hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Локальный вход не готов: ${message(caught)}`));
       } catch (caught) { if (active) setError(message(caught)); }
     })();
     return () => { active = false; };
-  }, [signedIn, offlineSignedIn, storeId, registrationRequested, registerNonce, client, deviceId, permissions, apiUrl, login, stores]);
+  }, [signedIn, offlineSignedIn, storeId, registrationRequested, registerNonce, client, deviceId, permissions, apiUrl, login, stores, loginMode]);
   useEffect(() => {
     if (!signedIn) { setProducts([]); return; }
     let active = true;
@@ -330,14 +346,14 @@ export function App() {
   }
   async function openShift(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
-    try { const opened = await client.post<PosShift>(`/stores/${storeId}/finance/cash-shifts`, { deviceId, openingCashMinor: openingCash }); setShift(opened); setClosingCash(opened.expectedCashMinor); if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
+    try { const opened = await client.post<PosShift>(`/stores/${storeId}/finance/cash-shifts`, { deviceId, openingCashMinor: openingCash }); setShift(opened); setClosingCash(opened.expectedCashMinor); if (hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
     catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   }
   async function closeShift(event: FormEvent) {
     event.preventDefault(); if (!shift) return;
     setBusy(true); setError('');
-    try { await client.post(`/stores/${storeId}/finance/cash-shifts/${shift.id}/close`, { actualCashMinor: closingCash }); setShift(null); if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, null).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
+    try { await client.post(`/stores/${storeId}/finance/cash-shifts/${shift.id}/close`, { actualCashMinor: closingCash }); setShift(null); if (hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, null).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
     catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   }
@@ -354,7 +370,7 @@ export function App() {
       try {
         const result = await client.get<PosPage<PosShift>>(`/stores/${payload.storeId}/finance/cash-shifts?limit=100`);
         const updated = result.items.find(value => value.id === shift.id) ?? null; setShift(updated); setClosingCash(updated?.expectedCashMinor ?? '0');
-        if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, updated).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`));
+        if (hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, updated).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`));
       } catch (caught) {
         setQueueNotice(`Чек принят, но данные смены не обновились: ${message(caught)}`);
       }
@@ -410,7 +426,7 @@ export function App() {
     finally { setBusy(false); }
   }
 
-  if (!signedIn) return <main className="login"><form onSubmit={signIn} className="panel login-form"><div className="brand-mark" aria-hidden="true">K<span>•</span></div><p className="eyebrow">KOREA CRM · POINT OF SALE</p><h1>Добро пожаловать</h1><p className="login-intro">Войдите, чтобы продолжить работу с кассой.</p><label>Адрес сервера<input required type="url" value={apiUrl} onChange={event => setApiUrl(event.target.value)} placeholder="https://api.example.com" /></label><label>Логин<input required autoComplete="username" value={login} onChange={event => setLogin(event.target.value)} /></label><label>Пароль<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label><p className="muted">Устройство: {deviceId}</p>{error && <p role="alert" className="error">{error}</p>}<button disabled={busy || !deviceId} className="primary">Войти</button></form></main>;
+if (!signedIn) return <main className="login"><form onSubmit={loginMode === 'scan' ? signInWithCode : signIn} className="panel login-form"><div className="brand-mark" aria-hidden="true">K<span>•</span></div><p className="eyebrow">KOREA CRM · POINT OF SALE</p><h1>Добро пожаловать</h1><p className="login-intro">Войдите, чтобы продолжить работу с кассой.</p><div className="login-modes"><button type="button" className={loginMode === 'password' ? 'selected' : ''} aria-pressed={loginMode === 'password'} onClick={() => { setLoginMode('password'); setError(''); }}>Логин и пароль</button><button type="button" className={loginMode === 'scan' ? 'selected' : ''} aria-pressed={loginMode === 'scan'} onClick={() => { setLoginMode('scan'); setError(''); }}>QR / EAN-13</button></div><label>Адрес сервера<input required type="url" value={apiUrl} onChange={event => setApiUrl(event.target.value)} placeholder="https://api.example.com" /></label>{loginMode === 'password' ? <><label>Логин<input required autoComplete="username" value={login} onChange={event => setLogin(event.target.value)} /></label><label>Пароль<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label></> : <><label>Сканируйте QR или EAN-13<input required ref={scanRef} autoComplete="off" value={scanCode} onChange={event => setScanCode(event.target.value)} placeholder="Ожидание сканера…" /></label><p className="scan-hint">Наведите сканер на личный код сотрудника. Если сканер отправляет Enter, вход выполнится сразу.</p></>}<p className="muted">Устройство: {deviceId}</p>{error && <p role="alert" className="error">{error}</p>}<button disabled={busy || !deviceId} className="primary">{loginMode === 'scan' ? 'Войти по коду' : 'Войти'}</button></form></main>;
   return <main className="pos"><header className="topbar"><div className="topbar-brand"><div className="brand-mark" aria-hidden="true">K<span>•</span></div><div><p className="eyebrow">KOREA CRM</p><h1>Касса продаж</h1></div></div><label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={busy || deviceReady}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>{!deviceReady && <button disabled={busy} onClick={() => registrationRequested ? setRegisterNonce(value => value + 1) : setRegistrationRequested(true)}>{registrationRequested ? 'Повторить подключение' : 'Подключить кассу'}</button>}<span className={offlineSignedIn ? "connection-pill" : deviceReady ? "connection-pill is-ready" : "connection-pill"} title={deviceId}><i aria-hidden="true" />{offlineSignedIn ? "Касса офлайн" : deviceReady ? "Касса подключена" : "Ожидает подключения"}</span>{hasDesktopCache() && <div className="cache-status"><span>{cacheBusy ? cacheProgress || "Сохраняем каталог…" : cacheStatus?.lastSyncedAt ? `Локально: ${cacheStatus.productCount} товаров` : "Локальный каталог пуст"}</span><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить</button></div>}<button className="quiet" disabled={busy} onClick={() => void signOut()}>Выйти</button></header>
     {error && <p role="alert" className="error">{error}</p>}
     {cacheError && <p role="status" className="cache-warning">Локальный каталог не обновлён: {cacheError}. Онлайн-касса продолжает работать.</p>}
@@ -422,7 +438,7 @@ export function App() {
       <section className="panel"><div className="section-heading"><div><p className="eyebrow">ОФОРМЛЕНИЕ</p><h2>Клиент и оплата</h2><span className="muted">Настройте оплату и завершите продажу</span></div><span className="section-number">02</span></div><form onSubmit={checkout}><label>Поиск клиента <span className="muted">F3</span><input ref={customerRef} value={customerSearch} onChange={event => setCustomerSearch(event.target.value)} placeholder="Имя или телефон" disabled={Boolean(pending)} /></label><label>Клиент<select value={customerId} onChange={event => setCustomerId(event.target.value)} disabled={Boolean(pending)}><option value="">Без клиента</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.firstName} {customer.lastName ?? ''} · {customer.phone}</option>)}</select></label>{customerId && customerDiscountPercent !== '0' && <p className="muted">Персональная скидка клиента: {customerDiscountPercent}% от суммы после ручной скидки. Учтена в итоговой цене.</p>}{selectedCustomer && methods.some(method => method.kind === "BONUS") && <p className="muted">Доступно бонусов: {formatMinor(selectedCustomer.bonusBalanceMinor ?? "0")}</p>}<div className="payments"><div className="payment-heading"><h3>Способы оплаты <span className="muted">F5</span></h3><button type="button" className="fill-total" disabled={!cartTotal || tenders.length !== 1} onClick={() => setTenders(current => current.map(tender => ({ ...tender, amountMinor: cartTotal!.total.toString() })))}>Внести итог</button></div>{tenders.map((tender, index) => <div className="payment" key={tender.id}><label>Способ<select ref={index === 0 ? paymentRef : undefined} value={tender.methodId} onChange={event => setTenders(current => current.map(part => part.id === tender.id ? { ...part, methodId: event.target.value } : part))} disabled={Boolean(pending)}>{methods.map(method => <option key={method.id} value={method.id}>{method.name}</option>)}</select></label><label>Сумма, сум<MoneyInput required aria-label={`Сумма оплаты ${index + 1}`} valueMinor={tender.amountMinor} onMinorChange={minor => setTenders(current => current.map(part => part.id === tender.id ? { ...part, amountMinor: minor } : part))} disabled={Boolean(pending)} /></label><label>Ссылка / номер<input value={tender.reference} onChange={event => setTenders(current => current.map(part => part.id === tender.id ? { ...part, reference: event.target.value } : part))} disabled={Boolean(pending)} /></label>{index > 0 && <button type="button" className="quiet" onClick={() => setTenders(current => current.filter(part => part.id !== tender.id))} disabled={Boolean(pending)}>Убрать</button>}</div>)}<button type="button" className="secondary" disabled={Boolean(pending)} onClick={() => setTenders(current => [...current, { id: crypto.randomUUID(), methodId: methods[0]?.id ?? '', amountMinor: '0', reference: '' }])}>Добавить способ</button><p>Внесено: {formatMinor(paid)}</p></div><button className="primary" disabled={busy || !deviceReady || Boolean(pending) || !cartTotal || cartTotal.total <= 0n || cartTotal.total !== paid || (cashPayment && !shift)}>Завершить продажу</button></form>
         <div className="shift"><h3>Кассовая смена</h3><p>{projectedShift ? `Открыта · ожидаемая наличность ${formatMinor(projectedShift.expectedCashMinor)}${projectedShift.queuedCashMinor > 0n ? ` (локально ожидают отправки: ${formatMinor(projectedShift.queuedCashMinor)})` : ""}` : 'Нет открытой смены для этого устройства'}</p>{!shift && can('finance.cash') && <form onSubmit={openShift}><label>Начальный остаток, сум<MoneyInput required valueMinor={openingCash} onMinorChange={setOpeningCash} /></label><button disabled={busy || !deviceReady || Boolean(pending) || offlineSignedIn}>Открыть смену</button></form>}{shift && can('finance.cash') && <form onSubmit={closeShift}><label>Фактическая наличность, сум<MoneyInput required valueMinor={closingCash} onMinorChange={setClosingCash} /></label><button disabled={busy || Boolean(pending) || offlineSignedIn || Boolean(projectedShift?.queuedCashMinor)}>Закрыть смену</button></form>}</div>
       </section></div>
-    <SalesHistory client={client} storeId={storeId} enabled={deviceReady && !offlineSignedIn && can('sales.view')} revision={salesRevision} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} shift={shift} deviceId={deviceId} onReturned={sale => { setSalesRevision(value => value + 1); if (receipt?.id === sale.id) setReceipt(sale); void client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts`).then(async result => { const updated = result.items.find(value => value.id === shift?.id) ?? null; setShift(updated); setClosingCash(updated?.expectedCashMinor ?? '0'); const currentStore = stores.find(store => store.id === storeId); if (currentStore && hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, currentStore, updated); }).catch(caught => setError(message(caught))); }} onPrint={sale => { setReceipt(sale); window.requestAnimationFrame(() => document.getElementById('receipt')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }} />
+    <SalesHistory client={client} storeId={storeId} enabled={deviceReady && !offlineSignedIn && can('sales.view')} revision={salesRevision} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} shift={shift} deviceId={deviceId} onReturned={sale => { setSalesRevision(value => value + 1); if (receipt?.id === sale.id) setReceipt(sale); void client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts`).then(async result => { const updated = result.items.find(value => value.id === shift?.id) ?? null; setShift(updated); setClosingCash(updated?.expectedCashMinor ?? '0'); const currentStore = stores.find(store => store.id === storeId); if (currentStore && hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, currentStore, updated); }).catch(caught => setError(message(caught))); }} onPrint={sale => { setReceipt(sale); window.requestAnimationFrame(() => document.getElementById('receipt')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }} />
     {receipt && <section id="receipt" className="panel receipt"><div className="receipt-heading"><h2>Нефискальный чек {receipt.number}</h2><div><button className="quiet" onClick={() => window.print()}>Печать</button><button disabled={busy || !printerHost.trim() || Boolean(receipt.returns?.length)} onClick={() => void printEscPos()}>ESC/POS</button></div></div>{(receipt.returns?.length ?? 0) > 0 && <p className="receipt-returned">Возврат по этому чеку · возвращено {formatMinor(receipt.returns.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</p>}<p>{receipt.store.name} · {receipt.store.address ?? ''} · {receipt.store.phone ?? ''}</p><p>{new Date(receipt.createdAt).toLocaleString('ru-RU')} · кассир {receipt.employee.name}</p>{receipt.customer && <p>{receipt.customer.firstName} {receipt.customer.phone}</p>}<ul>{receipt.items.map(item => <li key={item.id}><span>{item.product.name} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul><p>Скидка: {formatMinor(receipt.discountMinor)}</p><p className="total">Итого <strong>{formatMinor(receipt.totalMinor)}</strong></p>{receipt.payments.map(part => <p key={part.id}>{part.paymentMethod.name}: {formatMinor(part.amountMinor)}</p>)}<label className="printer-setting">Сетевой принтер ESC/POS<input value={printerHost} onChange={event => { setPrinterHost(event.target.value); localStorage.setItem('koreacrm-pos-printer-host', event.target.value); }} placeholder="IP-адрес принтера" /></label></section>}
     <p className="footnote">F2 поиск · F3 клиент · F4 скидка · F5 оплата · Esc очистить поиск. {hasDesktopCache() ? "Продажа считается завершённой после подтверждения сервером. Ожидающие операции видны в Центре синхронизации." : "Продажи выполняются только при подключении к серверу."}</p>
   </main>;

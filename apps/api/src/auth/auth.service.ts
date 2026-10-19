@@ -4,6 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { verify } from 'argon2';
 import { DatabaseService } from '../database.service';
 import type { AccessContext } from './policy';
+import { hashPosCode, validPosCode } from './pos-code';
 
 const refreshLifetimeMs = 30 * 24 * 60 * 60 * 1000;
 const userInclude = {
@@ -17,6 +18,7 @@ function tokenHash(token: string) {
 
 @Injectable()
 export class AuthService {
+  private readonly scanAttempts = new Map<string, { count: number; until: number }>();
   constructor(private readonly db: DatabaseService, private readonly jwt: JwtService) {}
 
   private async issue(userId: string, deviceId?: string) {
@@ -43,6 +45,26 @@ export class AuthService {
     const tokens = await this.issue(user.id, deviceId);
     await this.db.auditLog.create({ data: { userId: user.id, action: 'LOGIN', entityType: 'User', entityId: user.id, deviceId } });
     return tokens;
+  }
+
+  async loginWithPosCode(code: string, deviceId: string, ip: string) {
+    const now = Date.now();
+    const key = ip || 'unknown';
+    const limit = this.scanAttempts.get(key);
+    if (limit && limit.until > now && limit.count >= 30) throw new UnauthorizedException('Too many login attempts');
+    if (!limit || limit.until <= now) this.scanAttempts.set(key, { count: 1, until: now + 15 * 60_000 });
+    else limit.count += 1;
+    if (!validPosCode(code)) throw new UnauthorizedException('Invalid scan code');
+    const hashed = hashPosCode(code);
+    const user = await this.db.user.findFirst({
+      where: { OR: [{ posQrHash: hashed }, { posEanHash: hashed }] },
+      include: { role: { include: { permissions: { include: { permission: true } } } } },
+    });
+    if (!user?.active || !user.role.permissions.some(item => item.permission.code === 'sales.create')) throw new UnauthorizedException('Invalid scan code');
+    const tokens = await this.issue(user.id, deviceId);
+    await this.db.auditLog.create({ data: { userId: user.id, action: 'POS_SCAN_LOGIN', entityType: 'User', entityId: user.id, deviceId } });
+    this.scanAttempts.delete(key);
+    return { ...tokens, login: user.login };
   }
 
   async refresh(refreshToken: string, deviceId?: string) {

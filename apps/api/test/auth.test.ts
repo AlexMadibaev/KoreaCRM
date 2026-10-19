@@ -3,6 +3,7 @@ import test from 'node:test';
 import { hash } from 'argon2';
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from '../src/auth/auth.service';
+import { ean13CheckDigit, hashPosCode, newPosCodes, validPosCode } from '../src/auth/pos-code';
 import type { DatabaseService } from '../src/database.service';
 import type { JwtService } from '@nestjs/jwt';
 
@@ -20,6 +21,40 @@ test('login verifies Argon2 password and issues tokens', async () => {
   assert.equal(result.accessToken, 'access-token');
   assert.ok(result.refreshToken.length > 40);
   assert.equal(created.length, 1);
+});
+
+test('QR and EAN-13 credentials are generated and checked', () => {
+  const first = newPosCodes();
+  const second = newPosCodes();
+  assert.notEqual(first.qrCode, second.qrCode);
+  assert.notEqual(first.ean13, second.ean13);
+  assert.equal(first.ean13.length, 13);
+  assert.equal(first.ean13[12], ean13CheckDigit(first.ean13.slice(0, 12)));
+  assert.ok(validPosCode(first.qrCode));
+  assert.ok(validPosCode(first.ean13));
+  assert.equal(validPosCode(first.ean13.slice(0, 12) + ((Number(first.ean13[12]) + 1) % 10)), false);
+});
+
+test('POS code login checks active sales rights and never returns the code', async () => {
+  const code = newPosCodes().qrCode;
+  let active = true;
+  let maySell = true;
+  const db = {
+    user: { findFirst: async ({ where }: { where: { OR: Array<Record<string, string>> } }) => where.OR.some(item => Object.values(item).includes(hashPosCode(code))) ? { id: 'cashier-1', login: 'cashier', active, role: { permissions: maySell ? [{ permission: { code: 'sales.create' } }] : [] } } : null },
+    refreshToken: { create: async () => undefined },
+    auditLog: { create: async () => undefined },
+  } as unknown as DatabaseService;
+  const service = new AuthService(db, { signAsync: async () => 'access-token' } as unknown as JwtService);
+  await assert.rejects(service.loginWithPosCode('0000000000000', 'pos-1', 'test-ip'), UnauthorizedException);
+  maySell = false;
+  await assert.rejects(service.loginWithPosCode(code, 'pos-1', 'test-ip'), UnauthorizedException);
+  maySell = true; active = false;
+  await assert.rejects(service.loginWithPosCode(code, 'pos-1', 'test-ip'), UnauthorizedException);
+  active = true;
+  const result = await service.loginWithPosCode(code, 'pos-1', 'test-ip');
+  assert.equal(result.login, 'cashier');
+  assert.equal(result.accessToken, 'access-token');
+  assert.equal('qrCode' in result, false);
 });
 
 test('refresh rotates the token and rejects replay', async () => {

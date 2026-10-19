@@ -13,6 +13,8 @@ model User {
   name          String
   passwordHash  String
   pinHash       String?
+  posQrHash     String?        @unique
+  posEanHash    String?        @unique
   active        Boolean        @default(true)
   allStores     Boolean        @default(false)
   roleId        String         @db.Uuid
