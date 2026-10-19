@@ -30,6 +30,11 @@ button:disabled { opacity: .5; }
 .login-modes button { min-height: 37px; border: 0; background: transparent; color: #61766c; }
 .login-modes button.selected { background: #fff; color: #0b554b; box-shadow: 0 2px 8px #24473f16; }
 .scan-hint { margin: 9px 0 0; color: #6e8178; font-size: 12px; line-height: 1.5; }
+.camera-open-button { width: 100%; margin-top: 18px; border-color: #9abdae; background: #f1f8f3; color: #0b554b; }
+.camera-scanner { margin-top: 12px; padding: 10px; border: 1px solid #dce5df; border-radius: 12px; background: #f7faf8; }
+.camera-scanner video { display: block; width: 100%; max-height: 270px; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 8px; background: #17211d; }
+.camera-scanner button { width: 100%; margin-top: 10px; }
+.camera-scanner .error { margin: 10px 0 0; }
 
 .pos { max-width: none; min-height: 100vh; padding: 0 34px 30px; }
 .topbar { min-height: 82px; margin: 0 -34px 27px; padding: 14px 34px; border-bottom: 1px solid #e7ece9; background: #fff; gap: 22px; box-shadow: 0 2px 12px #182e2710; }

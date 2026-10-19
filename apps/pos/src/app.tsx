@@ -1,4 +1,4 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, KeyboardEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createApiClient, ApiError } from '@koreacrm/api-client';
 import { MoneyInput } from '@koreacrm/ui';
 import { invoke } from '@tauri-apps/api/core';
@@ -13,6 +13,8 @@ import { projectShiftCash } from './shift-projection';
 import { queuedSaleDetails } from './queued-sale-details';
 import { SalesHistory } from './sales-history';
 import { ProductResults, type CatalogItem, type PosCatalogProduct } from './product-results';
+
+const CameraCodeScanner = lazy(() => import('./camera-code-scanner').then(module => ({ default: module.CameraCodeScanner })));
 
 type Line = { product: Pick<PosProduct, 'id' | 'name' | 'sku'>; quantity: number; available: number; priceMinor: number; discountMinor: string };
 type Tender = { id: string; methodId: string; amountMinor: string; reference: string };
@@ -48,7 +50,7 @@ export function App() {
   const [registrationRequested, setRegistrationRequested] = useState(() => Boolean(localStorage.getItem(savedStoreKey)));
   const [registerNonce, setRegisterNonce] = useState(0);
   const [signedIn, setSignedIn] = useState(false), [login, setLogin] = useState(''), [password, setPassword] = useState(''), [permissions, setPermissions] = useState<string[]>([]);
-  const [loginMode, setLoginMode] = useState<'password' | 'scan'>('password'), [scanCode, setScanCode] = useState('');
+  const [loginMode, setLoginMode] = useState<'password' | 'scan'>('password'), [scanCode, setScanCode] = useState(''), [cameraOpen, setCameraOpen] = useState(false);
   const [userId, setUserId] = useState('');
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null), [cacheProgress, setCacheProgress] = useState(''), [cacheError, setCacheError] = useState(''), [cacheBusy, setCacheBusy] = useState(false);
   const [queueSummary, setQueueSummary] = useState<QueueSummary | null>(null), [queueNotice, setQueueNotice] = useState('');
@@ -127,17 +129,19 @@ export function App() {
     }
     finally { setBusy(false); }
   }
-  async function signInWithCode(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError('');
+  async function authenticateCode(code: string) {
+    setBusy(true); setError('');
     try {
       const parsedApiUrl = new URL(apiUrl.trim());
       if (!['http:', 'https:'].includes(parsedApiUrl.protocol)) throw new Error('Укажите HTTP или HTTPS адрес сервера');
       const normalizedApiUrl = apiUrl.trim().replace(/\/+$/, '');
-      const identityLogin = await client.loginWithPosCode(scanCode.trim());
+      const identityLogin = await client.loginWithPosCode(code.trim());
       await finishOnlineSignIn(identityLogin, normalizedApiUrl);
     } catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   }
+  function signInWithCode(event: FormEvent) { event.preventDefault(); void authenticateCode(scanCode); }
+  const cameraDetected = useCallback((code: string) => { setCameraOpen(false); setScanCode(code); void authenticateCode(code); }, [client, apiUrl, pending]);
   async function signOut() { setBusy(true); try { await client.logout(); } catch { /* Clear local session even if server is unreachable. */ } finally { if (hasDesktopCache() && loginMode === 'password') await clearOfflineSession(deviceId, apiUrl.trim().replace(/\/+$/, ''), login).catch(() => undefined); offlinePasswordRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setCart([]); setCartDiscountValue('0'); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setBusy(false); } }
   const refreshQueueSummary = useCallback(async () => {
     if (!hasDesktopCache() || !userId || !storeId) return;
@@ -426,7 +430,18 @@ export function App() {
     finally { setBusy(false); }
   }
 
-if (!signedIn) return <main className="login"><form onSubmit={loginMode === 'scan' ? signInWithCode : signIn} className="panel login-form"><div className="brand-mark" aria-hidden="true">K<span>•</span></div><p className="eyebrow">KOREA CRM · POINT OF SALE</p><h1>Добро пожаловать</h1><p className="login-intro">Войдите, чтобы продолжить работу с кассой.</p><div className="login-modes"><button type="button" className={loginMode === 'password' ? 'selected' : ''} aria-pressed={loginMode === 'password'} onClick={() => { setLoginMode('password'); setError(''); }}>Логин и пароль</button><button type="button" className={loginMode === 'scan' ? 'selected' : ''} aria-pressed={loginMode === 'scan'} onClick={() => { setLoginMode('scan'); setError(''); }}>QR / EAN-13</button></div><label>Адрес сервера<input required type="url" value={apiUrl} onChange={event => setApiUrl(event.target.value)} placeholder="https://api.example.com" /></label>{loginMode === 'password' ? <><label>Логин<input required autoComplete="username" value={login} onChange={event => setLogin(event.target.value)} /></label><label>Пароль<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label></> : <><label>Сканируйте QR или EAN-13<input required ref={scanRef} autoComplete="off" value={scanCode} onChange={event => setScanCode(event.target.value)} placeholder="Ожидание сканера…" /></label><p className="scan-hint">Наведите сканер на личный код сотрудника. Если сканер отправляет Enter, вход выполнится сразу.</p></>}<p className="muted">Устройство: {deviceId}</p>{error && <p role="alert" className="error">{error}</p>}<button disabled={busy || !deviceId} className="primary">{loginMode === 'scan' ? 'Войти по коду' : 'Войти'}</button></form></main>;
+if (!signedIn) return <main className="login"><form onSubmit={loginMode === 'scan' ? signInWithCode : signIn} className="panel login-form">
+  <div className="brand-mark" aria-hidden="true">K<span>•</span></div><p className="eyebrow">KOREA CRM · POINT OF SALE</p><h1>Добро пожаловать</h1><p className="login-intro">Войдите, чтобы продолжить работу с кассой.</p>
+  <div className="login-modes"><button type="button" className={loginMode === 'password' ? 'selected' : ''} aria-pressed={loginMode === 'password'} onClick={() => { setCameraOpen(false); setLoginMode('password'); setError(''); }}>Логин и пароль</button><button type="button" className={loginMode === 'scan' ? 'selected' : ''} aria-pressed={loginMode === 'scan'} onClick={() => { setLoginMode('scan'); setError(''); }}>QR / EAN-13</button></div>
+  <label>Адрес сервера<input required type="url" value={apiUrl} onChange={event => setApiUrl(event.target.value)} placeholder="https://api.example.com" /></label>
+  {loginMode === 'password' ? <><label>Логин<input required autoComplete="username" value={login} onChange={event => setLogin(event.target.value)} /></label><label>Пароль<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label></> : <>
+    <button type="button" className="camera-open-button" disabled={busy} onClick={() => { setError(''); setCameraOpen(true); }}>Открыть камеру</button>
+    {cameraOpen && <Suspense fallback={<p className="scan-hint">Включаем камеру…</p>}><CameraCodeScanner onDetected={cameraDetected} onClose={() => setCameraOpen(false)} /></Suspense>}
+    <label>Код вручную или USB-сканером<input required ref={scanRef} autoComplete="off" value={scanCode} onChange={event => setScanCode(event.target.value)} placeholder="QR или EAN-13" /></label>
+    <p className="scan-hint">После считывания камерой вход выполнится автоматически. Код можно также ввести вручную.</p>
+  </>}
+  <p className="muted">Устройство: {deviceId}</p>{error && <p role="alert" className="error">{error}</p>}<button disabled={busy || !deviceId} className="primary">{loginMode === 'scan' ? 'Войти по коду' : 'Войти'}</button>
+</form></main>;
   return <main className="pos"><header className="topbar"><div className="topbar-brand"><div className="brand-mark" aria-hidden="true">K<span>•</span></div><div><p className="eyebrow">KOREA CRM</p><h1>Касса продаж</h1></div></div><label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={busy || deviceReady}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>{!deviceReady && <button disabled={busy} onClick={() => registrationRequested ? setRegisterNonce(value => value + 1) : setRegistrationRequested(true)}>{registrationRequested ? 'Повторить подключение' : 'Подключить кассу'}</button>}<span className={offlineSignedIn ? "connection-pill" : deviceReady ? "connection-pill is-ready" : "connection-pill"} title={deviceId}><i aria-hidden="true" />{offlineSignedIn ? "Касса офлайн" : deviceReady ? "Касса подключена" : "Ожидает подключения"}</span>{hasDesktopCache() && <div className="cache-status"><span>{cacheBusy ? cacheProgress || "Сохраняем каталог…" : cacheStatus?.lastSyncedAt ? `Локально: ${cacheStatus.productCount} товаров` : "Локальный каталог пуст"}</span><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить</button></div>}<button className="quiet" disabled={busy} onClick={() => void signOut()}>Выйти</button></header>
     {error && <p role="alert" className="error">{error}</p>}
     {cacheError && <p role="status" className="cache-warning">Локальный каталог не обновлён: {cacheError}. Онлайн-касса продолжает работать.</p>}
