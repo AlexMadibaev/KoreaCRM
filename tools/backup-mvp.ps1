@@ -12,4 +12,10 @@ Push-Location $root
 try {
   & node tools/postgres-backup.mjs backup
   if ($LASTEXITCODE -ne 0) { throw 'Database backup failed' }
+  $images = Join-Path $stateDir 'product-images'
+  if (Test-Path -LiteralPath $images) {
+    $archive = Join-Path $env:BACKUP_DIR ("product-images-{0}.zip" -f (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    Compress-Archive -LiteralPath $images -DestinationPath $archive
+    Write-Host "Product images backup: $archive"
+  }
 } finally { Pop-Location }

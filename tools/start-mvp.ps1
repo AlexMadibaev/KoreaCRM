@@ -50,6 +50,7 @@ Get-Content -LiteralPath $envFile | ForEach-Object {
 }
 $env:KOREACRM_NEXT_DIST_DIR = '.next-mvp'
 $env:KOREACRM_API_PROXY_TARGET = "http://127.0.0.1:$apiPort"
+$env:PRODUCT_IMAGE_DIR = Join-Path $stateDir 'product-images'
 if ($env:NEXT_PUBLIC_API_URL -ne '/api') {
   throw "Set NEXT_PUBLIC_API_URL=/api in $envFile, then rerun the script without -SkipBuild"
 }

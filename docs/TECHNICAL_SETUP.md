@@ -57,6 +57,7 @@ corepack pnpm --filter @koreacrm/web dev
 | `VITE_API_URL`                            | касса, на этапе сборки | Начальный адрес API; его можно сменить в интерфейсе кассы                                           |
 | `DOMAIN`, `POSTGRES_PASSWORD`             | VPS Compose            | Домен HTTPS и пароль PostgreSQL; шаблон — `deploy/production/env.example`                           |
 | `NOTIFICATION_LARGE_*`                    | API                    | Пороги уведомлений; значения по умолчанию есть в `.env.example`                                     |
+| `PRODUCT_IMAGE_DIR`                       | API                    | Каталог файлов изображений товаров; на VPS — постоянный том `product_images`                        |
 
 Не коммитьте `.env`, `.env.production`, `.mvp-local`, дампы, токены и локальную SQLite. Файлы исключены из Git через `.gitignore`; перед публикацией всё равно проверяйте `git status`.
 

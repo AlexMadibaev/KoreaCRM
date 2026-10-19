@@ -146,14 +146,14 @@ export class CatalogService {
       ] : undefined,
     };
     const [items, total] = await this.db.$transaction([
-      this.db.product.findMany({ where, include: { brand: true, category: true, barcodes: true, images: true }, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }),
+      this.db.product.findMany({ where, include: { brand: true, category: true, barcodes: true, images: { orderBy: { sortOrder: 'asc' } } }, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }),
       this.db.product.count({ where }),
     ]);
     return { items, total, page: query.page, limit: query.limit };
   }
 
   async product(id: string) {
-    const item = await this.db.product.findFirst({ where: { id, deletedAt: null }, include: { brand: true, category: true, barcodes: true, images: true } });
+    const item = await this.db.product.findFirst({ where: { id, deletedAt: null }, include: { brand: true, category: true, barcodes: true, images: { orderBy: { sortOrder: 'asc' } } } });
     if (!item) throw new NotFoundException('Product not found');
     return item;
   }

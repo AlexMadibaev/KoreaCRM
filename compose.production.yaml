@@ -33,6 +33,9 @@ services:
       API_HOST: 0.0.0.0
       WEB_ORIGIN: https://${DOMAIN:?Set DOMAIN}
       POS_ORIGIN: http://tauri.localhost,tauri://localhost
+      PRODUCT_IMAGE_DIR: /app/uploads/products
+    volumes:
+      - product_images:/app/uploads/products
     depends_on:
       postgres:
         condition: service_healthy
@@ -98,5 +101,6 @@ services:
 
 volumes:
   postgres_data:
+  product_images:
   caddy_data:
   caddy_config:

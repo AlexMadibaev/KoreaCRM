@@ -13,14 +13,15 @@ docker compose --env-file .env.production -f compose.production.yaml ps
 
 При первом старте API применяет миграции и создаёт владельца. Откройте `https://ДОМЕН/login`, проверьте вход и `https://ДОМЕН/api/health`. В кассе укажите адрес сервера `https://ДОМЕН/api` и учётные данные сотрудника.
 
-PostgreSQL и API не публикуют свои порты наружу: запросы проходят через Caddy по HTTPS. Данные PostgreSQL и сертификаты хранятся в Docker volumes. Компьютер с кассой может находиться в другой сети, если доступен домен.
+PostgreSQL и API не публикуют свои порты наружу: запросы проходят через Caddy по HTTPS. Данные PostgreSQL, фотографии товаров и сертификаты хранятся в Docker volumes. Компьютер с кассой может находиться в другой сети, если доступен домен.
 
-Перед работой с реальными данными настройте регулярные копии PostgreSQL на отдельный носитель. Проверочный архив можно создать командой:
+Перед работой с реальными данными настройте регулярные копии PostgreSQL и тома фотографий `product_images` на отдельный носитель. Проверочные архивы можно создать командами:
 
 ```bash
 mkdir -p backups
 docker compose --env-file .env.production -f compose.production.yaml exec -T postgres pg_dump -U koreacrm -d koreacrm -Fc > backups/koreacrm.dump
 docker compose --env-file .env.production -f compose.production.yaml exec -T postgres pg_restore -l < backups/koreacrm.dump > /dev/null
+docker compose --env-file .env.production -f compose.production.yaml exec -T api tar -C /app/uploads -czf - products > backups/product-images.tar.gz
 ```
 
 Сборка контейнеров в текущей рабочей среде не проверена: здесь Docker не установлен. До передачи реальных данных на VPS проверьте `docker compose config`, запуск всех сервисов, вход, продажу и восстановление резервной копии на отдельной базе.

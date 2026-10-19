@@ -8,6 +8,7 @@ build/
 .env.*
 !.env.example
 .mvp-local/
+apps/api/uploads/
 *.tsbuildinfo
 apps/pos/src-tauri/target*/
 apps/mobile/android/

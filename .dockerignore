@@ -5,6 +5,8 @@
 .git
 .env*
 .mvp-local
+apps/api/uploads
+apps/api/uploads
 .pnpm-store
 .turbo
 backups

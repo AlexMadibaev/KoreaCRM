@@ -12,15 +12,19 @@ export type Product = {
   description: string | null; country: string | null; unit: string;
   shade: string | null; volume: string | null; weight: string | null; line: string | null;
   collection: string | null; gender: string | null; skinType: string | null; productType: string | null;
-  barcodes: { id: string; value: string }[]; images: { id: string; storageKey: string }[];
+  barcodes: { id: string; value: string }[]; images: { id: string; storageKey: string; sortOrder: number }[];
 };
+
+export function productImageUrl(storageKey: string): string {
+  return `${apiBase}/product-images/${encodeURIComponent(storageKey)}`;
+}
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const isAuthRequest = path.startsWith('/auth/login') || path.startsWith('/auth/refresh');
   const token = typeof window === 'undefined' || isAuthRequest ? null : await ensureAccessToken();
   const request = (currentToken: string | null) => fetch(`${apiBase}${path}`, {
     ...options,
-    headers: { ...(options.body ? { 'Content-Type': 'application/json' } : {}), ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}), ...options.headers },
+    headers: { ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}), ...options.headers },
     cache: 'no-store',
   });
   let response = await request(token);
