@@ -68,3 +68,24 @@ test('product list keeps deleted items out and applies exact barcode lookup', as
   await service.products({ page: 1, limit: 20, barcode: '12345' });
   assert.deepEqual(where, { deletedAt: null, status: undefined, brandId: undefined, categoryId: undefined, sku: undefined, barcodes: { some: { value: '12345' } }, OR: undefined });
 });
+
+test('POS catalog returns image, store price and available stock together', async () => {
+  let settingsStore = '';
+  let stockStore = '';
+  const db = {
+    store: { findFirst: async () => ({ id: 'store-1' }) },
+    product: {
+      findMany: async (input: { select: { storeSettings: { where: { storeId: string } }; stocks: { where: { storeId: string } } } }) => {
+        settingsStore = input.select.storeSettings.where.storeId;
+        stockStore = input.select.stocks.where.storeId;
+        return [{ id: 'product-1', name: 'Cream', sku: 'SKU-1', status: 'ACTIVE', barcodes: [], images: [{ storageKey: 'photo.png' }], storeSettings: [{ priceMinor: 129000, active: true }], stocks: [{ quantity: 5, reservedQuantity: 2 }] }];
+      },
+      count: async () => 1,
+    },
+    $transaction: async (queries: Promise<unknown>[]) => Promise.all(queries),
+  } as unknown as DatabaseService;
+  const result = await new CatalogService(db).posProducts('store-1', { page: 1, limit: 20 });
+  assert.equal(settingsStore, 'store-1');
+  assert.equal(stockStore, 'store-1');
+  assert.deepEqual(result.items[0], { id: 'product-1', name: 'Cream', sku: 'SKU-1', status: 'ACTIVE', barcodes: [], images: [{ storageKey: 'photo.png' }], priceMinor: 129000, availableQuantity: 3, active: true });
+});

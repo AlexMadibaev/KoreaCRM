@@ -152,6 +152,49 @@ export class CatalogService {
     return { items, total, page: query.page, limit: query.limit };
   }
 
+  async posProducts(storeId: string, query: ProductQuery) {
+    const store = await this.db.store.findFirst({ where: { id: storeId, deletedAt: null }, select: { id: true } });
+    if (!store) throw new NotFoundException('Store not found');
+    const where: Prisma.ProductWhereInput = {
+      deletedAt: null,
+      status: 'ACTIVE',
+      OR: query.search ? [
+        { name: { contains: query.search, mode: 'insensitive' } },
+        { sku: { contains: query.search, mode: 'insensitive' } },
+        { barcodes: { some: { value: query.search } } },
+      ] : undefined,
+    };
+    const [products, total] = await this.db.$transaction([
+      this.db.product.findMany({
+        where,
+        select: {
+          id: true, name: true, sku: true, status: true,
+          barcodes: { select: { value: true } },
+          images: { orderBy: { sortOrder: 'asc' }, select: { storageKey: true } },
+          storeSettings: { where: { storeId }, select: { priceMinor: true, active: true } },
+          stocks: { where: { storeId }, select: { quantity: true, reservedQuantity: true } },
+        },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+        skip: (query.page - 1) * query.limit, take: query.limit,
+      }),
+      this.db.product.count({ where }),
+    ]);
+    return {
+      items: products.map(product => {
+        const settings = product.storeSettings[0];
+        const stock = product.stocks[0];
+        return {
+          id: product.id, name: product.name, sku: product.sku, status: product.status,
+          barcodes: product.barcodes, images: product.images,
+          priceMinor: settings?.priceMinor ?? null,
+          availableQuantity: Math.max(0, (stock?.quantity ?? 0) - (stock?.reservedQuantity ?? 0)),
+          active: settings?.active ?? false,
+        };
+      }),
+      total, page: query.page, limit: query.limit,
+    };
+  }
+
   async product(id: string) {
     const item = await this.db.product.findFirst({ where: { id, deletedAt: null }, include: { brand: true, category: true, barcodes: true, images: { orderBy: { sortOrder: 'asc' } } } });
     if (!item) throw new NotFoundException('Product not found');

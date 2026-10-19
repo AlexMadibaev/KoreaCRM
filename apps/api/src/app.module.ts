@@ -5,7 +5,7 @@ import { DatabaseService } from './database.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AccessGuard, StoreScopeGuard } from './auth/guards';
-import { BrandController, CategoryController, ProductController, StoreProductSettingsController } from './catalog/catalog.controller';
+import { BrandController, CategoryController, ProductController, PosProductsController, StoreProductSettingsController } from './catalog/catalog.controller';
 import { CatalogService } from './catalog/catalog.service';
 import { ProductImagesController, ProductImageFilesController, ProductImagesService } from './catalog/product-images';
 import { StoresController, StockController } from './stock/stock.controller';
@@ -42,7 +42,7 @@ if (!jwtSecret || jwtSecret.length < 32) throw new Error('JWT_SECRET must have a
 
 @Module({
   imports: [JwtModule.register({ secret: jwtSecret })],
-  controllers: [HealthController, AuthController, BrandController, CategoryController, ProductController, ProductImagesController, ProductImageFilesController, StoreProductSettingsController, StoresController, StockController, SuppliersController, PurchasesController, InventoryController, TransfersController, ExpenseCategoriesController, FinanceSummaryController, StoreFinanceController, CustomersController, CustomerPaymentsController, SalesController, SalePaymentMethodsController, PosDevicesController, EmployeesController, RolesController, NotificationsController],
+  controllers: [HealthController, AuthController, BrandController, CategoryController, ProductController, PosProductsController, ProductImagesController, ProductImageFilesController, StoreProductSettingsController, StoresController, StockController, SuppliersController, PurchasesController, InventoryController, TransfersController, ExpenseCategoriesController, FinanceSummaryController, StoreFinanceController, CustomersController, CustomerPaymentsController, SalesController, SalePaymentMethodsController, PosDevicesController, EmployeesController, RolesController, NotificationsController],
   providers: [DatabaseService, AuthService, AccessGuard, StoreScopeGuard, CatalogService, ProductImagesService, StockService, PurchasesService, InventoryService, TransfersService, FinanceService, CustomersService, SalesService, PosDevicesService, EmployeesService, NotificationsService],
 })
 export class AppModule {}

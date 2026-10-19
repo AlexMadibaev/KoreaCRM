@@ -125,6 +125,20 @@ export class ProductController {
   }
 }
 
+@ApiTags('POS catalog')
+@ApiBearerAuth()
+@UseGuards(AccessGuard, StoreScopeGuard)
+@Controller('stores/:storeId/pos-products')
+export class PosProductsController {
+  constructor(private readonly catalog: CatalogService) {}
+
+  @Get()
+  @RequirePermission('products.view')
+  list(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) {
+    return this.catalog.posProducts(storeId, parseInput(productQuerySchema, query));
+  }
+}
+
 @ApiTags('store product settings')
 @ApiBearerAuth()
 @UseGuards(AccessGuard, StoreScopeGuard)

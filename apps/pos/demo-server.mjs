@@ -465,6 +465,10 @@ const server = createServer(async (request, response) => {
     const categoryId = url.searchParams.get('categoryId');
     return send(response, 200, page(products.filter(product => `${product.name} ${product.sku} ${product.barcodes.map(code => code.value).join(' ')}`.toLocaleLowerCase('ru').includes(search) && (!brandId || (product.brandId ?? brands[0].id) === brandId) && (!categoryId || (product.categoryId ?? categories[0].id) === categoryId)).map(catalogProduct)));
   }
+  if (request.method === 'GET' && path === `/stores/${store.id}/pos-products`) {
+    const search = (url.searchParams.get('search') ?? '').toLocaleLowerCase('ru');
+    return send(response, 200, page(products.filter(product => product.status === 'ACTIVE' && `${product.name} ${product.sku} ${product.barcodes.map(code => code.value).join(' ')}`.toLocaleLowerCase('ru').includes(search)).map(product => ({ id: product.id, name: product.name, sku: product.sku, status: product.status, barcodes: product.barcodes, images: product.images ?? [], priceMinor: product.priceMinor, availableQuantity: Math.max(0, product.quantity), active: true }))));
+  }
   if (request.method === 'POST' && path === '/products') {
     if (!body.name?.trim() || !body.sku?.trim()) return error(response, 400, 'Укажите название и SKU');
     if (products.some(product => product.sku === body.sku)) return error(response, 409, 'SKU уже используется');
