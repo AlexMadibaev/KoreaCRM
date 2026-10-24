@@ -15,7 +15,14 @@ export default function AccountPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [stores, setStores] = useState<Store[]>([]);
   const [error, setError] = useState('');
-  useEffect(() => { Promise.all([api<Me>('/auth/me'), api<Store[]>('/stores')]).then(([profile, locations]) => { setMe(profile); setStores(locations); }).catch(reason => setError(reason instanceof Error ? reason.message : 'Не удалось загрузить профиль')); }, []);
+  useEffect(() => {
+    api<Me>('/auth/me').then(profile => {
+      setMe(profile);
+      if (profile.permissions.some(permission => ['inventory.view', 'employees.view', 'sales.view'].includes(permission))) {
+        api<Store[]>('/stores').then(setStores).catch(() => setStores([]));
+      }
+    }).catch(reason => setError(reason instanceof Error ? reason.message : 'Не удалось загрузить профиль'));
+  }, []);
   async function logout() { await logoutSession(); router.replace('/login'); }
   return <CatalogShell><div className="crm-page-head"><div><span className="crm-eyebrow">НАСТРОЙКИ АККАУНТА</span><h1>Личный кабинет</h1><p>Ваш профиль и доступ к магазинам.</p></div></div>
     {error && <div className="crm-alert" role="alert">{error}</div>}

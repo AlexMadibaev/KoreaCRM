@@ -40,10 +40,11 @@ export function ProductImages({ productId, images, onChange }: { productId: stri
     finally { setBusy(false); }
   }
 
-  return <section className="space-y-4 rounded-lg border bg-white p-5">
-    <div><h2 className="text-lg font-semibold">Фото товара</h2><p className="text-sm text-slate-500">До 20 фото. JPEG, PNG или WebP, каждое до 5 МБ. Первое фото показывается в каталоге.</p></div>
-    <label className="inline-flex cursor-pointer rounded border px-4 py-2 text-sm font-medium">{busy ? 'Загрузка…' : 'Добавить фото'}<input ref={input} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy || images.length >= 20} onChange={event => void add(event.target.files)} /></label>
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-    {sorted.length ? <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">{sorted.map((image, index) => <div key={image.id} className="overflow-hidden rounded-lg border"><img className="aspect-square w-full object-cover" src={productImageUrl(image.storageKey)} alt={`Фото товара ${index + 1}`} /><div className="flex items-center justify-between gap-2 p-2 text-xs"><span>{index === 0 ? 'Главное фото' : `Фото ${index + 1}`}</span><button type="button" className="text-red-700 underline disabled:opacity-50" disabled={busy} onClick={() => void remove(image)} aria-label={`Удалить фото ${index + 1}`}>Удалить</button></div></div>)}</div> : <p className="text-sm text-slate-500">Фото пока нет</p>}
+  return <section className="crm-panel crm-product-images">
+    <div className="crm-product-section-head"><div><span className="crm-eyebrow">ГАЛЕРЕЯ</span><h2>Фото товара</h2></div><span className="crm-product-image-count">{sorted.length} / 20</span></div>
+    <div className="crm-product-image-preview">{sorted[0] ? <img src={productImageUrl(sorted[0].storageKey)} alt="Главное фото товара" /> : <div className="crm-product-image-empty"><span aria-hidden="true">◇</span><strong>Добавьте фото товара</strong><small>Первое фото появится в каталоге и кассе</small></div>}</div>
+    <div className="crm-product-image-toolbar"><p>JPEG, PNG или WebP до 5 МБ</p><label className="crm-outline-button crm-product-upload">{busy ? 'Загрузка…' : '＋ Добавить фото'}<input ref={input} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={busy || images.length >= 20} onChange={event => void add(event.target.files)} /></label></div>
+    {error && <p role="alert" className="crm-alert">{error}</p>}
+    {sorted.length > 0 && <div className="crm-product-image-grid">{sorted.map((image, index) => <div key={image.id} className="crm-product-image-tile"><img src={productImageUrl(image.storageKey)} alt={`Фото товара ${index + 1}`} /><div><span>{index === 0 ? 'Главное фото' : `Фото ${index + 1}`}</span><button type="button" disabled={busy} onClick={() => void remove(image)} aria-label={`Удалить фото ${index + 1}`}>Удалить</button></div></div>)}</div>}
   </section>;
 }

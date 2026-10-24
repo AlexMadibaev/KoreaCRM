@@ -17,7 +17,7 @@ export class StoresController {
 
   @Get()
   list(@Req() request: AuthorizedRequest) {
-    if (!hasPermission(request.access, 'inventory.view') && !hasPermission(request.access, 'employees.view')) throw new ForbiddenException();
+    if (!hasPermission(request.access, 'inventory.view') && !hasPermission(request.access, 'employees.view') && !hasPermission(request.access, 'sales.view')) throw new ForbiddenException();
     return this.stock.stores(request.access);
   }
 }

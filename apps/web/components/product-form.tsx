@@ -46,15 +46,23 @@ export function ProductForm({ product, onSaved }: { product?: Product; onSaved: 
     finally { setSaving(false); }
   }
 
-  return <form onSubmit={submit} className="space-y-5 rounded-lg border bg-white p-5">
-    <div className="grid gap-4 md:grid-cols-2">{fields.map((key) => <label key={key} className="text-sm">{labels[key]}{key === 'description' ? <textarea className="mt-1 w-full rounded border p-2" value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })} /> : <input className="mt-1 w-full rounded border p-2" value={values[key]} onChange={(event) => setValues({ ...values, [key]: event.target.value })} required={['name', 'sku', 'unit'].includes(key)} />}</label>)}</div>
-    <div className="grid gap-4 md:grid-cols-3">
-      <label className="text-sm">Бренд<select className="mt-1 w-full rounded border p-2" value={brandId} onChange={(event) => setBrandId(event.target.value)}><option value="">Без бренда</option>{brands.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label className="text-sm">Категория<select className="mt-1 w-full rounded border p-2" value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Без категории</option>{categories.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-      <label className="text-sm">Статус<select className="mt-1 w-full rounded border p-2" value={status} onChange={(event) => setStatus(event.target.value as 'ACTIVE' | 'INACTIVE')}><option value="ACTIVE">Активен</option><option value="INACTIVE">Неактивен</option></select></label>
-    </div>
-    <label className="block text-sm">Штрихкоды, по одному на строку<textarea className="mt-1 w-full rounded border p-2" value={barcodes} onChange={(event) => setBarcodes(event.target.value)} /></label>
-    {error && <p role="alert" className="text-red-700">{error}</p>}
-    <button className="rounded bg-slate-900 px-4 py-2 text-white disabled:opacity-50" disabled={saving}>{saving ? 'Сохранение…' : 'Сохранить'}</button>
+  return <form onSubmit={submit} className="crm-product-form">
+    <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ОСНОВНОЕ</span><h2>Данные товара</h2><p>Название и SKU используются для поиска в каталоге и кассе.</p></div>
+      <div className="crm-product-form-grid">
+        {(['name', 'sku', 'unit'] as const).map(key => <label key={key}>{labels[key]}<input value={values[key]} onChange={event => setValues({ ...values, [key]: event.target.value })} required /></label>)}
+        <label>Бренд<select value={brandId} onChange={event => setBrandId(event.target.value)}><option value="">Без бренда</option>{brands.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label>Категория<select value={categoryId} onChange={event => setCategoryId(event.target.value)}><option value="">Без категории</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+        <label>Статус<select value={status} onChange={event => setStatus(event.target.value as 'ACTIVE' | 'INACTIVE')}><option value="ACTIVE">Активен</option><option value="INACTIVE">Неактивен</option></select></label>
+        <label className="crm-product-form-wide">Описание<textarea rows={3} value={values.description} onChange={event => setValues({ ...values, description: event.target.value })} /></label>
+      </div>
+    </section>
+    <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ИДЕНТИФИКАЦИЯ</span><h2>Штрихкоды</h2><p>Каждый штрихкод укажите на новой строке.</p></div>
+      <label>Штрихкоды<textarea rows={3} value={barcodes} onChange={event => setBarcodes(event.target.value)} placeholder="Например, 4601234567890" /></label>
+    </section>
+    <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ХАРАКТЕРИСТИКИ</span><h2>Дополнительные данные</h2><p>Заполняйте только те поля, которые нужны для этого товара.</p></div>
+      <div className="crm-product-form-grid">{fields.filter(key => !['name', 'sku', 'unit', 'description'].includes(key)).map(key => <label key={key}>{labels[key]}<input value={values[key]} onChange={event => setValues({ ...values, [key]: event.target.value })} /></label>)}</div>
+    </section>
+    {error && <p role="alert" className="crm-alert">{error}</p>}
+    <div className="crm-product-form-footer"><button className="crm-primary-button" disabled={saving}>{saving ? 'Сохранение…' : 'Сохранить товар'}</button></div>
   </form>;
 }

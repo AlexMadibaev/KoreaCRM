@@ -49,15 +49,15 @@ export function ProductPriceEditor({ productId }: { productId: string }) {
     finally { setSaving(false); }
   }
 
-  return <section className="space-y-3 rounded-lg border bg-white p-5">
-    <div><h2 className="text-lg font-semibold">Цена продажи</h2><p className="text-sm text-slate-500">Цена задаётся отдельно для каждого магазина. Без неё товар нельзя добавить в чек.</p></div>
-    <form onSubmit={save} className="flex flex-wrap items-end gap-3">
-      <label className="text-sm">Магазин<select className="mt-1 block min-w-48 rounded border p-2" value={storeId} onChange={event => setStoreId(event.target.value)} disabled={saving || !stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
-      <label className="text-sm">Цена, сум<MoneyInput aria-label="Цена продажи, сум" className="mt-1 block w-44 rounded border p-2" valueMinor={priceMinor} onMinorChange={setPriceMinor} placeholder="0,00" disabled={loading || saving || !storeId} required /></label>
-      <button className="rounded bg-violet-700 px-4 py-2 text-white disabled:opacity-50" disabled={loading || saving || !storeId || !priceMinor}>{saving ? 'Сохранение…' : 'Сохранить цену'}</button>
+  return <section className="crm-panel crm-product-price">
+    <div className="crm-product-section-head"><span className="crm-eyebrow">ПРОДАЖИ</span><h2>Цена продажи</h2><p>Отдельная цена для каждого магазина. Без цены товар нельзя добавить в чек.</p></div>
+    {storeId && !loading && <div className="crm-product-current-price"><span>Текущая цена</span><strong>{savedPrice === null ? 'Не установлена' : formatCurrencyMinor(String(savedPrice))}</strong></div>}
+    <form onSubmit={save}>
+      <label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={saving || !stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
+      <label>Новая цена, сум<MoneyInput aria-label="Цена продажи, сум" valueMinor={priceMinor} onMinorChange={setPriceMinor} placeholder="0,00" disabled={loading || saving || !storeId} required /></label>
+      <button className="crm-primary-button" disabled={loading || saving || !storeId || !priceMinor}>{saving ? 'Сохранение…' : 'Сохранить цену'}</button>
     </form>
-    {storeId && !loading && <p className="text-sm text-slate-600">Текущая цена: {savedPrice === null ? 'не установлена' : formatCurrencyMinor(String(savedPrice))}</p>}
-    {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-    {notice && <p role="status" className="text-sm text-green-700">{notice}</p>}
+    {error && <p role="alert" className="crm-alert">{error}</p>}
+    {notice && <p role="status" className="crm-product-notice">{notice}</p>}
   </section>;
 }

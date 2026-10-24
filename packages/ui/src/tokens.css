@@ -1,0 +1,34 @@
+/* Korea CRM visual foundations. Import before app-specific styles. */
+:root {
+  --ks-font-sans: 'Segoe UI', Inter, Arial, sans-serif;
+
+  --ks-color-brand: #f2979c;
+  --ks-color-brand-hover: #e98289;
+  --ks-color-brand-strong: #a44f59;
+  --ks-color-brand-soft: #ffeff0;
+  --ks-color-brand-wash: #fff3f4;
+  --ks-color-brand-subtle: #fff7f8;
+  --ks-color-ink: #424242;
+  --ks-color-text-muted: #726b6b;
+  --ks-color-surface: #ffffff;
+  --ks-color-canvas: #f4f4f6;
+  --ks-color-border: #ededf0;
+  --ks-color-border-brand: #edcdd0;
+  --ks-color-success: #21865f;
+  --ks-color-warning: #74520e;
+  --ks-color-danger: #a4413a;
+
+  --ks-space-1: 4px;
+  --ks-space-2: 8px;
+  --ks-space-3: 12px;
+  --ks-space-4: 16px;
+  --ks-space-5: 24px;
+  --ks-space-6: 32px;
+
+  --ks-radius-sm: 8px;
+  --ks-radius-md: 12px;
+  --ks-radius-lg: 17px;
+  --ks-radius-shell: 23px;
+  --ks-shadow-shell: 0 30px 75px #61363835;
+  --ks-focus-ring: 0 0 0 3px #f2979c33;
+}

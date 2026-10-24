@@ -1,0 +1,30 @@
+.ks-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ks-space-2);
+  min-height: 40px;
+  padding: 9px 14px;
+  border: 1px solid var(--ks-color-border);
+  border-radius: var(--ks-radius-sm);
+  background: var(--ks-color-surface);
+  color: var(--ks-color-ink);
+  font: 700 13px/1.25 var(--ks-font-sans);
+  cursor: pointer;
+  transition: background-color .18s ease, border-color .18s ease;
+}
+.ks-button:hover:not(:disabled) { border-color: var(--ks-color-border-brand); background: var(--ks-color-brand-subtle); }
+.ks-button:focus-visible { outline: 2px solid var(--ks-color-brand-strong); outline-offset: 2px; }
+.ks-button:disabled { cursor: not-allowed; opacity: .55; }
+.ks-button--primary { border-color: var(--ks-color-brand); background: var(--ks-color-brand); color: var(--ks-color-ink); }
+.ks-button--primary:hover:not(:disabled) { border-color: var(--ks-color-brand-hover); background: var(--ks-color-brand-hover); }
+.ks-button--secondary { border-color: var(--ks-color-border-brand); background: var(--ks-color-brand-subtle); color: var(--ks-color-brand-strong); }
+.ks-button--ghost { border-color: transparent; background: transparent; color: var(--ks-color-brand-strong); }
+.ks-button--danger { border-color: var(--ks-color-danger); background: var(--ks-color-danger); color: var(--ks-color-surface); }
+.ks-button--danger:hover:not(:disabled) { border-color: #8c332d; background: #8c332d; }
+.ks-button--sm { min-height: 32px; padding: 6px 10px; font-size: 12px; }
+
+.ks-card { border: 1px solid var(--ks-color-border); border-radius: var(--ks-radius-lg); background: var(--ks-color-surface); }
+.ks-field { min-height: 40px; border: 1px solid var(--ks-color-border); border-radius: var(--ks-radius-sm); background: var(--ks-color-surface); color: var(--ks-color-ink); font: 13px var(--ks-font-sans); }
+.ks-field:focus-visible { border-color: var(--ks-color-brand-strong); outline: 0; box-shadow: var(--ks-focus-ring); }
+.ks-badge { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border-radius: 999px; background: var(--ks-color-brand-soft); color: var(--ks-color-brand-strong); font: 700 12px var(--ks-font-sans); }

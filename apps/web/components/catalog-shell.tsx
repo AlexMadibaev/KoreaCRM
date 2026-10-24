@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
 import { api } from '../lib/api';
 import { firstCabinetPath, routePermission } from '../lib/access';
@@ -13,6 +14,11 @@ const groups: { title: string; links: [string, string][] }[] = [
   { title: 'Управление', links: [['/brands', 'Бренды'], ['/categories', 'Категории'], ['/suppliers', 'Поставщики'], ['/purchases', 'Закупки'], ['/transfers', 'Перемещения'], ['/inventories', 'Инвентаризация'], ['/employees', 'Сотрудники и роли']] },
   { title: 'Аналитика', links: [['/finance', 'Финансы'], ['/finance/categories', 'Категории расходов']] },
 ];
+const navIcons: Record<string, string> = {
+  '/dashboard': '▦', '/products': '◫', '/stock': '▤', '/sales': '▣', '/customers': '♧', '/notifications': '♧',
+  '/brands': '◇', '/categories': '▥', '/suppliers': '♙', '/purchases': '◈', '/transfers': '⇄', '/inventories': '≡',
+  '/employees': '♧', '/finance': '◷', '/finance/categories': '▧',
+};
 
 export function CatalogShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -35,12 +41,12 @@ export function CatalogShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('koreacrm:notifications-changed', refresh);
   }, [me]);
   if (!ready) return <div className="crm-loading">Проверка доступа…</div>;
-  const current = [...groups.flatMap(group => group.links), ['/account', 'Личный кабинет']].find(([href]) => pathname === href)?.[1] ?? 'Korea CRM';
+  const current = pathname.startsWith('/products/') ? 'Товары' : [...groups.flatMap(group => group.links), ['/account', 'Личный кабинет']].find(([href]) => pathname === href)?.[1] ?? 'Korea CRM';
   return <div className="crm-shell">
     <aside className={`crm-sidebar ${menuOpen ? 'crm-sidebar-open' : ''}`}>
-      <Link href={firstCabinetPath(me?.permissions ?? [])} className="crm-brand" onClick={() => setMenuOpen(false)}><span className="crm-brand-mark">K</span><span><strong>Korea CRM</strong><small>Управление магазином</small></span></Link>
+      <Link href={firstCabinetPath(me?.permissions ?? [])} className="crm-brand" onClick={() => setMenuOpen(false)}><span><Image className="crm-brand-logo" src="/koreacrm-logo.svg" alt="Korea CRM" width={163} height={26} /><small>Управление магазином</small></span></Link>
       <div className="crm-workspace"><span className="crm-workspace-icon">✦</span><span><strong>Мой магазин</strong><small>Рабочее пространство</small></span></div>
-      <nav aria-label="Основная навигация">{groups.map(group => { const links = group.links.filter(([href]) => { if (href === '/notifications') return me?.permissions.includes('inventory.view') || me?.permissions.includes('sales.view'); const required = routePermission[href]; return required && me?.permissions.includes(required); }); return links.length ? <div className="crm-nav-group" key={group.title}><div className="crm-nav-title">{group.title}</div>{links.map(([href, label]) => <Link key={href} href={href} onClick={() => setMenuOpen(false)} className={`crm-nav-link ${pathname === href ? 'active' : ''}`}>{label}</Link>)}</div> : null; })}</nav>
+      <nav aria-label="Основная навигация">{groups.map(group => { const links = group.links.filter(([href]) => { if (href === '/notifications') return me?.permissions.includes('inventory.view') || me?.permissions.includes('sales.view'); const required = routePermission[href]; return required && me?.permissions.includes(required); }); return links.length ? <div className="crm-nav-group" key={group.title}><div className="crm-nav-title">{group.title}</div>{links.map(([href, label]) => <Link key={href} href={href} onClick={() => setMenuOpen(false)} aria-current={pathname === href ? 'page' : undefined} className={`crm-nav-link ${pathname === href ? 'active' : ''}`}><span className="crm-nav-icon" aria-hidden="true">{navIcons[href]}</span>{label}</Link>)}</div> : null; })}</nav>
       <Link href="/account" className={`crm-sidebar-account ${pathname === '/account' ? 'active' : ''}`} onClick={() => setMenuOpen(false)}><span className="crm-avatar">{(me?.name || 'П').slice(0, 1).toUpperCase()}</span><span><strong>{me?.name || 'Профиль'}</strong><small>Личный кабинет</small></span><span aria-hidden="true">›</span></Link>
     </aside>
     {menuOpen && <button className="crm-backdrop" aria-label="Закрыть меню" onClick={() => setMenuOpen(false)} />}

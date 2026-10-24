@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Korea CRM — дизайн-система</title>
+  <link rel="stylesheet" href="../packages/ui/src/tokens.css" />
+  <link rel="stylesheet" href="../packages/ui/src/components.css" />
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--ks-color-canvas); color: var(--ks-color-ink); font: 14px/1.5 var(--ks-font-sans); }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { margin-bottom: 8px; font-size: 32px; line-height: 1.15; }
+    h2 { margin-bottom: 20px; font-size: 20px; }
+    h3 { margin-bottom: 8px; font-size: 15px; }
+    .hero { padding: 48px max(24px, calc((100vw - 1180px) / 2)); background: var(--ks-color-brand); }
+    .hero img { display: block; width: 210px; height: 38px; margin-bottom: 42px; object-fit: contain; object-position: left; }
+    .hero p { max-width: 650px; margin: 0; }
+    .eyebrow { margin-bottom: 7px; color: var(--ks-color-brand-strong); font-size: 11px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .hero .eyebrow { color: var(--ks-color-ink); }
+    .wrap { display: grid; gap: 20px; max-width: 1228px; margin: 0 auto; padding: 32px 24px 60px; }
+    .section { padding: 24px; }
+    .section > p { color: var(--ks-color-text-muted); }
+    .swatches { display: grid; grid-template-columns: repeat(auto-fit, minmax(154px, 1fr)); gap: 12px; }
+    .swatch { overflow: hidden; border: 1px solid var(--ks-color-border); border-radius: var(--ks-radius-md); background: white; }
+    .swatch-color { height: 86px; background: var(--swatch); }
+    .swatch div:last-child { display: grid; gap: 3px; padding: 12px; }
+    .swatch strong { font-size: 12px; }
+    .swatch code { color: var(--ks-color-text-muted); font-size: 11px; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    .button-row { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 18px; }
+    .field-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+    label { display: grid; gap: 6px; color: var(--ks-color-text-muted); font-size: 12px; font-weight: 700; }
+    .ks-field { width: 100%; padding: 9px 12px; }
+    .sample-shell { display: grid; grid-template-columns: 190px 1fr; gap: 14px; padding: 14px; border: 5px solid #eeedf2; border-radius: var(--ks-radius-shell); background: var(--ks-color-canvas); box-shadow: var(--ks-shadow-shell); }
+    .sample-nav, .sample-panel { padding: 18px; }
+    .sample-nav img { width: 145px; height: 30px; object-fit: contain; object-position: left; }
+    .nav-title { margin: 24px 0 8px; color: var(--ks-color-text-muted); font-size: 10px; letter-spacing: .08em; }
+    .nav-item { display: block; width: 100%; margin: 3px 0; padding: 9px 10px; border: 0; border-radius: var(--ks-radius-sm); background: transparent; color: var(--ks-color-ink); font: inherit; text-align: left; }
+    .nav-item.active { background: var(--ks-color-brand-soft); color: var(--ks-color-brand-strong); font-weight: 750; }
+    .sample-panel { min-height: 300px; }
+    .sample-panel > p { color: var(--ks-color-text-muted); }
+    .sample-product { display: flex; align-items: center; gap: 16px; max-width: 430px; margin-top: 22px; padding: 12px; border: 1px solid var(--ks-color-border); border-radius: var(--ks-radius-md); }
+    .sample-media { display: grid; width: 72px; height: 72px; place-items: center; border-radius: var(--ks-radius-sm); background: var(--ks-color-brand-wash); color: var(--ks-color-brand-strong); font-size: 28px; }
+    .sample-product p { margin: 3px 0; color: var(--ks-color-text-muted); font-size: 12px; }
+    .sample-product strong { font-size: 13px; }
+    .sample-product .price { display: block; font-size: 16px; }
+    .badges { display: flex; flex-wrap: wrap; gap: 8px; }
+    .badge-success, .badge-warning, .badge-danger { display: inline-flex; align-items: center; min-height: 24px; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
+    .badge-success { background: #e8f7ed; color: var(--ks-color-success); }
+    .badge-warning { background: #fff6df; color: var(--ks-color-warning); }
+    .badge-danger { background: #fff0ed; color: var(--ks-color-danger); }
+    @media (max-width: 760px) { .split, .sample-shell { grid-template-columns: 1fr; } .field-grid { grid-template-columns: 1fr; } .hero { padding: 30px 24px; } }
+  </style>
+</head>
+<body>
+  <header class="hero">
+    <img src="../apps/pos/public/koreacrm-logo.svg" alt="Korea CRM" />
+    <p class="eyebrow">Дизайн-система · 1.0</p>
+    <h1>Рабочий интерфейс без визуального шума</h1>
+    <p>Розовый из логотипа для действий, тёмно-серый для текста, белые поверхности для данных. Эти элементы используются в обновлённой кассе и задают основу для следующих экранов.</p>
+  </header>
+  <main class="wrap">
+    <section class="ks-card section">
+      <p class="eyebrow">01 · Цвет</p><h2>Основная палитра</h2>
+      <div class="swatches">
+        <div class="swatch"><div class="swatch-color" style="--swatch:var(--ks-color-brand)"></div><div><strong>Акцент</strong><code>#F2979C</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="--swatch:var(--ks-color-ink)"></div><div><strong>Текст</strong><code>#424242</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="--swatch:var(--ks-color-brand-strong)"></div><div><strong>Акцентный текст</strong><code>#A44F59</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="--swatch:var(--ks-color-brand-soft)"></div><div><strong>Выделение</strong><code>#FFEFF0</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="--swatch:var(--ks-color-canvas)"></div><div><strong>Фон приложения</strong><code>#F4F4F6</code></div></div>
+        <div class="swatch"><div class="swatch-color" style="--swatch:var(--ks-color-surface)"></div><div><strong>Поверхность</strong><code>#FFFFFF</code></div></div>
+      </div>
+    </section>
+    <div class="split">
+      <section class="ks-card section">
+        <p class="eyebrow">02 · Действия</p><h2>Кнопки и состояния</h2>
+        <div class="button-row"><button class="ks-button ks-button--primary">Основное действие</button><button class="ks-button ks-button--secondary">Вторичное</button><button class="ks-button ks-button--ghost">Текстовое</button></div>
+        <div class="button-row"><button class="ks-button ks-button--primary" disabled>Недоступно</button><button class="ks-button ks-button--danger">Опасное действие</button><button class="ks-button ks-button--secondary ks-button--sm">Компактная</button></div>
+        <p>Нажмите Tab, чтобы увидеть состояние фокуса.</p>
+      </section>
+      <section class="ks-card section">
+        <p class="eyebrow">03 · Формы</p><h2>Поля и статусы</h2>
+        <div class="field-grid"><label>Название товара<input class="ks-field" placeholder="Введите название" /></label><label>Количество<input class="ks-field" type="number" value="2" /></label></div>
+        <p style="margin:22px 0 8px">Статусы всегда имеют текстовую подпись:</p>
+        <div class="badges"><span class="ks-badge">Выбрано</span><span class="badge-success">Подключено</span><span class="badge-warning">Ожидает</span><span class="badge-danger">Ошибка</span></div>
+      </section>
+    </div>
+    <section class="ks-card section">
+      <p class="eyebrow">04 · Композиция</p><h2>Каркас экрана кассы</h2>
+      <div class="sample-shell">
+        <aside class="ks-card sample-nav"><img src="../apps/pos/public/koreacrm-logo.svg" alt="Korea CRM" /><p class="nav-title">ПРОДАЖИ</p><div class="nav-item active">▦ &nbsp; Касса</div><div class="nav-item">▤ &nbsp; История чеков</div><p class="nav-title">УПРАВЛЕНИЕ</p><div class="nav-item">◷ &nbsp; Кассовая смена</div><div class="nav-item">↻ &nbsp; Синхронизация</div></aside>
+        <div class="ks-card sample-panel"><p class="eyebrow">ПРОДАЖА</p><h3>Выберите товар</h3><p>Каталог и чек размещаются на отдельных белых панелях. Каждый пункт меню открывает собственный экран.</p><div class="sample-product"><div class="sample-media" aria-hidden="true">▣</div><div><strong>Пример товара</strong><p>Доступно 12 шт.</p><strong class="price">120 000 сум</strong></div></div></div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
