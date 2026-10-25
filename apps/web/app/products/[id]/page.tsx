@@ -55,7 +55,7 @@ export default function ProductDetailPage() {
           <section className="crm-panel crm-product-facts"><div className="crm-product-section-head"><span className="crm-eyebrow">ОСНОВНОЕ</span><h2>О товаре</h2></div>
             <dl>
               <div><dt>Статус</dt><dd><span className={`crm-status-pill ${product.status === 'ACTIVE' ? 'on' : 'off'}`}>{product.status === 'ACTIVE' ? 'Активен' : 'Неактивен'}</span></dd></div>
-              <div><dt>SKU</dt><dd>{product.sku}</dd></div>
+              <div><dt>Артикул</dt><dd>{product.sku}</dd></div>
               <div><dt>Бренд</dt><dd>{product.brand?.name ?? '—'}</dd></div>
               <div><dt>Категория</dt><dd>{product.category?.name ?? '—'}</dd></div>
               <div><dt>Единица</dt><dd>{product.unit}</dd></div>

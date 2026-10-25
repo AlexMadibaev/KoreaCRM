@@ -5,7 +5,7 @@ import { api, queryString, type Page } from '../../lib/api';
 
 type BonusTransaction = { id: string; type: 'EARN' | 'SPEND' | 'CORRECTION' | 'EXPIRE'; deltaMinor: string; balanceAfterMinor: string; reason: string; createdAt: string; actor: { name: string } };
 type BonusPage = Page<BonusTransaction> & { balanceMinor: string };
-const money = (minor: string) => { const value = BigInt(minor); const absolute = value < 0n ? -value : value; return `${value < 0n ? '−' : ''}${new Intl.NumberFormat('ru-RU').format(absolute / 100n)},${String(absolute % 100n).padStart(2, '0')} сум`; };
+const money = (minor: string) => { const value = BigInt(minor); const absolute = value < 0n ? -value : value; return `${value < 0n ? '−' : ''}${new Intl.NumberFormat('ru-RU').format(absolute / 100n)},${String(absolute % 100n).padStart(2, '0')} сомони`; };
 const toMinor = (value: string) => { const [whole = '0', fraction = ''] = value.replace(',', '.').split('.'); return String(BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0') || '0')); };
 
 export function CustomerBonuses({ customerId, canCorrect, onUpdated }: { customerId: string; canCorrect: boolean; onUpdated: () => Promise<void> }) {
@@ -47,7 +47,7 @@ export function CustomerBonuses({ customerId, canCorrect, onUpdated }: { custome
     {canCorrect && <form onSubmit={submit} className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-2">
       <h4 className="font-medium sm:col-span-2">Ручная корректировка</h4>
       <label className="text-sm">Действие<select value={direction} onChange={event => setDirection(event.target.value as 'increase' | 'decrease')} className="mt-1 block w-full rounded border p-2"><option value="increase">Увеличить баланс</option><option value="decrease">Уменьшить баланс</option></select></label>
-      <label className="text-sm">Сумма, сум<input required inputMode="decimal" pattern="[0-9]{1,12}([.,][0-9]{1,2})?" value={amount} onChange={event => setAmount(event.target.value)} className="mt-1 block w-full rounded border p-2" /></label>
+      <label className="text-sm">Сумма, сомони<input required inputMode="decimal" pattern="[0-9]{1,12}([.,][0-9]{1,2})?" value={amount} onChange={event => setAmount(event.target.value)} className="mt-1 block w-full rounded border p-2" /></label>
       <label className="text-sm sm:col-span-2">Причина<textarea required minLength={5} maxLength={500} rows={2} value={reason} onChange={event => setReason(event.target.value)} className="mt-1 block w-full rounded border p-2" /></label>
       <button disabled={busy || !amount || !reason.trim() || /^0+(?:[.,]0{0,2})?$/.test(amount)} className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50 sm:col-span-2">Сохранить корректировку</button>
     </form>}

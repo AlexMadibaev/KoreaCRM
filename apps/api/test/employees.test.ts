@@ -71,3 +71,83 @@ test('employee history includes actions by the employee and changes to their acc
   assert.deepEqual((queried as { where: unknown }).where, { OR: [{ userId: 'employee-1' }, { entityType: 'User', entityId: 'employee-1' }] });
   assert.equal((queried as { skip: number }).skip, 10);
 });
+
+test('employee deletion blocks self removal and preserves the historical account', async () => {
+  const service = new EmployeesService({} as DatabaseService);
+  await assert.rejects(service.removeEmployee(actor.userId, actor), ConflictException);
+
+  let changed: { where: { id: string }; data: { active: boolean; login: string; deletedAt: Date; posQrHash: null } } | undefined;
+  let revoked = false;
+  let audited = false;
+  const tx = {
+    user: { updateMany: async (options: typeof changed) => { changed = options; return { count: 1 }; } },
+    refreshToken: { updateMany: async () => { revoked = true; } },
+    auditLog: { create: async () => { audited = true; } },
+  };
+  const db = {
+    user: { findUnique: async () => ({ id: 'employee-1', login: 'cashier', active: true, deletedAt: null, roleId: 'role-a', role: { code: 'CASHIER' }, allStores: false, stores: [{ storeId: 'store-a' }] }) },
+    role: { findUnique: async () => ({ id: 'role-a', deletedAt: null, permissions: [{ permission: { code: 'sales.view' } }] }) },
+    $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+  } as unknown as DatabaseService;
+  assert.deepEqual(await new EmployeesService(db).removeEmployee('employee-1', actor), { success: true });
+  assert.equal(changed?.where.id, 'employee-1');
+  assert.equal(changed?.data.active, false);
+  assert.match(changed?.data.login ?? '', /^deleted_/);
+  assert.ok(changed?.data.deletedAt instanceof Date);
+  assert.equal(changed?.data.posQrHash, null);
+  assert.equal(revoked, true);
+  assert.equal(audited, true);
+});
+
+test('the last active owner cannot be deleted', async () => {
+  const tx = { user: { count: async () => 1 } };
+  const db = {
+    user: { findUnique: async () => ({ id: 'owner-2', login: 'owner2', active: true, deletedAt: null, roleId: 'owner-role', role: { code: 'OWNER' }, allStores: true, stores: [] }) },
+    role: { findUnique: async () => ({ id: 'owner-role', deletedAt: null, permissions: [] }) },
+    $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+  } as unknown as DatabaseService;
+  await assert.rejects(new EmployeesService(db).removeEmployee('owner-2', { ...actor, allStores: true }), ConflictException);
+});
+
+test('role deletion protects system and assigned roles', async () => {
+  const role = { id: 'role-a', code: 'CUSTOM', name: 'Custom', system: true, deletedAt: null, permissions: [] };
+  const tx = { user: { count: async () => 1 } };
+  const db = { role: { findUnique: async () => role }, $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
+  const service = new EmployeesService(db);
+  await assert.rejects(service.removeRole('role-a', actor), ConflictException);
+  role.system = false;
+  await assert.rejects(service.removeRole('role-a', actor), ConflictException);
+});
+
+test('unused custom role deletion frees its code and writes an audit event', async () => {
+  let changed: { data: { code: string; deletedAt: Date } } | undefined;
+  let audited = false;
+  const tx = {
+    user: { count: async () => 0 },
+    role: { updateMany: async (options: typeof changed) => { changed = options; return { count: 1 }; } },
+    auditLog: { create: async () => { audited = true; } },
+  };
+  const db = {
+    role: { findUnique: async () => ({ id: 'role-a', code: 'CUSTOM', name: 'Custom', system: false, deletedAt: null, permissions: [] }) },
+    $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+  } as unknown as DatabaseService;
+  assert.deepEqual(await new EmployeesService(db).removeRole('role-a', actor), { success: true });
+  assert.match(changed?.data.code ?? '', /^DELETED_/);
+  assert.ok(changed?.data.deletedAt instanceof Date);
+  assert.equal(audited, true);
+});
+
+test('deleted employees and roles are excluded from management lists', async () => {
+  let employeeFilter: unknown;
+  let roleFilter: unknown;
+  const db = {
+    user: { findMany: async ({ where }: { where: unknown }) => { employeeFilter = where; return []; }, count: async () => 0 },
+    role: { findMany: async ({ where }: { where: unknown }) => { roleFilter = where; return []; } },
+    $transaction: async (operations: Promise<unknown>[]) => Promise.all(operations),
+  } as unknown as DatabaseService;
+  const service = new EmployeesService(db);
+  await service.list(actor, { page: 1, limit: 20 });
+  await service.roles();
+  assert.equal((employeeFilter as { deletedAt: null }).deletedAt, null);
+  assert.deepEqual(roleFilter, { deletedAt: null });
+});

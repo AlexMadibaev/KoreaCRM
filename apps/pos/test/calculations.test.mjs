@@ -11,6 +11,17 @@ test('personal discount applies after manual discount and rounds down per line',
   assert.deepEqual(lineDiscountMinor(lines[0], '12.50'), { manual: 10n, personal: 250n, total: 260n });
   assert.deepEqual(calculateCart(lines, '12.50'), { subtotal: 2111n, discount: 272n, total: 1839n });
 });
+test('customer-only POS totals have no discount without a customer', () => {
+  const lines = [{ productId: 'a', quantity: 2, available: 3, priceMinor: 1005, discountMinor: '0' }];
+  assert.deepEqual(calculateCartWithDiscount(lines, '0'), {
+    subtotal: 2010n, discount: 0n, total: 2010n, cartDiscountMinor: 0n,
+    lines: [{ productId: 'a', discountMinor: 0n, cartDiscountMinor: 0n, totalMinor: 2010n }],
+  });
+  const selectedCustomer = calculateCartWithDiscount(lines, '10');
+  assert.equal(selectedCustomer.discount, 201n);
+  assert.equal(selectedCustomer.total, 1809n);
+  assert.equal(selectedCustomer.lines[0].discountMinor, 201n);
+});
 test('cart rejects unavailable quantity and excessive discount', () => {
   assert.throws(() => calculateCart([{ productId: 'a', quantity: 2, available: 1, priceMinor: 100, discountMinor: '0' }]));
   assert.throws(() => calculateCart([{ productId: 'a', quantity: 1, available: 1, priceMinor: 100, discountMinor: '101' }]));

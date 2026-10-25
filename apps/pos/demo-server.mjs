@@ -67,9 +67,9 @@ function updateAverage(customer) { customer.averageCheckMinor = customer.ordersC
 const segmentDefinitions = {
   NEW: { label: 'Новый', description: 'Не более одной действующей покупки' },
   REGULAR: { label: 'Постоянный', description: 'Не менее трёх действующих покупок' },
-  VIP: { label: 'VIP', description: 'Не менее пяти действующих покупок и 5 000 000 сум потрачено' },
+  VIP: { label: 'VIP', description: 'Не менее пяти действующих покупок и 5 000 000 сомони потрачено' },
   DORMANT: { label: 'Давно не покупал', description: 'Последняя покупка была более 90 дней назад' },
-  HIGH_CHECK: { label: 'Высокий средний чек', description: 'Средний чек не ниже 500 000 сум' },
+  HIGH_CHECK: { label: 'Высокий средний чек', description: 'Средний чек не ниже 500 000 сомони' },
   FREQUENT: { label: 'Частые покупки', description: 'Не менее трёх покупок за последние 30 дней' },
 };
 function customerSegments(customer) {

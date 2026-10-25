@@ -26,7 +26,7 @@ export function EmployeeActivity({ employee, onClose }: { employee: { id: string
     return () => { active = false; };
   }, [employee.id, page]);
 
-  return <section className="crm-panel h-fit p-5" aria-label={`История действий ${employee.name}`}>
+  return <section id="employee-activity" className="crm-panel h-fit p-5" aria-label={`История действий ${employee.name}`}>
     <div className="flex items-start justify-between gap-3"><div><h2 className="font-semibold">История действий</h2><p className="mt-1 text-xs text-slate-500">{employee.name}</p></div><button type="button" aria-label="Закрыть историю" onClick={onClose}>✕</button></div>
     {error && <p role="alert" className="mt-4 rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {loading ? <p role="status" className="mt-5 text-sm text-slate-500">Загружаем историю…</p> : <div className="mt-5 space-y-0 border-l-2 border-violet-100 pl-4">{history?.items.map(record => <article key={record.id} className="relative border-b border-slate-100 py-3 last:border-0"><span className="absolute -left-[22px] top-5 h-3 w-3 rounded-full border-2 border-violet-500 bg-white" /><strong className="text-sm text-slate-800">{labels[record.action] ?? record.action.replaceAll('_', ' ')}</strong><p className="mt-1 text-xs text-slate-500">{new Date(record.createdAt).toLocaleString('ru-RU')}</p>{record.entityType === 'User' && record.entityId === employee.id && record.user?.id !== employee.id && <p className="mt-1 text-xs text-slate-500">Изменил: {record.user?.name ?? 'Система'}</p>}{record.deviceId && <p className="mt-1 text-xs text-slate-500">Устройство: {record.deviceId}</p>}</article>)}{!history?.items.length && <p className="py-5 text-sm text-slate-500">Действий пока нет</p>}</div>}

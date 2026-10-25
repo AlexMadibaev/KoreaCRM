@@ -22,10 +22,10 @@ try {
   await waitFor('document.body.innerText.includes("История клиента")');
   await evaluate('Array.from(document.querySelectorAll("[role=tab]")).find(button => button.textContent === "Бонусы")?.click()');
   await waitFor('document.body.innerText.includes("Начальный бонусный баланс для демо")');
-  assert.ok(await evaluate('document.body.innerText.includes("150,00 сум")'));
+  assert.ok(await evaluate('document.body.innerText.includes("150,00 сомони")'));
   await evaluate(`(() => { const form = [...document.querySelectorAll('form')].find(item => item.textContent.includes('Ручная корректировка')); const input = form.querySelector('input[inputmode=decimal]'); const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; inputSetter.call(input, '50'); input.dispatchEvent(new Event('input', { bubbles: true })); const reason = form.querySelector('textarea'); const textareaSetter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set; textareaSetter.call(reason, 'Корректировка после сверки'); reason.dispatchEvent(new Event('input', { bubbles: true })); })()`);
   await evaluate('Array.from(document.querySelectorAll("form")).find(item => item.textContent.includes("Ручная корректировка"))?.requestSubmit()');
-  await waitFor('document.body.innerText.includes("Корректировка после сверки") && document.body.innerText.includes("200,00 сум")');
+  await waitFor('document.body.innerText.includes("Корректировка после сверки") && document.body.innerText.includes("200,00 сомони")');
   const page = await fetch(`${base}/customers/demo-customer-1/bonuses`, { headers: { Authorization: `Bearer ${accessToken}` } }).then(response => response.json());
   assert.equal(page.balanceMinor, '20000');
   assert.equal(page.total, 2);

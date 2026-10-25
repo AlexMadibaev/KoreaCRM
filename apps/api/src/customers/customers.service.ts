@@ -5,7 +5,7 @@ import { DatabaseService } from '../database.service';
 import { FinanceService } from '../finance/finance.service';
 import type { AccessContext } from '../auth/policy';
 import { activitySchema, bonusCorrectionSchema, bonusListSchema, commentListSchema, commentSchema, createSchema, debtPaymentSchema, historySchema, listSchema, patchSchema } from './customers.schemas';
-import { deriveCustomerSegments, segmentCutoffs } from './customer-segments';
+import { defaultSegmentSettings, deriveCustomerSegments, segmentCutoffs, segmentSettingsSchema, type SegmentSettings } from './customer-segments';
 
 type CustomerInput = z.infer<typeof createSchema>;
 const retryable = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
@@ -14,19 +14,35 @@ const retryable = (error: unknown) => error instanceof Prisma.PrismaClientKnownR
 export class CustomersService {
   constructor(private readonly db: DatabaseService, private readonly finance: FinanceService) {}
 
+  async segmentSettings(): Promise<SegmentSettings> {
+    const row = await this.db.customerSegmentSettings.findUnique({ where: { id: 1 } });
+    return row ? segmentSettingsSchema.parse(row.rules) : defaultSegmentSettings;
+  }
+
+  async saveSegmentSettings(settings: SegmentSettings, actorId: string) {
+    const previous = await this.segmentSettings();
+    await this.db.$transaction(async tx => {
+      await tx.customerSegmentSettings.upsert({ where: { id: 1 }, create: { id: 1, rules: settings }, update: { rules: settings } });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_SEGMENT_SETTINGS_UPDATED', entityType: 'CustomerSegmentSettings', entityId: '1', oldValue: previous, newValue: settings } });
+    });
+    return settings;
+  }
+
   async list(query: z.infer<typeof listSchema>) {
+    const settings = await this.segmentSettings();
     const matches: Prisma.CustomerWhereInput[] = query.search ? [{ phone: { contains: query.search } }, { firstName: { contains: query.search, mode: 'insensitive' } }, { lastName: { contains: query.search, mode: 'insensitive' } }] : [];
     if (query.search && /^[0-9a-f-]{36}$/i.test(query.search)) matches.push({ id: query.search });
     const conditions: Prisma.CustomerWhereInput[] = [];
-    const { dormant, frequent } = segmentCutoffs(new Date());
-    if (query.segment === 'NEW') conditions.push({ ordersCount: { lte: 1 } });
-    if (query.segment === 'REGULAR') conditions.push({ ordersCount: { gte: 3 } });
-    if (query.segment === 'VIP') conditions.push({ ordersCount: { gte: 5 }, totalSpentMinor: { gte: '500000000' } });
+    const { dormant, frequent } = segmentCutoffs(new Date(), settings);
+    if (query.segment && !settings[query.segment].enabled) return { items: [], total: 0, page: query.page, limit: query.limit };
+    if (query.segment === 'NEW') conditions.push({ ordersCount: { lte: settings.NEW.maxOrders } });
+    if (query.segment === 'REGULAR') conditions.push({ ordersCount: { gte: settings.REGULAR.minOrders } });
+    if (query.segment === 'VIP') conditions.push({ ordersCount: { gte: settings.VIP.minOrders }, totalSpentMinor: { gte: settings.VIP.minSpentMinor } });
     if (query.segment === 'DORMANT') conditions.push({ sales: { some: { status: 'COMPLETED', createdAt: { lt: dormant } } } }, { sales: { none: { status: 'COMPLETED', createdAt: { gte: dormant } } } });
-    if (query.segment === 'HIGH_CHECK') conditions.push({ ordersCount: { gt: 0 }, averageCheckMinor: { gte: '50000000' } });
+    if (query.segment === 'HIGH_CHECK') conditions.push({ ordersCount: { gt: 0 }, averageCheckMinor: { gte: settings.HIGH_CHECK.minAverageMinor } });
     if (query.segment === 'FREQUENT') {
       const groups = await this.db.sale.groupBy({ by: ['customerId'], where: { customerId: { not: null }, status: 'COMPLETED', createdAt: { gte: frequent } }, _count: { _all: true } });
-      conditions.push({ id: { in: groups.filter(group => group.customerId && group._count._all >= 3).map(group => group.customerId!) }, ordersCount: { gte: 3 } });
+      conditions.push({ id: { in: groups.filter(group => group.customerId && group._count._all >= settings.FREQUENT.minOrders).map(group => group.customerId!) }, ordersCount: { gte: settings.FREQUENT.minOrders } });
     }
     const where: Prisma.CustomerWhereInput = { deletedAt: null, OR: matches.length ? matches : undefined, AND: conditions.length ? conditions : undefined };
     const [items, total] = await this.db.$transaction([this.db.customer.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }), this.db.customer.count({ where })]);
@@ -39,13 +55,14 @@ export class CustomersService {
   }
   async segments(id: string) {
     const customer = await this.get(id);
+    const settings = await this.segmentSettings();
     const now = new Date();
-    const { frequent } = segmentCutoffs(now);
+    const { frequent } = segmentCutoffs(now, settings);
     const [latest, recentSales] = await Promise.all([
       this.db.sale.findFirst({ where: { customerId: id, status: 'COMPLETED' }, orderBy: { createdAt: 'desc' }, select: { createdAt: true } }),
       this.db.sale.count({ where: { customerId: id, status: 'COMPLETED', createdAt: { gte: frequent } } }),
     ]);
-    return { items: deriveCustomerSegments(customer, latest?.createdAt ?? null, recentSales, now), lastPurchaseAt: latest?.createdAt ?? null };
+    return { items: deriveCustomerSegments(customer, latest?.createdAt ?? null, recentSales, now, settings), lastPurchaseAt: latest?.createdAt ?? null, settings };
   }
   async history(id: string, query: z.infer<typeof historySchema>, actor: AccessContext) {
     if (!await this.db.customer.findFirst({ where: { id, deletedAt: null }, select: { id: true } })) throw new NotFoundException('Customer not found');

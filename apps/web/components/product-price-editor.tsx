@@ -38,7 +38,7 @@ export function ProductPriceEditor({ productId }: { productId: string }) {
     event.preventDefault();
     const value = Number(priceMinor);
     if (!priceMinor || !Number.isSafeInteger(value) || value < 0 || value > 2_147_483_647) {
-      setError('Укажите цену от 0 до 21 474 836,47 сум'); return;
+      setError('Укажите цену от 0 до 21 474 836,47 сомони'); return;
     }
     setSaving(true); setError(''); setNotice('');
     try {
@@ -54,7 +54,7 @@ export function ProductPriceEditor({ productId }: { productId: string }) {
     {storeId && !loading && <div className="crm-product-current-price"><span>Текущая цена</span><strong>{savedPrice === null ? 'Не установлена' : formatCurrencyMinor(String(savedPrice))}</strong></div>}
     <form onSubmit={save}>
       <label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={saving || !stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
-      <label>Новая цена, сум<MoneyInput aria-label="Цена продажи, сум" valueMinor={priceMinor} onMinorChange={setPriceMinor} placeholder="0,00" disabled={loading || saving || !storeId} required /></label>
+      <label>Новая цена, сомони<MoneyInput aria-label="Цена продажи, сомони" valueMinor={priceMinor} onMinorChange={setPriceMinor} placeholder="0,00" disabled={loading || saving || !storeId} required /></label>
       <button className="crm-primary-button" disabled={loading || saving || !storeId || !priceMinor}>{saving ? 'Сохранение…' : 'Сохранить цену'}</button>
     </form>
     {error && <p role="alert" className="crm-alert">{error}</p>}

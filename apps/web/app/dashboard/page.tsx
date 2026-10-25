@@ -17,7 +17,7 @@ type Store = { id: string; name: string; status?: string; deletedAt?: string | n
 type LowStockItem = { productId: string; name: string; sku: string; quantity: number; minStock: number };
 type StockAttention = { visible: boolean; total: number; items: Array<LowStockItem & { storeId: string; storeName: string }>; error?: string };
 const date = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
-const count = (value: number) => new Intl.NumberFormat('ru-RU').format(value);
+const count = (value: number | undefined) => Number.isFinite(value) ? new Intl.NumberFormat('ru-RU').format(value!) : '—';
 
 export default function DashboardPage() {
   const [period, setPeriod] = useState<'today' | 'week' | 'month'>('week');

@@ -5,7 +5,7 @@ import { api, type Brand, type Category, type Page, type Product } from '../lib/
 
 type Values = Record<string, string>;
 const labels: Record<string, string> = {
-  name: 'Название', sku: 'SKU', description: 'Описание', country: 'Страна', unit: 'Единица',
+  name: 'Название', sku: 'Артикул', description: 'Описание', country: 'Страна', unit: 'Единица',
   shade: 'Оттенок', volume: 'Объём', weight: 'Вес', line: 'Линейка', collection: 'Коллекция',
   gender: 'Пол', skinType: 'Тип кожи', productType: 'Тип товара',
 };
@@ -47,7 +47,7 @@ export function ProductForm({ product, onSaved }: { product?: Product; onSaved: 
   }
 
   return <form onSubmit={submit} className="crm-product-form">
-    <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ОСНОВНОЕ</span><h2>Данные товара</h2><p>Название и SKU используются для поиска в каталоге и кассе.</p></div>
+    <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ОСНОВНОЕ</span><h2>Данные товара</h2><p>Название и артикул помогают найти товар в каталоге и кассе.</p></div>
       <div className="crm-product-form-grid">
         {(['name', 'sku', 'unit'] as const).map(key => <label key={key}>{labels[key]}<input value={values[key]} onChange={event => setValues({ ...values, [key]: event.target.value })} required /></label>)}
         <label>Бренд<select value={brandId} onChange={event => setBrandId(event.target.value)}><option value="">Без бренда</option>{brands.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>

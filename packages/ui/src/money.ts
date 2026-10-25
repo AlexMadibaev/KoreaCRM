@@ -30,5 +30,5 @@ export function formatCurrencyMinor(minor: string | null | undefined): string {
   if (minor == null) return '—';
   const amount = BigInt(minor);
   const absolute = amount < 0n ? -amount : amount;
-  return `${amount < 0n ? '−' : ''}${new Intl.NumberFormat('ru-RU').format(absolute / 100n)},${String(absolute % 100n).padStart(2, '0')} сум`;
+  return `${amount < 0n ? '−' : ''}${new Intl.NumberFormat('ru-RU').format(absolute / 100n)},${String(absolute % 100n).padStart(2, '0')} сомони`;
 }

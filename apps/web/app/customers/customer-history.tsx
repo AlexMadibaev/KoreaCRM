@@ -9,7 +9,7 @@ import { CustomerBonuses } from './customer-bonuses';
 type Purchase = { id: string; number: string; createdAt: string; totalMinor: string; status: string; store: { name: string }; items: { id: string; quantity: number; totalMinor: string; product: { name: string } }[] };
 type Return = { id: string; createdAt: string; amountMinor: string; reason: string; sale: { id: string; number: string }; items: { id: string; quantity: number; amountMinor: string; saleItem: { product: { name: string } } }[] };
 type DebtEntry = { id: string; createdAt: string; type: 'SALE' | 'PAYMENT'; amountMinor: string; sale: { number: string } | null; customerPayment: { paymentMethod: { name: string } } | null };
-const money = (minor: string) => { const value = BigInt(minor); const absolute = value < 0n ? -value : value; const fraction = absolute % 100n; return `${value < 0n ? '−' : ''}${new Intl.NumberFormat('ru-RU').format(absolute / 100n)}${fraction ? `,${String(fraction).padStart(2, '0')}` : ''} сум`; };
+const money = (minor: string) => { const value = BigInt(minor); const absolute = value < 0n ? -value : value; const fraction = absolute % 100n; return `${value < 0n ? '−' : ''}${new Intl.NumberFormat('ru-RU').format(absolute / 100n)}${fraction ? `,${String(fraction).padStart(2, '0')}` : ''} сомони`; };
 
 export function CustomerHistory({ customerId, debtBalanceMinor, canComment, canCorrectBonus, onBonusChanged }: { customerId: string; debtBalanceMinor: string; canComment: boolean; canCorrectBonus: boolean; onBonusChanged: () => Promise<void> }) {
   const [kind, setKind] = useState<'sales' | 'returns' | 'bonuses' | 'debts' | 'comments' | 'activity'>('sales');
@@ -34,7 +34,7 @@ export function CustomerHistory({ customerId, debtBalanceMinor, canComment, canC
   return <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h3 className="font-semibold">История клиента</h3>
-      <div role="tablist" aria-label="История клиента" className="flex gap-1 rounded-lg bg-white p-1 shadow-sm">
+      <div role="tablist" aria-label="История клиента" className="flex min-w-0 gap-1 rounded-lg bg-white p-1 shadow-sm">
         <button type="button" role="tab" aria-selected={kind === 'sales'} onClick={() => selectKind('sales')} className={`rounded-md px-3 py-2 text-sm ${kind === 'sales' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Покупки</button>
         <button type="button" role="tab" aria-selected={kind === 'returns'} onClick={() => selectKind('returns')} className={`rounded-md px-3 py-2 text-sm ${kind === 'returns' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Возвраты</button>
         <button type="button" role="tab" aria-selected={kind === 'bonuses'} onClick={() => selectKind('bonuses')} className={`rounded-md px-3 py-2 text-sm ${kind === 'bonuses' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Бонусы</button>

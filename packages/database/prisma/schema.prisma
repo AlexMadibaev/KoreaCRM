@@ -16,6 +16,7 @@ model User {
   posQrHash     String?        @unique
   posEanHash    String?        @unique
   active        Boolean        @default(true)
+  deletedAt     DateTime?
   allStores     Boolean        @default(false)
   roleId        String         @db.Uuid
   role          Role           @relation(fields: [roleId], references: [id])
@@ -44,6 +45,8 @@ model User {
   notifications Notification[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
+
+  @@index([deletedAt])
 }
 
 model Role {
@@ -51,10 +54,13 @@ model Role {
   code        String           @unique
   name        String
   system      Boolean          @default(false)
+  deletedAt   DateTime?
   users       User[]
   permissions RolePermission[]
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+
+  @@index([deletedAt])
 }
 
 model Permission {
@@ -558,6 +564,12 @@ model Customer {
   deletedAt         DateTime?
 
   @@index([firstName, lastName])
+}
+
+model CustomerSegmentSettings {
+  id        Int      @id @default(1)
+  rules     Json
+  updatedAt DateTime @updatedAt
 }
 
 enum SalePaymentKind {

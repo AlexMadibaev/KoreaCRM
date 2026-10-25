@@ -44,8 +44,8 @@ export function CameraCodeScanner({ onDetected, onClose }: { onDetected: (code: 
   }, [onDetected]);
 
   return <div className="camera-scanner">
-    <video ref={videoRef} autoPlay muted playsInline aria-label="Изображение с камеры для считывания QR или EAN-13" />
-    <p className="scan-hint">Покажите камере QR или штрихкод EAN-13. Вход выполнится автоматически.</p>
+    <video ref={videoRef} autoPlay muted playsInline aria-label="Камера для считывания кода кассира" />
+    <p className="scan-hint">Покажите камере код кассира. Вход выполнится автоматически.</p>
     {error && <p role="alert" className="error">{error}</p>}
     <button type="button" onClick={onClose}>Закрыть камеру</button>
   </div>;

@@ -1,13 +1,18 @@
 import type { HealthStatus } from '@koreacrm/types';
 
+function endpoint(baseUrl: string, path: string): URL {
+  return new URL(`${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`);
+}
+
 export async function getHealth(baseUrl: string): Promise<HealthStatus> {
-  const response = await fetch(new URL('/health', baseUrl));
+  const response = await fetch(endpoint(baseUrl, '/health'));
   if (!response.ok) throw new Error(`API returned ${response.status}`);
   return (await response.json()) as HealthStatus;
 }
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, message: string) { super(message); }
+  readonly status: number;
+  constructor(status: number, message: string) { super(message); this.status = status; }
 }
 
 export function createApiClient(baseUrl: string, deviceId: string) {
@@ -15,7 +20,7 @@ export function createApiClient(baseUrl: string, deviceId: string) {
   let refreshToken = '';
   let refreshing: Promise<void> | null = null;
   async function raw<T>(path: string, body?: unknown, method = 'GET', authorized = true): Promise<T> {
-    const response = await fetch(new URL(path, baseUrl), { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(authorized && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+    const response = await fetch(endpoint(baseUrl, path), { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(authorized && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
     if (!response.ok) {
       const result: unknown = await response.json().catch(() => null);
       const message = result && typeof result === 'object' && 'message' in result && typeof result.message === 'string' ? result.message : `API returned ${response.status}`;

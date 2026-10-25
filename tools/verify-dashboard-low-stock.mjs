@@ -17,7 +17,7 @@ try {
   await evaluate(`sessionStorage.setItem('accessToken', ${JSON.stringify(login.accessToken)})`);
   await call('Page.navigate', { url: 'http://127.0.0.1:3004/dashboard' });
   await waitFor('document.querySelector(".crm-stock-attention-list a")?.textContent.includes("Крем для лица Centella")');
-  assert.ok(await evaluate('[...document.querySelectorAll(".crm-metric")].find(card => card.textContent.includes("Выручка"))?.textContent.includes("1 900,00 сум") || [...document.querySelectorAll(".crm-metric")].find(card => card.textContent.includes("Выручка"))?.textContent.includes("1\u00a0900,00 сум")'));
+  assert.ok(await evaluate('[...document.querySelectorAll(".crm-metric")].find(card => card.textContent.includes("Выручка"))?.textContent.includes("1 900,00 сомони") || [...document.querySelectorAll(".crm-metric")].find(card => card.textContent.includes("Выручка"))?.textContent.includes("1\u00a0900,00 сомони")'));
   assert.equal(await evaluate('[...document.querySelectorAll(".crm-metric")].find(card => card.textContent.includes("Валовая прибыль"))?.querySelector("strong")?.textContent'), '—');
   assert.ok(await evaluate('document.querySelector(".crm-stock-attention")?.textContent.includes("Требуют внимания: 1")'));
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });

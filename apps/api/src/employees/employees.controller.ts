@@ -15,6 +15,7 @@ export class EmployeesController {
   @Get(':id/activity') @RequirePermission('employees.view') activity(@Param('id', ParseUUIDPipe) id: string, @Query() query: unknown, @Req() req: AuthorizedRequest) { return this.service.activity(id, req.access, parseEmployeeInput(employeeActivitySchema, query)); }
   @Post() @RequirePermission('employees.create') create(@Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.create(parseEmployeeInput(employeeCreateSchema, body), req.access); }
   @Patch(':id') @RequirePermission('employees.edit') update(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.update(id, parseEmployeeInput(employeePatchSchema, body), req.access); }
+  @Delete(':id') @RequirePermission('employees.edit') remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.removeEmployee(id, req.access); }
   @Post(':id/pos-codes') @RequirePermission('employees.edit') issuePosCodes(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.issuePosCodes(id, req.access); }
   @Delete(':id/pos-codes') @RequirePermission('employees.edit') revokePosCodes(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.revokePosCodes(id, req.access); }
 }
@@ -26,4 +27,5 @@ export class RolesController {
   @Get('permissions') @RequirePermission('employees.view') permissions() { return this.service.permissions(); }
   @Post() @RequirePermission('settings.edit') create(@Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.createRole(parseEmployeeInput(roleCreateSchema, body), req.access); }
   @Patch(':id') @RequirePermission('settings.edit') update(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.updateRole(id, parseEmployeeInput(rolePatchSchema, body), req.access); }
+  @Delete(':id') @RequirePermission('settings.edit') remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.removeRole(id, req.access); }
 }

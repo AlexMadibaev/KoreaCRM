@@ -4,6 +4,7 @@ import type { Request } from 'express';
 import { AccessGuard, RequirePermission, StoreScopeGuard } from '../auth/guards';
 import type { AccessContext } from '../auth/policy';
 import { CustomersService } from './customers.service';
+import { segmentSettingsSchema } from './customer-segments';
 import { activitySchema, bonusCorrectionSchema, bonusListSchema, commentListSchema, commentSchema, createSchema, debtPaymentSchema, historySchema, listSchema, parseInput, patchSchema } from './customers.schemas';
 
 type AuthorizedRequest = Request & { access: AccessContext };
@@ -12,6 +13,8 @@ type AuthorizedRequest = Request & { access: AccessContext };
 export class CustomersController {
   constructor(private readonly service: CustomersService) {}
   @Get() @RequirePermission('customers.view') list(@Query() query: unknown) { return this.service.list(parseInput(listSchema, query)); }
+  @Get('segment-settings') @RequirePermission('customers.view') segmentSettings() { return this.service.segmentSettings(); }
+  @Patch('segment-settings') @RequirePermission('settings.edit') saveSegmentSettings(@Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.saveSegmentSettings(parseInput(segmentSettingsSchema, body), req.access.userId); }
   @Get(':id/history') @RequirePermission('customers.view') history(@Param('id', ParseUUIDPipe) id: string, @Query() query: unknown, @Req() req: AuthorizedRequest) { return this.service.history(id, parseInput(historySchema, query), req.access); }
   @Get(':id/comments') @RequirePermission('customers.view') comments(@Param('id', ParseUUIDPipe) id: string, @Query() query: unknown) { return this.service.comments(id, parseInput(commentListSchema, query)); }
   @Get(':id/segments') @RequirePermission('customers.view') segments(@Param('id', ParseUUIDPipe) id: string) { return this.service.segments(id); }

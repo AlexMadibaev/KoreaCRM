@@ -5,11 +5,12 @@ import type { DatabaseService } from '../src/database.service';
 import type { FinanceService } from '../src/finance/finance.service';
 import { CustomersService } from '../src/customers/customers.service';
 import { bonusCorrectionSchema, commentSchema } from '../src/customers/customers.schemas';
-import { deriveCustomerSegments } from '../src/customers/customer-segments';
+import { defaultSegmentSettings, deriveCustomerSegments } from '../src/customers/customer-segments';
 
 test('customer text search does not include an empty match-all branch', async () => {
   let where: Prisma.CustomerWhereInput | undefined;
   const db = {
+    customerSegmentSettings: { findUnique: async () => null },
     customer: {
       findMany: ({ where: filter }: { where: Prisma.CustomerWhereInput }) => { where = filter; return Promise.resolve([]); },
       count: async () => 0,
@@ -29,9 +30,16 @@ test('customer segments use purchase count, spend and recency thresholds', () =>
   assert.deepEqual(dormant.map(item => item.code), ['NEW', 'DORMANT']);
 });
 
+test('changed segment rules apply immediately and disabled rules disappear', () => {
+  const settings = { ...defaultSegmentSettings, NEW: { enabled: false, maxOrders: 2 }, REGULAR: { enabled: true, minOrders: 2 }, VIP: { enabled: true, minOrders: 2, minSpentMinor: '10000' } };
+  const segments = deriveCustomerSegments({ ordersCount: 2, totalSpentMinor: '12000', averageCheckMinor: '6000' }, null, 0, new Date('2026-10-13T12:00:00.000Z'), settings);
+  assert.deepEqual(segments.map(item => item.code), ['REGULAR', 'VIP']);
+});
+
 test('frequent segment filters the customer list before pagination', async () => {
   let where: Prisma.CustomerWhereInput | undefined;
   const db = {
+    customerSegmentSettings: { findUnique: async () => null },
     sale: { groupBy: async () => [{ customerId: 'customer-1', _count: { _all: 3 } }, { customerId: 'customer-2', _count: { _all: 2 } }] },
     customer: { findMany: ({ where: filter }: { where: Prisma.CustomerWhereInput }) => { where = filter; return Promise.resolve([]); }, count: async () => 0 },
     $transaction: async (operations: Promise<unknown>[]) => Promise.all(operations),

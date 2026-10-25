@@ -23,7 +23,7 @@ try {
   await waitFor('document.body.innerText.includes("Долг по продаже")');
   assert.ok(await evaluate('Array.from(document.querySelectorAll("dt")).find(node => node.textContent === "Персональная скидка")?.nextElementSibling?.textContent === "10%"'));
   assert.ok(await evaluate('document.body.innerText.includes("Погашение долга")'));
-  assert.ok(await evaluate('/Текущий долг:\\s*1\\s*400\\s*сум/u.test(document.body.innerText)'));
+  assert.ok(await evaluate('/Текущий долг:\\s*1\\s*400\\s*сомони/u.test(document.body.innerText)'));
   assert.equal(await evaluate('document.querySelector("[role=alert]")?.textContent ?? ""'), '');
   await call('Emulation.setDeviceMetricsOverride', { width: 1440, height: 1000, deviceScaleFactor: 1, mobile: false });
   const screenshot = await call('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
@@ -49,8 +49,8 @@ try {
   if (process.argv.includes('--pay')) {
     await evaluate(`(() => { const form = [...document.querySelectorAll('form')].find(form => form.textContent.includes('Погасить долг')); const select = [...form.querySelectorAll('select')].find(select => [...select.options].some(option => option.value === 'demo-card')); const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value').set; setter.call(select, 'demo-card'); select.dispatchEvent(new Event('change', { bubbles: true })); const input = form.querySelector('input[inputmode=decimal]'); const inputSetter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set; inputSetter.call(input, '100'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`);
     await evaluate('Array.from(document.querySelectorAll("form button")).find(button => button.textContent === "Погасить долг")?.click()');
-    await waitFor('/Текущий долг:\\s*1\\s*300\\s*сум/u.test(document.body.innerText)');
-    await waitFor('document.body.innerText.includes("−100 сум")');
+    await waitFor('/Текущий долг:\\s*1\\s*300\\s*сомони/u.test(document.body.innerText)');
+    await waitFor('document.body.innerText.includes("−100 сомони")');
     assert.equal(await evaluate('document.querySelector("[role=alert]")?.textContent ?? ""'), '');
   }
   console.log(JSON.stringify({ debtSale: true, payment: true, balance: true }));

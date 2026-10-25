@@ -70,7 +70,7 @@ export class NotificationsService {
         type: NotificationType.LARGE_DISCOUNT,
         storeId: sale.storeId,
         title: 'Крупная скидка',
-        message: `Чек ${sale.number} · скидка ${formatMinor(discountMinor)} сум (${percent}%)`,
+        message: `Чек ${sale.number} · скидка ${formatMinor(discountMinor)} сомони (${percent}%)`,
       })),
       skipDuplicates: true,
     });
@@ -94,7 +94,7 @@ export class NotificationsService {
         type: NotificationType.LARGE_RETURN,
         storeId: record.storeId,
         title: 'Крупный возврат',
-        message: `Чек ${saleNumber} · ${formatMinor(amountMinor)} сум`,
+        message: `Чек ${saleNumber} · ${formatMinor(amountMinor)} сомони`,
       })),
       skipDuplicates: true,
     });

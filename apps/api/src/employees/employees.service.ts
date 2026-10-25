@@ -7,8 +7,8 @@ import type { AccessContext } from '../auth/policy';
 import { hashPosCode, newPosCodes } from '../auth/pos-code';
 import { employeeActivitySchema, employeeCreateSchema, employeeListSchema, employeePatchSchema, roleCreateSchema, rolePatchSchema } from './employees.schemas';
 
-const userPublic = { id: true, name: true, login: true, active: true, allStores: true, createdAt: true, roleId: true, role: { select: { id: true, code: true, name: true, permissions: { select: { permission: { select: { code: true } } } } } }, stores: { select: { storeId: true } } } as const;
-const rolePublic = { id: true, code: true, name: true, system: true, permissions: { select: { permission: { select: { code: true } } } } } as const;
+const userPublic = { id: true, name: true, login: true, active: true, deletedAt: true, allStores: true, createdAt: true, roleId: true, role: { select: { id: true, code: true, name: true, permissions: { select: { permission: { select: { code: true } } } } } }, stores: { select: { storeId: true } } } as const;
+const rolePublic = { id: true, code: true, name: true, system: true, deletedAt: true, permissions: { select: { permission: { select: { code: true } } } } } as const;
 const unique = (values: string[]) => [...new Set(values)];
 const isDuplicate = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
 
@@ -18,6 +18,7 @@ export class EmployeesService {
 
   async list(actor: AccessContext, query: z.infer<typeof employeeListSchema>) {
     const where: Prisma.UserWhereInput = {
+      deletedAt: null,
       ...(actor.allStores ? {} : { allStores: false, stores: { some: { storeId: { in: actor.storeIds } } } }),
       ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { login: { contains: query.search, mode: 'insensitive' } }] } : {}),
     };
@@ -25,7 +26,7 @@ export class EmployeesService {
     return { items, total, page: query.page, limit: query.limit };
   }
 
-  async roles() { return this.db.role.findMany({ select: rolePublic, orderBy: { name: 'asc' } }); }
+  async roles() { return this.db.role.findMany({ where: { deletedAt: null }, select: rolePublic, orderBy: { name: 'asc' } }); }
   async permissions() { return this.db.permission.findMany({ select: { code: true }, orderBy: { code: 'asc' } }); }
 
   async activity(id: string, actor: AccessContext, query: z.infer<typeof employeeActivitySchema>) {
@@ -41,8 +42,8 @@ export class EmployeesService {
   }
 
   private async posCodeTarget(id: string, actor: AccessContext) {
-    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, name: true, active: true, allStores: true, stores: { select: { storeId: true } }, role: { select: { permissions: { select: { permission: { select: { code: true } } } } } } } });
-    if (!employee) throw new NotFoundException('Employee not found');
+    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, name: true, active: true, deletedAt: true, allStores: true, stores: { select: { storeId: true } }, role: { select: { permissions: { select: { permission: { select: { code: true } } } } } } } });
+    if (!employee || employee.deletedAt) throw new NotFoundException('Employee not found');
     if (!actor.allStores && (employee.allStores || !employee.stores.length || employee.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
     if (employee.role.permissions.some(item => !actor.permissions.includes(item.permission.code))) throw new ForbiddenException('Employee has permissions outside your role');
     return employee;
@@ -72,7 +73,7 @@ export class EmployeesService {
 
   private async allowedRole(roleId: string, actor: AccessContext) {
     const role = await this.db.role.findUnique({ where: { id: roleId }, select: rolePublic });
-    if (!role) throw new NotFoundException('Role not found');
+    if (!role || role.deletedAt) throw new NotFoundException('Role not found');
     if (role.permissions.some(item => !actor.permissions.includes(item.permission.code))) throw new ForbiddenException('Role grants permissions you do not have');
     return role;
   }
@@ -108,7 +109,7 @@ export class EmployeesService {
   async update(id: string, input: z.infer<typeof employeePatchSchema>, actor: AccessContext) {
     if (id === actor.userId) throw new ConflictException('Edit your own account through profile settings');
     const current = await this.db.user.findUnique({ where: { id }, select: userPublic });
-    if (!current) throw new NotFoundException('Employee not found');
+    if (!current || current.deletedAt) throw new NotFoundException('Employee not found');
     if (!actor.allStores && (current.allStores || current.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
     await this.allowedRole(current.roleId, actor);
     const roleId = input.roleId ?? current.roleId;
@@ -129,6 +130,25 @@ export class EmployeesService {
       });
       return this.db.user.findUniqueOrThrow({ where: { id }, select: userPublic });
     } catch (error) { if (isDuplicate(error)) throw new ConflictException('Login already exists'); throw error; }
+  }
+
+  async removeEmployee(id: string, actor: AccessContext) {
+    if (id === actor.userId) throw new ConflictException('Вы не можете удалить свою учётную запись');
+    const current = await this.db.user.findUnique({ where: { id }, select: userPublic });
+    if (!current || current.deletedAt) throw new NotFoundException('Сотрудник не найден');
+    if (!actor.allStores && (current.allStores || current.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
+    await this.allowedRole(current.roleId, actor);
+    await this.db.$transaction(async tx => {
+      if (current.active && current.role.code === 'OWNER') {
+        const owners = await tx.user.count({ where: { active: true, deletedAt: null, role: { code: 'OWNER' } } });
+        if (owners <= 1) throw new ConflictException('Нельзя удалить последнего владельца');
+      }
+      const removed = await tx.user.updateMany({ where: { id, deletedAt: null }, data: { active: false, deletedAt: new Date(), login: `deleted_${id.replace(/-/g, '')}`, pinHash: null, posQrHash: null, posEanHash: null } });
+      if (removed.count !== 1) throw new NotFoundException('Сотрудник не найден');
+      await tx.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+      await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_DELETED', entityType: 'User', entityId: id, oldValue: { login: current.login, roleId: current.roleId, allStores: current.allStores, storeIds: current.stores.map(item => item.storeId) } } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    return { success: true };
   }
 
   private async checkedPermissions(codes: string[], actor: AccessContext) {
@@ -153,7 +173,7 @@ export class EmployeesService {
 
   async updateRole(id: string, input: z.infer<typeof rolePatchSchema>, actor: AccessContext) {
     const current = await this.db.role.findUnique({ where: { id }, select: rolePublic });
-    if (!current) throw new NotFoundException('Role not found');
+    if (!current || current.deletedAt) throw new NotFoundException('Role not found');
     if (current.system) throw new ConflictException('System role cannot be edited');
     if (current.permissions.some(item => !actor.permissions.includes(item.permission.code))) throw new ForbiddenException();
     const codes = input.permissions ? await this.checkedPermissions(input.permissions, actor) : undefined;
@@ -168,5 +188,20 @@ export class EmployeesService {
       await tx.auditLog.create({ data: { userId: actor.userId, action: 'ROLE_UPDATED', entityType: 'Role', entityId: id, newValue: { name: input.name, permissions: codes } } });
     });
     return this.db.role.findUniqueOrThrow({ where: { id }, select: rolePublic });
+  }
+
+  async removeRole(id: string, actor: AccessContext) {
+    const current = await this.db.role.findUnique({ where: { id }, select: rolePublic });
+    if (!current || current.deletedAt) throw new NotFoundException('Роль не найдена');
+    if (current.system) throw new ConflictException('Системную роль удалить нельзя');
+    if (current.permissions.some(item => !actor.permissions.includes(item.permission.code))) throw new ForbiddenException();
+    await this.db.$transaction(async tx => {
+      const assigned = await tx.user.count({ where: { roleId: id, deletedAt: null } });
+      if (assigned) throw new ConflictException('Сначала назначьте сотрудникам другую роль');
+      const removed = await tx.role.updateMany({ where: { id, deletedAt: null }, data: { deletedAt: new Date(), code: `DELETED_${id.replace(/-/g, '')}` } });
+      if (removed.count !== 1) throw new NotFoundException('Роль не найдена');
+      await tx.auditLog.create({ data: { userId: actor.userId, action: 'ROLE_DELETED', entityType: 'Role', entityId: id, oldValue: { code: current.code, name: current.name } } });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    return { success: true };
   }
 }

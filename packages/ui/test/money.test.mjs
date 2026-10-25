@@ -18,8 +18,8 @@ test('signed cash adjustments keep their sign and fractional amount', () => {
 });
 
 test('currency labels preserve cents and show unavailable data honestly', () => {
-  assert.equal(formatCurrencyMinor('1250'), '12,50 сум');
-  assert.equal(formatCurrencyMinor('-225'), '−2,25 сум');
+  assert.equal(formatCurrencyMinor('1250'), '12,50 сомони');
+  assert.equal(formatCurrencyMinor('-225'), '−2,25 сомони');
   assert.equal(formatCurrencyMinor(null), '—');
 });
 

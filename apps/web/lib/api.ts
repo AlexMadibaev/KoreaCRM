@@ -19,6 +19,17 @@ export function productImageUrl(storageKey: string): string {
   return `${apiBase}/product-images/${encodeURIComponent(storageKey)}`;
 }
 
+function userError(status: number, path: string, body: unknown): string {
+  if (status === 401 && path.startsWith('/auth/login')) return 'Неверный логин или пароль.';
+  if (status === 401) return 'Время входа истекло. Войдите снова.';
+  if (status === 403) return 'У вас нет доступа к этому действию. Обратитесь к администратору.';
+  if (status === 404) return 'Запись не найдена. Обновите страницу и попробуйте снова.';
+  if (status >= 500) return 'Сервис временно недоступен. Попробуйте ещё раз позже.';
+  const detail = body && typeof body === 'object' && 'message' in body && typeof body.message === 'string' ? body.message : '';
+  if (!detail || /^(Forbidden|Unauthorized|Bad Request|Conflict|API returned \d+)$/i.test(detail)) return 'Не удалось выполнить действие. Проверьте данные и попробуйте снова.';
+  return detail;
+}
+
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   const isAuthRequest = path.startsWith('/auth/login') || path.startsWith('/auth/refresh');
   const token = typeof window === 'undefined' || isAuthRequest ? null : await ensureAccessToken();
@@ -27,10 +38,15 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     headers: { ...(options.body && !(options.body instanceof FormData) ? { 'Content-Type': 'application/json' } : {}), ...(currentToken ? { Authorization: `Bearer ${currentToken}` } : {}), ...options.headers },
     cache: 'no-store',
   });
-  let response = await request(token);
+  let response: Response;
+  try { response = await request(token); }
+  catch { throw new Error('Нет связи с программой. Проверьте подключение и попробуйте снова.'); }
   if (response.status === 401 && !isAuthRequest && typeof window !== 'undefined') {
     const replacement = await refreshAccessToken();
-    if (replacement) response = await request(replacement);
+    if (replacement) {
+      try { response = await request(replacement); }
+      catch { throw new Error('Нет связи с программой. Проверьте подключение и попробуйте снова.'); }
+    }
     if (response.status === 401) {
       clearSession();
       window.location.href = '/login';
@@ -38,7 +54,7 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(typeof body.message === 'string' ? body.message : `Ошибка API: ${response.status}`);
+    throw new Error(userError(response.status, path, body));
   }
   return response.json() as Promise<T>;
 }

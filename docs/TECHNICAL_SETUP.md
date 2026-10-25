@@ -1,5 +1,7 @@
 # Техническая карта Korea CRM
 
+Основная валюта по ТЗ — TJS (сомони). Денежные значения в текущем коде хранятся как целые числа с масштабом 100 и показываются с двумя десятичными знаками. Не подписывайте их как «сум».
+
 Этот документ описывает зависимости **текущего коммита**, а не список будущих требований из ТЗ. Точные версии JavaScript пакетов зафиксированы в `pnpm-lock.yaml`; исходные диапазоны версий находятся в `package.json` каждого пакета.
 
 ## Компоненты и зависимости
@@ -44,6 +46,8 @@ corepack pnpm --filter @koreacrm/web dev
 
 `tools/start-mvp.ps1` и `tools/backup-mvp.ps1` подготовлены для исходного Windows ПК: они ожидают PostgreSQL 16 в `C:\Program Files\PostgreSQL\16\bin` и уже созданный кластер `tools/pg-test-data` на порту 5433. Этот кластер **не хранится в GitHub**. Для чистого клона используйте порядок выше или VPS Compose.
 
+На исходном ПК `tools/weekly-offsite-backup.ps1` создаёт еженедельный архив PostgreSQL, фотографий и SQLite кассы. Для снимка SQLite нужен Python 3; для отправки на VPS — Windows OpenSSH Client, SSH-ключ и закрытый для других пользователей каталог на VPS. Расписание устанавливает `tools/install-weekly-offsite-backup.ps1`. Настройка и восстановление описаны в [инструкции](WEEKLY_OFFSITE_BACKUP.md). Рабочие локальные базы и очередь кассы после отправки не удаляются.
+
 ## Конфигурация
 
 | Переменная                                | Где используется       | Назначение                                                                                          |
@@ -56,6 +60,7 @@ corepack pnpm --filter @koreacrm/web dev
 | `NEXT_PUBLIC_API_URL`                     | веб, на этапе сборки   | Адрес API в браузере; на VPS — `/api`                                                               |
 | `KOREACRM_API_PROXY_TARGET`               | Next.js                | Необязательная внутренняя проксировка `/api` для локального запуска                                 |
 | `KOREACRM_NEXT_DIST_DIR`                  | Next.js                | Необязательный каталог сборки для отдельных предпросмотров                                          |
+| `KOREACRM_LOCAL_BACKUP_ENABLED`           | локальный веб          | `1` включает ручное резервное копирование в кабинете владельца только на Windows ПК с локальным API; `tools/start-mvp.ps1` задаёт это значение сам |
 | `VITE_API_URL`                            | касса, на этапе сборки | Начальный адрес API; его можно сменить в интерфейсе кассы                                           |
 | `DOMAIN`, `POSTGRES_PASSWORD`             | VPS Compose            | Домен HTTPS и пароль PostgreSQL; шаблон — `deploy/production/env.example`                           |
 | `NOTIFICATION_LARGE_*`                    | API                    | Пороги уведомлений; значения по умолчанию есть в `.env.example`                                     |
