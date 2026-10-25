@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { usePathname, useRouter } from 'next/navigation';
@@ -47,6 +47,7 @@ export function CatalogShell({ children }: { children: React.ReactNode }) {
   const [me, setMe] = useState<Me | null>(cachedMe);
   const [ready, setReady] = useState(() => cachedMe() !== null);
   const [menuOpen, setMenuOpen] = useState(false);
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
   const [unreadCount, setUnreadCount] = useState(0);
   useEffect(() => {
     ensureAccessToken().then(token => {
@@ -56,27 +57,38 @@ export function CatalogShell({ children }: { children: React.ReactNode }) {
   }, [router]);
   useEffect(() => { setMenuOpen(false); }, [pathname]);
   useEffect(() => {
-    if (!menuOpen) return;
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenuOpen(false); };
-    window.addEventListener('keydown', close);
-    return () => window.removeEventListener('keydown', close);
-  }, [menuOpen]);
-  useEffect(() => {
     if (!(me?.permissions.includes('inventory.view') || me?.permissions.includes('sales.view'))) return;
     const refresh = () => { api<{ unreadCount: number }>('/notifications/summary').then(result => setUnreadCount(result.unreadCount)).catch(() => undefined); };
     refresh();
     window.addEventListener('koreacrm:notifications-changed', refresh);
     return () => window.removeEventListener('koreacrm:notifications-changed', refresh);
   }, [me]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    document.querySelector<HTMLAnchorElement>('#crm-navigation a')?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setMenuOpen(false);
+        menuButtonRef.current?.focus();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
   if (!ready) return <div className="crm-loading">Проверка доступа…</div>;
   const current = pathname.startsWith('/products/') ? 'Товары' : [...groups.flatMap(group => group.links), ['/account', 'Личный кабинет']].find(([href]) => pathname === href)?.[1] ?? 'Korea CRM';
   return <div className="crm-shell">
-    <aside className={`crm-sidebar ${menuOpen ? 'crm-sidebar-open' : ''}`}>
+    <aside id="crm-navigation" className={`crm-sidebar ${menuOpen ? 'crm-sidebar-open' : ''}`}>
       <Link href={firstCabinetPath(me?.permissions ?? [])} className="crm-brand" onClick={() => setMenuOpen(false)}><span><Image className="crm-brand-logo" src="/koreacrm-logo.svg" alt="Korea CRM" width={163} height={26} /><small>Управление магазином</small></span></Link>
       <nav aria-label="Основная навигация">{groups.map(group => { const links = group.links.filter(([href]) => { if (href === '/notifications') return me?.permissions.includes('inventory.view') || me?.permissions.includes('sales.view'); const required = routePermission[href]; return required && me?.permissions.includes(required); }); return links.length ? <div className="crm-nav-group" key={group.title}><div className="crm-nav-title">{group.title}</div>{links.map(([href, label]) => <Link key={href} href={href} onClick={() => setMenuOpen(false)} aria-current={pathname === href ? 'page' : undefined} className={`crm-nav-link ${pathname === href ? 'active' : ''}`}><span className="crm-nav-icon"><NavIcon href={href} /></span>{label}</Link>)}</div> : null; })}</nav>
       <Link href="/account" className={`crm-sidebar-account ${pathname === '/account' ? 'active' : ''}`} onClick={() => setMenuOpen(false)}><span className="crm-avatar">{(me?.name || 'П').slice(0, 1).toUpperCase()}</span><span><strong>{me?.name || 'Профиль'}</strong><small>Личный кабинет</small></span><span aria-hidden="true">›</span></Link>
     </aside>
-    {menuOpen && <button className="crm-backdrop" aria-label="Закрыть меню" onClick={() => setMenuOpen(false)} />}
-    <div className="crm-content"><header className="crm-topbar"><button type="button" className="crm-menu-button" aria-label="Открыть меню" aria-expanded={menuOpen} onClick={() => setMenuOpen(true)}>☰</button><div><small>Рабочее пространство /</small><strong>{current}</strong></div><div className="crm-topbar-actions"><span className="crm-online-dot" /> <span className="crm-status">Система работает</span>{(me?.permissions.includes('inventory.view') || me?.permissions.includes('sales.view')) && <Link href="/notifications" className="crm-notification-link" aria-label={`Уведомления${unreadCount ? `, непрочитанных: ${unreadCount}` : ''}`}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>{unreadCount > 0 && <span>{unreadCount > 9 ? '9+' : unreadCount}</span>}</Link>}<Link href="/account" className="crm-topbar-avatar" aria-label="Личный кабинет">{(me?.name || 'П').slice(0, 1).toUpperCase()}</Link></div></header><main className="crm-main">{children}</main></div>
+    {menuOpen && <button className="crm-backdrop" aria-label="Закрыть меню" onClick={() => { setMenuOpen(false); menuButtonRef.current?.focus(); }} />}
+    <div className="crm-content"><header className="crm-topbar"><button ref={menuButtonRef} type="button" className="crm-menu-button" aria-label={menuOpen ? "Закрыть меню" : "Открыть меню"} aria-expanded={menuOpen} aria-controls="crm-navigation" onClick={() => setMenuOpen(value => !value)}>☰</button><div><small>Рабочее пространство /</small><strong>{current}</strong></div><div className="crm-topbar-actions"><span className="crm-online-dot" /> <span className="crm-status">Система работает</span>{(me?.permissions.includes('inventory.view') || me?.permissions.includes('sales.view')) && <Link href="/notifications" className="crm-notification-link" aria-label={`Уведомления${unreadCount ? `, непрочитанных: ${unreadCount}` : ''}`}><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></svg>{unreadCount > 0 && <span>{unreadCount > 9 ? '9+' : unreadCount}</span>}</Link>}<Link href="/account" className="crm-topbar-avatar" aria-label="Личный кабинет">{(me?.name || 'П').slice(0, 1).toUpperCase()}</Link></div></header><main className="crm-main">{children}</main></div>
   </div>;
 }

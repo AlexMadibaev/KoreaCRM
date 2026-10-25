@@ -17,12 +17,10 @@ export const metadata: Metadata = {
   },
 };
 
-// The cabinet behaves like an installed app on phones: no pinch or double-tap zoom, content under the notch is padded with safe-area insets.
+// Keep pinch zoom available for accessibility. CSS prevents accidental double-tap and focus zoom.
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   viewportFit: 'cover',
   interactiveWidget: 'resizes-content',
 };

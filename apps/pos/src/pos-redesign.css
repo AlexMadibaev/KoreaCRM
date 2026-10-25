@@ -326,6 +326,30 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline-color:
   .results.product-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: 500px; }
   .order-items { max-height: 350px; }
 }
+
+/* Touch screens: prevent accidental double-tap/focus zoom without blocking pinch zoom. */
+:where(button, a, summary, [role="button"]) { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+:where(button, summary, [role="button"]) { -webkit-touch-callout: none; user-select: none; }
+@media (max-width: 720px) {
+  .login, .pos { min-height: 100dvh; }
+  .login input:not([type="checkbox"]), .pos :is(input:not([type="checkbox"]), select), .customer-create-dialog input { font-size: 16px !important; }
+  .login :is(button, a), .pos button, .pos .sidebar-nav button { min-height: 44px; }
+  .pos-sidebar { flex-direction: column; align-items: stretch; }
+  .sidebar-brand { display: none; }
+  .sidebar-nav { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; margin: 0; gap: 5px; }
+  .sidebar-nav button { justify-content: center; gap: 7px; width: 100%; padding: 8px; font-size: 12px; white-space: nowrap; }
+  .sidebar-nav button span { width: auto; font-size: 18px; }
+  .topbar label { width: 100%; }
+  .columns > .panel, .sales-history, .sync-screen, .shift-screen { min-height: 0; }
+  .results.product-cards .product-card button, .quantity-control button, .cart-remove { min-height: 44px; }
+  .quantity-control button, .cart-remove { width: 44px; }
+  .quantity-control input { width: 44px; min-height: 44px; }
+  .customer-create-dialog { max-height: calc(100dvh - 24px); overscroll-behavior: contain; }
+  .customer-create-backdrop { padding: 12px; }
+  .payment { flex-wrap: wrap; }
+  .payment label { flex: 1 1 45%; }
+  .payment label:nth-child(3) { flex-basis: 100%; }
+}
 @media print {
   :root, body { background: #fff; }
   .pos { display: block; width: 100%; min-height: 0; margin: 0; padding: 0; border: 0; box-shadow: none; background: #fff; }
