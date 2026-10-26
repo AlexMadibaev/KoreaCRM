@@ -12,6 +12,7 @@ import { drainQueue } from './queue-drain';
 import { clearOfflineSession, markOfflineSessionReady, passwordVerifier, readOfflineSession, sameVerifier, saveOfflineSession } from './offline-session';
 import { projectShiftCash } from './shift-projection';
 import { queuedSaleDetails } from './queued-sale-details';
+import { normalizeServerUrl } from './server-url';
 import { SalesHistory } from './sales-history';
 import { ProductResults, type CatalogItem, type PosCatalogProduct } from './product-results';
 
@@ -43,13 +44,6 @@ const loginError = (caught: unknown, codeLogin = false) => {
   if (caught instanceof ApiError && caught.status === 401) return codeLogin ? 'Код кассира не подошёл. Попросите администратора выдать новый.' : 'Неверный логин или пароль. Проверьте данные и попробуйте ещё раз.';
   return message(caught);
 };
-function serverUrl(value: string) {
-  try {
-    const parsed = new URL(value.trim());
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') throw new Error();
-    return value.trim().replace(/\/+$/, '');
-  } catch { throw new Error('Укажите адрес магазина, который вам дал администратор.'); }
-}
 const validMinor = (value: string) => /^(0|[1-9]\d{0,17})$/.test(value);
 const russianCount = (count: number, one: string, few: string, many: string) => {
   const remainder = count % 100;
@@ -75,10 +69,17 @@ function ConflictSaleCard({ entry, methods, disabled, onRetry }: { entry: QueueE
 
 export function App() {
   const [deviceId] = useState(() => { const saved = localStorage.getItem(deviceKey); if (saved) return saved; const created = `POS-${crypto.randomUUID()}`; localStorage.setItem(deviceKey, created); return created; });
-  const [apiUrl, setApiUrl] = useState(() => localStorage.getItem(apiUrlKey) ?? defaultApiUrl);
+  const [apiUrl, setApiUrl] = useState(() => {
+    const saved = localStorage.getItem(apiUrlKey) ?? defaultApiUrl;
+    try { return normalizeServerUrl(saved); } catch { return saved; }
+  });
   const [connectionOpen, setConnectionOpen] = useState(() => !localStorage.getItem(apiUrlKey));
   const [showSignup, setShowSignup] = useState(false);
-  const client = useMemo(() => createApiClient(apiUrl.trim().replace(/\/+$/, ''), deviceId), [apiUrl, deviceId]);
+  const client = useMemo(() => {
+    let baseUrl = apiUrl.trim().replace(/\/+$/, '');
+    try { baseUrl = normalizeServerUrl(apiUrl); } catch { /* Validate on sign-in. */ }
+    return createApiClient(baseUrl, deviceId);
+  }, [apiUrl, deviceId]);
   const [registrationRequested, setRegistrationRequested] = useState(() => Boolean(localStorage.getItem(savedStoreKey)));
   const [registerNonce, setRegisterNonce] = useState(0);
   const [signedIn, setSignedIn] = useState(false), [login, setLogin] = useState(''), [cashierName, setCashierName] = useState(''), [password, setPassword] = useState(''), [permissions, setPermissions] = useState<string[]>([]);
@@ -135,7 +136,7 @@ export function App() {
   const projectedShift = shift ? projectShiftCash(shift.expectedCashMinor, shift.id, methods.filter(method => method.kind === 'CASH').map(method => method.id), queueEntries) : null;
 
   async function finishOnlineSignIn(identityLogin: string, normalizedApiUrl: string, passwordForOffline?: string) {
-      setServerReachable(true); localStorage.setItem(apiUrlKey, normalizedApiUrl);
+      setServerReachable(true); localStorage.setItem(apiUrlKey, normalizedApiUrl); setApiUrl(normalizedApiUrl);
       const [me, available, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods'), client.get<LoyaltySettings>('/loyalty/settings')]);
       setLoyalty(loyaltySettings); localStorage.setItem(`${loyaltyKey}:${normalizedApiUrl}`, JSON.stringify(loyaltySettings));
       if (!me.permissions.includes('sales.create')) throw new Error('Нет права оформлять продажи');
@@ -153,13 +154,13 @@ export function App() {
   async function signIn(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      const normalizedApiUrl = serverUrl(apiUrl);
+      const normalizedApiUrl = normalizeServerUrl(apiUrl);
       await client.login(login, password);
       await finishOnlineSignIn(login, normalizedApiUrl, password);
     } catch (caught) {
       if (hasDesktopCache() && connectionFailed(caught)) {
         try {
-          const normalizedApiUrl = apiUrl.trim().replace(/\/+$/, '');
+          const normalizedApiUrl = normalizeServerUrl(apiUrl);
           const saved = await readOfflineSession(deviceId, normalizedApiUrl, login);
           if (!saved) throw new Error('Без связи первый вход невозможен. Подключитесь к сети и войдите снова.');
           if (!sameVerifier(await passwordVerifier(password, saved.salt), saved.verifier)) throw new Error('Неверный пароль');
@@ -186,7 +187,7 @@ export function App() {
   async function authenticateCode(code: string) {
     setBusy(true); setError('');
     try {
-      const normalizedApiUrl = serverUrl(apiUrl);
+      const normalizedApiUrl = normalizeServerUrl(apiUrl);
       const identityLogin = await client.loginWithPosCode(code.trim());
       await finishOnlineSignIn(identityLogin, normalizedApiUrl);
     } catch (caught) { if (caught instanceof TypeError || (caught instanceof Error && caught.message.startsWith('Укажите адрес магазина'))) setConnectionOpen(true); setError(loginError(caught, true)); }
@@ -261,14 +262,14 @@ export function App() {
       } finally { checking = false; }
     };
     void reconnect();
-    const timer = window.setInterval(() => void reconnect(), 30000);
+    const timer = window.setInterval(() => void reconnect(), 5000);
     window.addEventListener('online', reconnect);
     return () => { active = false; window.clearInterval(timer); window.removeEventListener('online', reconnect); };
   }, [signedIn, offlineSignedIn, client, login, userId]);
   useEffect(() => {
     if (!signedIn || !deviceReady || !userId || !storeId || !hasDesktopCache()) return;
     void syncQueuedSales();
-    const timer = window.setInterval(() => void syncQueuedSales(), 30000);
+    const timer = window.setInterval(() => void syncQueuedSales(), 5000);
     const online = () => void syncQueuedSales();
     window.addEventListener('online', online);
     return () => { window.clearInterval(timer); window.removeEventListener('online', online); };
@@ -568,7 +569,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     {activeScreen === 'sync' && cacheError && <p role="status" className="cache-warning">Не удалось обновить товары: {cacheError}. Продажи при наличии связи доступны.</p>}
     {activeScreen === 'sale' && stockNotice && <p role="status" className="stock-notice">{stockNotice}</p>}
     {queueNotice && <p role="status" className="stock-notice">{queueNotice}</p>}
-    {activeScreen === 'sync' && hasDesktopCache() && <section id="sync" className="panel sync-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Отправка продаж</h2><p>Если связь прервётся, касса сохранит продажи и отправит их позже.</p></div><div className="sync-center"><div><strong>{!networkOnline || !serverReachable ? 'Нет связи' : 'Связь есть'}</strong><span>Ждут отправки: {(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0)} · Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено: {queueSummary?.synced ?? 0}</span><span>Последняя отправка: {queueSummary?.lastSyncedAt ? new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU') : 'ещё не было'}</span></div><button type="button" onClick={() => void syncQueuedSales()} disabled={!deviceReady || !networkOnline || offlineSignedIn}>Отправить сейчас</button></div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div><details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>}
+    {activeScreen === 'sync' && hasDesktopCache() && <section id="sync" className="panel sync-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Отправка продаж</h2><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{!networkOnline || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : (queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? `Ожидают повторной отправки: ${(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0)} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales()} disabled={!deviceReady || !networkOnline || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div><details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>}
     {pending && <section className="panel pending"><h2>Проверка предыдущей продажи</h2><p>Не удалось получить подтверждение. Нажмите «Проверить продажу», чтобы избежать повторного списания. Магазин: {stores.find(store => store.id === pending.storeId)?.name ?? 'другой магазин'}.</p><button disabled={busy || !deviceReady || storeId !== pending.storeId} onClick={() => void retryPending()} className="primary">Проверить продажу</button></section>}
     {activeScreen === 'sale' && <div className="columns" id="workspace">
       <section className="panel catalog-panel" aria-label="Каталог товаров">
