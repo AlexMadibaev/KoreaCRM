@@ -145,6 +145,7 @@ export function App() {
       const active = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS' && !hasDesktopCache()) && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
       if (!active.length || !available.length) throw new Error('Нет доступного магазина или способа оплаты');
       const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === localStorage.getItem(savedStoreKey)) ?? available[0]!;
+      if (available.length === 1 || localStorage.getItem(savedStoreKey)) setRegistrationRequested(true);
       if (hasDesktopCache() && offlineCredential) {
         try {
           const common = { deviceId, apiUrl: normalizedApiUrl, login: identityLogin, userId: me.userId, store: chosen, methods: active, permissions: me.permissions };
