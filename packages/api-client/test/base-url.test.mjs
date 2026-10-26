@@ -34,3 +34,15 @@ test('health request keeps the /api prefix', async () => {
     fetchMock.mock.restore();
   }
 });
+
+test('POS request stops waiting for an unreachable server', async () => {
+  const fetchMock = mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+  }));
+  try {
+    const client = createApiClient('https://shop.example/api', 'test-device', 10);
+    await assert.rejects(client.login('cashier', 'test-password'), error => error?.name === 'TimeoutError');
+  } finally {
+    fetchMock.mock.restore();
+  }
+});

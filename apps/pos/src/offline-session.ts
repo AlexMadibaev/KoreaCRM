@@ -6,7 +6,7 @@ const encoder = new TextEncoder();
 const encode = (bytes: Uint8Array) => btoa(String.fromCharCode(...bytes));
 const decode = (value: string) => Uint8Array.from(atob(value), char => char.charCodeAt(0));
 
-export type OfflineSession = { userId: string; storeId: string; storeJson: string; methodsJson: string; permissionsJson: string; salt: string; verifier: string; shiftJson: string | null };
+export type OfflineSession = { login: string; userId: string; storeId: string; storeJson: string; methodsJson: string; permissionsJson: string; salt: string; verifier: string; shiftJson: string | null };
 
 export async function passwordVerifier(password: string, salt: string): Promise<string> {
   const key = await crypto.subtle.importKey('raw', encoder.encode(password), 'PBKDF2', false, ['deriveBits']);
@@ -25,6 +25,23 @@ export async function saveOfflineSession(input: { deviceId: string; apiUrl: stri
   const salt = encode(crypto.getRandomValues(new Uint8Array(16)));
   const verifier = await passwordVerifier(input.password, salt);
   await invoke('save_offline_session', { input: { deviceId: input.deviceId, apiUrl: input.apiUrl, login: input.login, userId: input.userId, storeId: input.store.id, storeJson: JSON.stringify(input.store), methodsJson: JSON.stringify(input.methods), permissionsJson: JSON.stringify(input.permissions), salt, verifier } });
+}
+
+export async function saveOfflineCodeSession(input: { deviceId: string; apiUrl: string; login: string; code: string; userId: string; store: PosStore; methods: PosPaymentMethod[]; permissions: string[] }): Promise<void> {
+  const salt = encode(crypto.getRandomValues(new Uint8Array(16)));
+  const verifier = await passwordVerifier(input.code, salt);
+  await invoke('save_offline_code_session', { input: { deviceId: input.deviceId, apiUrl: input.apiUrl, login: input.login, userId: input.userId, storeId: input.store.id, storeJson: JSON.stringify(input.store), methodsJson: JSON.stringify(input.methods), permissionsJson: JSON.stringify(input.permissions), salt, verifier } });
+}
+
+export function readOfflineCodeSessions(deviceId: string, apiUrl: string): Promise<OfflineSession[]> {
+  return invoke<OfflineSession[]>('read_offline_code_sessions', { deviceId, apiUrl });
+}
+
+export async function matchOfflineCode(code: string, sessions: OfflineSession[]): Promise<OfflineSession | null> {
+  for (const session of sessions) {
+    if (sameVerifier(await passwordVerifier(code, session.salt), session.verifier)) return session;
+  }
+  return null;
 }
 
 export function readOfflineSession(deviceId: string, apiUrl: string, login: string): Promise<OfflineSession | null> {

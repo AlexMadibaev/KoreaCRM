@@ -102,6 +102,8 @@ pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
            permissions_json TEXT NOT NULL,
            salt TEXT NOT NULL,
            verifier TEXT NOT NULL,
+           code_salt TEXT,
+           code_verifier TEXT,
            shift_json TEXT,
            ready INTEGER NOT NULL DEFAULT 0,
            saved_at INTEGER NOT NULL DEFAULT (strftime('%s','now')),
@@ -126,6 +128,9 @@ pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
     let product_columns = connection.prepare("PRAGMA table_info(cached_products)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !product_columns.iter().any(|column| column == "brand_id") { connection.execute("ALTER TABLE cached_products ADD COLUMN brand_id TEXT", [])?; }
     if !product_columns.iter().any(|column| column == "category_id") { connection.execute("ALTER TABLE cached_products ADD COLUMN category_id TEXT", [])?; }
+    let session_columns = connection.prepare("PRAGMA table_info(offline_sessions)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !session_columns.iter().any(|column| column == "code_salt") { connection.execute("ALTER TABLE offline_sessions ADD COLUMN code_salt TEXT", [])?; }
+    if !session_columns.iter().any(|column| column == "code_verifier") { connection.execute("ALTER TABLE offline_sessions ADD COLUMN code_verifier TEXT", [])?; }
     Ok(())
 }
 

@@ -9,10 +9,10 @@ import { buildEscPosReceipt } from './escpos';
 import { hasDesktopCache, readCachedCustomers, readCachedProducts, readCatalogCacheStatus, refreshCatalogCache, type CacheStatus } from './local-cache';
 import { enqueueSale, listSyncQueue, retryConflictSale, setSyncStatus, syncQueueSummary, type QueueEntry, type QueueSummary } from './sync-queue';
 import { drainQueue } from './queue-drain';
-import { clearOfflineSession, markOfflineSessionReady, passwordVerifier, readOfflineSession, sameVerifier, saveOfflineSession } from './offline-session';
+import { markOfflineSessionReady, matchOfflineCode, passwordVerifier, readOfflineCodeSessions, readOfflineSession, sameVerifier, saveOfflineCodeSession, saveOfflineSession, type OfflineSession } from './offline-session';
 import { projectShiftCash } from './shift-projection';
 import { queuedSaleDetails } from './queued-sale-details';
-import { normalizeServerUrl } from './server-url';
+import { isLocalServerUrl, normalizeServerUrl } from './server-url';
 import { SalesHistory } from './sales-history';
 import { ProductResults, type CatalogItem, type PosCatalogProduct } from './product-results';
 
@@ -38,8 +38,9 @@ const message = (caught: unknown) => {
   }
   return caught instanceof Error ? caught.message : 'Не удалось выполнить действие.';
 };
+const connectionFailed = (caught: unknown) => caught instanceof TypeError || caught instanceof DOMException && ['TimeoutError', 'AbortError'].includes(caught.name) || (caught instanceof ApiError && caught.status >= 500);
 const loginError = (caught: unknown, codeLogin = false) => {
-  if (caught instanceof TypeError) return 'Не удалось подключиться. Проверьте интернет и адрес магазина в настройках подключения.';
+  if (connectionFailed(caught)) return 'Не удалось подключиться. Проверьте интернет и адрес магазина в настройках подключения.';
   if (caught instanceof ApiError && caught.status === 401 && caught.message === 'Invalid scan code') return 'Код кассира не найден или уже заменён. Выдайте новую карточку в разделе «Сотрудники и роли».';
   if (caught instanceof ApiError && caught.status === 401) return codeLogin ? 'Код кассира не подошёл. Попросите администратора выдать новый.' : 'Неверный логин или пароль. Проверьте данные и попробуйте ещё раз.';
   return message(caught);
@@ -51,7 +52,6 @@ const russianCount = (count: number, one: string, few: string, many: string) => 
   switch (count % 10) { case 1: return one; case 2: case 3: case 4: return few; default: return many; }
 };
 const cartLineTotal = (totalMinor?: bigint) => totalMinor === undefined ? '—' : formatMinor(totalMinor);
-const connectionFailed = (caught: unknown) => caught instanceof TypeError || (caught instanceof ApiError && caught.status >= 500);
 
 function ConflictSaleCard({ entry, methods, disabled, onRetry }: { entry: QueueEntry; methods: PosPaymentMethod[]; disabled: boolean; onRetry: () => void }) {
   const details = queuedSaleDetails(entry.payloadJson);
@@ -92,9 +92,11 @@ export function App() {
   const [activeScreen, setActiveScreen] = useState<PosScreen>('sale');
   const [receiptScreen, setReceiptScreen] = useState<'sale' | 'history'>('sale');
   const [networkOnline, setNetworkOnline] = useState(() => navigator.onLine);
+  const offlineNetwork = !networkOnline && !isLocalServerUrl(apiUrl);
   const [serverReachable, setServerReachable] = useState(true);
   const [offlineSignedIn, setOfflineSignedIn] = useState(false);
-  const offlinePasswordRef = useRef('');
+  const offlineCredentialRef = useRef('');
+  const offlineCredentialModeRef = useRef<'password' | 'scan'>('password');
   const reconnectingRef = useRef(false);
   const syncBusyRef = useRef(false);
   const [stores, setStores] = useState<PosStore[]>([]), [storeId, setStoreId] = useState(''), [deviceReady, setDeviceReady] = useState(false), [shift, setShift] = useState<PosShift | null>(null), [openingCash, setOpeningCash] = useState('0'), [closingCash, setClosingCash] = useState('0');
@@ -132,10 +134,10 @@ export function App() {
   let cartError = '';
   try { if (cart.length && loyalty) cartTotal = calculateCartWithDiscount(cartLines, cartPercents); } catch { cartError = 'Проверьте количество товаров и скидку клиента.'; }
   const paid = tenders.reduce((total, tender) => total + BigInt(validMinor(tender.amountMinor) ? tender.amountMinor : '0'), 0n);
-  const checkoutHint = pending ? 'Сначала проверьте предыдущую продажу.' : !cart.length ? 'Сначала добавьте товар в чек.' : !deviceReady ? 'Подождите, пока касса подключится.' : cartError ? 'Проверьте количество товаров и скидку клиента.' : cashPayment && !shift ? 'Для оплаты наличными откройте раздел «Кассовая смена».' : cartTotal && paid !== cartTotal.total ? 'Внесённая сумма должна совпадать с итогом чека.' : '';
+  const checkoutHint = pending ? 'Сначала проверьте предыдущую продажу.' : !cart.length ? 'Сначала добавьте товар в чек.' : !deviceReady ? 'Подождите, пока касса подключится.' : cartError ? 'Проверьте количество товаров и скидку клиента.' : cashPayment && !shift ? 'Для оплаты наличными нужна открытая кассовая смена. Откройте её до отключения связи.' : cartTotal && paid !== cartTotal.total ? 'Внесённая сумма должна совпадать с итогом чека.' : '';
   const projectedShift = shift ? projectShiftCash(shift.expectedCashMinor, shift.id, methods.filter(method => method.kind === 'CASH').map(method => method.id), queueEntries) : null;
 
-  async function finishOnlineSignIn(identityLogin: string, normalizedApiUrl: string, passwordForOffline?: string) {
+  async function finishOnlineSignIn(identityLogin: string, normalizedApiUrl: string, offlineCredential?: { mode: 'password' | 'scan'; value: string }) {
       setServerReachable(true); localStorage.setItem(apiUrlKey, normalizedApiUrl); setApiUrl(normalizedApiUrl);
       const [me, available, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods'), client.get<LoyaltySettings>('/loyalty/settings')]);
       setLoyalty(loyaltySettings); localStorage.setItem(`${loyaltyKey}:${normalizedApiUrl}`, JSON.stringify(loyaltySettings));
@@ -143,44 +145,53 @@ export function App() {
       const active = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS' && !hasDesktopCache()) && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
       if (!active.length || !available.length) throw new Error('Нет доступного магазина или способа оплаты');
       const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === localStorage.getItem(savedStoreKey)) ?? available[0]!;
-      if (hasDesktopCache() && passwordForOffline) {
-        try { await saveOfflineSession({ deviceId, apiUrl: normalizedApiUrl, login: identityLogin, password: passwordForOffline, userId: me.userId, store: chosen, methods: active, permissions: me.permissions }); }
+      if (hasDesktopCache() && offlineCredential) {
+        try {
+          const common = { deviceId, apiUrl: normalizedApiUrl, login: identityLogin, userId: me.userId, store: chosen, methods: active, permissions: me.permissions };
+          if (offlineCredential.mode === 'password') await saveOfflineSession({ ...common, password: offlineCredential.value });
+          else await saveOfflineCodeSession({ ...common, code: offlineCredential.value });
+        }
         catch (cacheFailure) { setCacheError(`Локальный вход не сохранён: ${message(cacheFailure)}`); }
       }
       setLogin(me.login || identityLogin); setCashierName(me.name || me.login || identityLogin);
       setUserId(me.userId); setPermissions(me.permissions); setStores(available); setMethods(active); setStoreId(chosen.id);
       setTenders([{ id: crypto.randomUUID(), methodId: active.find(method => method.kind === 'CASH')?.id ?? active[0]!.id, amountMinor: '0', reference: '' }]); setPassword(''); setScanCode(''); setOfflineSignedIn(false); setSignedIn(true);
   }
+  async function finishOfflineSignIn(saved: OfflineSession, credential: string, mode: 'password' | 'scan', normalizedApiUrl: string) {
+    const status = await readCatalogCacheStatus(saved.userId, saved.storeId);
+    if (!status.productCount) throw new Error('Товары ещё не сохранены на кассе. Подключитесь к сети и обновите их.');
+    const store = JSON.parse(saved.storeJson) as PosStore;
+    const active = JSON.parse(saved.methodsJson) as PosPaymentMethod[];
+    const permissions = JSON.parse(saved.permissionsJson) as string[];
+    const shift = saved.shiftJson ? JSON.parse(saved.shiftJson) as PosShift : null;
+    if (!permissions.includes('sales.create') || !active.length) throw new Error('Локальные права кассира недоступны');
+    const customers = await readCachedCustomers(saved.userId, saved.storeId);
+    const cachedLoyalty = localStorage.getItem(`${loyaltyKey}:${normalizedApiUrl}`);
+    if (!cachedLoyalty) throw new Error('Настройки скидок не сохранены. Подключитесь к серверу и войдите снова.');
+    setLoyalty(JSON.parse(cachedLoyalty) as LoyaltySettings);
+    offlineCredentialRef.current = credential;
+    offlineCredentialModeRef.current = mode;
+    localStorage.setItem(apiUrlKey, normalizedApiUrl); setApiUrl(normalizedApiUrl);
+    setLogin(saved.login); setLoginMode(mode); setCashierName(saved.login); setUserId(saved.userId); setStoreId(saved.storeId); setStores([store]); setMethods(active); setPermissions(permissions); setShift(shift); setCustomers(customers); setDeviceReady(true); setCacheStatus(status); setClosingCash(shift?.expectedCashMinor ?? '0');
+    setTenders([{ id: crypto.randomUUID(), methodId: active.find(method => method.kind === 'CASH')?.id ?? active[0]!.id, amountMinor: '0', reference: '' }]); setPassword(''); setScanCode(''); setServerReachable(false); setOfflineSignedIn(true); setSignedIn(true); setQueueNotice('Вы работаете без связи. Продажи сохранятся на кассе и отправятся позже.');
+  }
   async function signIn(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
     try {
       const normalizedApiUrl = normalizeServerUrl(apiUrl);
+      if (offlineNetwork) throw new TypeError('No internet connection');
       await client.login(login, password);
-      await finishOnlineSignIn(login, normalizedApiUrl, password);
+      await finishOnlineSignIn(login, normalizedApiUrl, { mode: 'password', value: password });
     } catch (caught) {
       if (hasDesktopCache() && connectionFailed(caught)) {
         try {
           const normalizedApiUrl = normalizeServerUrl(apiUrl);
           const saved = await readOfflineSession(deviceId, normalizedApiUrl, login);
-          if (!saved) throw new Error('Без связи первый вход невозможен. Подключитесь к сети и войдите снова.');
+          if (!saved) throw new Error('Для первого входа без интернета сначала войдите на этой кассе с паролем при подключённом сервере и обновите товары.');
           if (!sameVerifier(await passwordVerifier(password, saved.salt), saved.verifier)) throw new Error('Неверный пароль');
-          const status = await readCatalogCacheStatus(saved.userId, saved.storeId);
-          if (!status.productCount) throw new Error('Товары ещё не сохранены на кассе. Подключитесь к сети и обновите их.');
-          const store = JSON.parse(saved.storeJson) as PosStore;
-          const active = JSON.parse(saved.methodsJson) as PosPaymentMethod[];
-          const permissions = JSON.parse(saved.permissionsJson) as string[];
-          const shift = saved.shiftJson ? JSON.parse(saved.shiftJson) as PosShift : null;
-          if (!permissions.includes('sales.create') || !active.length) throw new Error('Локальные права кассира недоступны');
-          const customers = await readCachedCustomers(saved.userId, saved.storeId);
-          const cachedLoyalty = localStorage.getItem(`${loyaltyKey}:${normalizedApiUrl}`);
-          if (!cachedLoyalty) throw new Error('Настройки скидок не сохранены. Подключитесь к серверу и войдите снова.');
-          setLoyalty(JSON.parse(cachedLoyalty) as LoyaltySettings);
-          offlinePasswordRef.current = password;
-          localStorage.setItem(apiUrlKey, normalizedApiUrl);
-          setCashierName(login); setUserId(saved.userId); setStoreId(saved.storeId); setStores([store]); setMethods(active); setPermissions(permissions); setShift(shift); setCustomers(customers); setDeviceReady(true); setCacheStatus(status); setClosingCash(shift?.expectedCashMinor ?? '0');
-          setTenders([{ id: crypto.randomUUID(), methodId: active.find(method => method.kind === 'CASH')?.id ?? active[0]!.id, amountMinor: '0', reference: '' }]); setPassword(''); setServerReachable(false); setOfflineSignedIn(true); setSignedIn(true); setQueueNotice('Вы работаете без связи. Продажи сохранятся на кассе и отправятся позже.');
+          await finishOfflineSignIn(saved, password, 'password', normalizedApiUrl);
         } catch (offlineFailure) { setError(message(offlineFailure)); }
-      } else { if (caught instanceof TypeError || (caught instanceof Error && caught.message.startsWith('Укажите адрес магазина'))) setConnectionOpen(true); setError(loginError(caught)); }
+      } else { if (connectionFailed(caught) || (caught instanceof Error && caught.message.startsWith('Укажите адрес магазина'))) setConnectionOpen(true); setError(loginError(caught)); }
     }
     finally { setBusy(false); }
   }
@@ -188,14 +199,26 @@ export function App() {
     setBusy(true); setError('');
     try {
       const normalizedApiUrl = normalizeServerUrl(apiUrl);
+      if (offlineNetwork) throw new TypeError('No internet connection');
       const identityLogin = await client.loginWithPosCode(code.trim());
-      await finishOnlineSignIn(identityLogin, normalizedApiUrl);
-    } catch (caught) { if (caught instanceof TypeError || (caught instanceof Error && caught.message.startsWith('Укажите адрес магазина'))) setConnectionOpen(true); setError(loginError(caught, true)); }
+      await finishOnlineSignIn(identityLogin, normalizedApiUrl, { mode: 'scan', value: code.trim() });
+    } catch (caught) {
+      if (hasDesktopCache() && connectionFailed(caught)) {
+        try {
+          const normalizedApiUrl = normalizeServerUrl(apiUrl);
+          const sessions = await readOfflineCodeSessions(deviceId, normalizedApiUrl);
+          if (!sessions.length) throw new Error('Для входа по коду без интернета сначала войдите с этой карточкой при подключённом сервере и обновите товары.');
+          const saved = await matchOfflineCode(code.trim(), sessions);
+          if (!saved) throw new Error('Код кассира не найден среди сохранённых на этой кассе.');
+          await finishOfflineSignIn(saved, code.trim(), 'scan', normalizedApiUrl);
+        } catch (offlineFailure) { setError(message(offlineFailure)); }
+      } else { if (connectionFailed(caught) || (caught instanceof Error && caught.message.startsWith('Укажите адрес магазина'))) setConnectionOpen(true); setError(loginError(caught, true)); }
+    }
     finally { setBusy(false); }
   }
   function signInWithCode(event: FormEvent) { event.preventDefault(); void authenticateCode(scanCode); }
   const cameraDetected = useCallback((code: string) => { setCameraOpen(false); setScanCode(code); void authenticateCode(code); }, [client, apiUrl, pending]);
-  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* Clear local session even if server is unreachable. */ } finally { if (hasDesktopCache() && loginMode === 'password') await clearOfflineSession(deviceId, apiUrl.trim().replace(/\/+$/, ''), login).catch(() => undefined); offlinePasswordRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setActiveScreen('sale'); setCart([]); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCashierName(''); setLogin(''); setPassword(''); setScanCode(''); setCustomerId(''); setCustomers([]); setShift(null); setDeviceReady(false); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setLoginMode('scan'); setBusy(false); } }
+  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* End this cashier session even if the server is unreachable. */ } finally { offlineCredentialRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setActiveScreen('sale'); setCart([]); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCashierName(''); setLogin(''); setPassword(''); setScanCode(''); setCustomerId(''); setCustomers([]); setShift(null); setDeviceReady(false); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setLoginMode('scan'); setBusy(false); } }
   const refreshQueueSummary = useCallback(async () => {
     if (!hasDesktopCache() || !userId || !storeId) return;
     const [summary, entries] = await Promise.all([syncQueueSummary(userId, storeId), listSyncQueue(userId, storeId)]);
@@ -203,7 +226,7 @@ export function App() {
   }, [userId, storeId]);
   useEffect(() => { if (signedIn && userId && storeId) void refreshQueueSummary().catch(caught => setQueueNotice(`Не удалось проверить сохранённые продажи: ${message(caught)}`)); }, [signedIn, userId, storeId, refreshQueueSummary]);
   const syncQueuedSales = useCallback(async () => {
-    if (!hasDesktopCache() || !signedIn || offlineSignedIn || !deviceReady || !userId || !storeId || syncBusyRef.current) return;
+    if (!hasDesktopCache() || !signedIn || offlineSignedIn || offlineNetwork || !deviceReady || !userId || !storeId || syncBusyRef.current) return;
     syncBusyRef.current = true;
     try {
       const entries = await listSyncQueue(userId, storeId);
@@ -227,13 +250,13 @@ export function App() {
           const refreshed = page.items.find(value => value.id === shift.id && value.status === 'OPEN') ?? null;
           setShift(refreshed); setClosingCash(refreshed?.expectedCashMinor ?? '0');
           const store = stores.find(value => value.id === storeId);
-          if (store && hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, store, refreshed);
+          if (store && hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, store, refreshed);
         } catch (caught) { setCacheError(`Данные смены после синхронизации не обновлены: ${message(caught)}`); }
       }
       await refreshQueueSummary();
     } catch (caught) { setQueueNotice(`Не удалось проверить сохранённые продажи: ${message(caught)}`); }
     finally { syncBusyRef.current = false; }
-  }, [signedIn, offlineSignedIn, deviceReady, userId, storeId, client, refreshQueueSummary, shift, permissions, stores, deviceId, apiUrl, login, loginMode]);
+  }, [signedIn, offlineSignedIn, offlineNetwork, deviceReady, userId, storeId, client, refreshQueueSummary, shift, permissions, stores, deviceId, apiUrl, login, loginMode]);
   async function retryConflict(entry: QueueEntry) {
     if (!deviceReady || offlineSignedIn || !userId || !storeId) return;
     setBusy(true); setError('');
@@ -245,27 +268,28 @@ export function App() {
     finally { setBusy(false); }
   }
   useEffect(() => {
-    if (!signedIn || !offlineSignedIn || !offlinePasswordRef.current) return;
+    if (!signedIn || !offlineSignedIn || !offlineCredentialRef.current) return;
     let active = true, checking = false;
     const reconnect = async () => {
-      if (checking || !offlinePasswordRef.current) return;
+      if (checking || !offlineCredentialRef.current || offlineNetwork) return;
       checking = true;
       try {
-        await client.login(login, offlinePasswordRef.current);
+        if (offlineCredentialModeRef.current === 'scan') await client.loginWithPosCode(offlineCredentialRef.current);
+        else await client.login(login, offlineCredentialRef.current);
         const [me, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosPaymentMethod[]>('/sale-payment-methods'), client.get<LoyaltySettings>('/loyalty/settings')]);
         if (!me.permissions.includes('sales.create') || me.userId !== userId) throw new Error('Права кассира изменились. Выйдите и войдите заново при подключённом сервере.');
         const activeMethods = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS' && !hasDesktopCache()) && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
         if (!activeMethods.length) throw new Error('Доступные способы оплаты изменились. Выйдите и войдите заново.');
-        if (active) { setLoyalty(loyaltySettings); localStorage.setItem(`${loyaltyKey}:${apiUrl.trim().replace(/\/+$/, '')}`, JSON.stringify(loyaltySettings)); offlinePasswordRef.current = ''; reconnectingRef.current = true; setCashierName(me.name || me.login || login); setPermissions(me.permissions); setMethods(activeMethods); setServerReachable(true); setOfflineSignedIn(false); setQueueNotice('Связь восстановлена. Отправляем сохранённые продажи.'); }
+        if (active) { setLoyalty(loyaltySettings); localStorage.setItem(`${loyaltyKey}:${apiUrl.trim().replace(/\/+$/, '')}`, JSON.stringify(loyaltySettings)); offlineCredentialRef.current = ''; reconnectingRef.current = true; setCashierName(me.name || me.login || login); setPermissions(me.permissions); setMethods(activeMethods); setServerReachable(true); setOfflineSignedIn(false); setQueueNotice('Связь восстановлена. Отправляем сохранённые продажи.'); }
       } catch (caught) {
-        if (active && ((caught instanceof ApiError && [401, 403].includes(caught.status)) || (caught instanceof Error && !(caught instanceof TypeError) && !(caught instanceof ApiError)))) { offlinePasswordRef.current = ''; setDeviceReady(false); setQueueNotice('Не удалось восстановить вход. Когда появится связь, выйдите и войдите снова.'); }
+        if (active && ((caught instanceof ApiError && [401, 403].includes(caught.status)) || (caught instanceof Error && !connectionFailed(caught) && !(caught instanceof ApiError)))) { offlineCredentialRef.current = ''; setDeviceReady(false); setQueueNotice('Не удалось восстановить вход. Когда появится связь, выйдите и войдите снова.'); }
       } finally { checking = false; }
     };
     void reconnect();
     const timer = window.setInterval(() => void reconnect(), 5000);
     window.addEventListener('online', reconnect);
     return () => { active = false; window.clearInterval(timer); window.removeEventListener('online', reconnect); };
-  }, [signedIn, offlineSignedIn, client, login, userId]);
+  }, [signedIn, offlineSignedIn, offlineNetwork, client, login, userId]);
   useEffect(() => {
     if (!signedIn || !deviceReady || !userId || !storeId || !hasDesktopCache()) return;
     void syncQueuedSales();
@@ -273,7 +297,7 @@ export function App() {
     const online = () => void syncQueuedSales();
     window.addEventListener('online', online);
     return () => { window.clearInterval(timer); window.removeEventListener('online', online); };
-  }, [signedIn, deviceReady, userId, storeId, syncQueuedSales]);
+  }, [signedIn, deviceReady, userId, storeId, offlineNetwork, syncQueuedSales]);
   useEffect(() => {
     const update = () => setNetworkOnline(navigator.onLine);
     window.addEventListener('online', update); window.addEventListener('offline', update);
@@ -310,7 +334,7 @@ export function App() {
         if (!active) return;
         const opened = (shiftPage as PosPage<PosShift>).items.find(value => value.deviceId === deviceId && value.status === 'OPEN') ?? null;
         setShift(opened); setClosingCash(opened?.expectedCashMinor ?? '0'); setCustomers((customerPage as PosPage<PosCustomer> | undefined)?.items ?? []); setDeviceReady(true); localStorage.setItem(savedStoreKey, storeId);
-        if (hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Локальный вход не готов: ${message(caught)}`));
+        if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Локальный вход не готов: ${message(caught)}`));
       } catch (caught) { if (active) setError(message(caught)); }
     })();
     return () => { active = false; };
@@ -319,7 +343,7 @@ export function App() {
     if (!signedIn) { setProducts([]); return; }
     let active = true;
     const query = search.trim();
-    const timer = window.setTimeout(() => { (offlineSignedIn ? Promise.reject(new TypeError('Offline session')) : client.get<PosPage<PosCatalogProduct>>(`/stores/${storeId}/pos-products?limit=${query ? 20 : 8}${query ? `&search=${encodeURIComponent(query)}` : ''}`)).then(page => { if (active) { setProducts(page.items); setServerReachable(true); } }).catch(async caught => {
+    const timer = window.setTimeout(() => { (offlineSignedIn || offlineNetwork ? Promise.reject(new TypeError('Offline session')) : client.get<PosPage<PosCatalogProduct>>(`/stores/${storeId}/pos-products?limit=${query ? 20 : 8}${query ? `&search=${encodeURIComponent(query)}` : ''}`)).then(page => { if (active) { setProducts(page.items); setServerReachable(true); } }).catch(async caught => {
       if (!active) return;
       if (hasDesktopCache() && userId && storeId && connectionFailed(caught)) {
         try {
@@ -329,20 +353,20 @@ export function App() {
       } else setError(message(caught));
     }); }, query ? 200 : 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [signedIn, search, client, userId, storeId, offlineSignedIn]);
+  }, [signedIn, search, client, userId, storeId, offlineSignedIn, offlineNetwork]);
   useEffect(() => {
     if (!signedIn || !can('customers.view') || !customerSearch.trim()) return;
-    if (offlineSignedIn) {
+    if (offlineSignedIn || offlineNetwork) {
       void readCachedCustomers(userId, storeId).then(rows => {
         const query = customerSearch.trim().toLocaleLowerCase('ru');
-        setCustomers(rows.filter(customer => `${customer.firstName} ${customer.lastName ?? ''} ${customer.phone}`.toLocaleLowerCase('ru').includes(query)));
-      });
+        setCustomers(previous => { const matches = rows.filter(customer => `${customer.firstName} ${customer.lastName ?? ''} ${customer.phone}`.toLocaleLowerCase('ru').includes(query)); const selected = previous.find(customer => customer.id === customerId); return selected && !matches.some(customer => customer.id === selected.id) ? [selected, ...matches] : matches; });
+      }).catch(caught => setError(message(caught)));
       return;
     }
     let active = true;
-    const timer = window.setTimeout(() => { client.get<PosPage<PosCustomer>>(`/customers?search=${encodeURIComponent(customerSearch.trim())}&limit=100`).then(page => { if (active) setCustomers(previous => { const selected = previous.find(customer => customer.id === customerId); return selected && !page.items.some(customer => customer.id === selected.id) ? [selected, ...page.items] : page.items; }); }).catch(caught => { if (active) setError(message(caught)); }); }, 200);
+    const timer = window.setTimeout(() => { client.get<PosPage<PosCustomer>>(`/customers?search=${encodeURIComponent(customerSearch.trim())}&limit=100`).then(page => { if (active) setCustomers(previous => { const selected = previous.find(customer => customer.id === customerId); return selected && !page.items.some(customer => customer.id === selected.id) ? [selected, ...page.items] : page.items; }); }).catch(async caught => { if (!active) return; if (hasDesktopCache() && connectionFailed(caught)) { try { const rows = await readCachedCustomers(userId, storeId); const query = customerSearch.trim().toLocaleLowerCase('ru'); if (active) setCustomers(previous => { const matches = rows.filter(customer => `${customer.firstName} ${customer.lastName ?? ''} ${customer.phone}`.toLocaleLowerCase('ru').includes(query)); const selected = previous.find(customer => customer.id === customerId); return selected && !matches.some(customer => customer.id === selected.id) ? [selected, ...matches] : matches; }); } catch (cacheFailure) { if (active) setError(message(cacheFailure)); } } else setError(message(caught)); }); }, 200);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [signedIn, customerSearch, customerId, client, permissions, offlineSignedIn, userId, storeId]);
+  }, [signedIn, customerSearch, customerId, client, permissions, offlineSignedIn, offlineNetwork, userId, storeId]);
   useEffect(() => {
     if (!signedIn) return;
     const handler = (event: globalThis.KeyboardEvent) => {
@@ -362,7 +386,7 @@ export function App() {
     try {
       let available: number, priceMinor: number;
       try {
-        if (offlineSignedIn) throw new TypeError('Offline session');
+        if (offlineSignedIn || offlineNetwork) throw new TypeError('Offline session');
         const [settings, stock] = await Promise.all([client.get<PosSettings>(`/stores/${storeId}/products/${product.id}/settings`), client.get<PosPage<PosStock>>(`/stores/${storeId}/stock?search=${encodeURIComponent(product.sku)}&limit=20`)]);
         const row = stock.items.find(item => item.productId === product.id);
         if (!settings?.active || settings.priceMinor === null) throw new Error('У товара нет активной цены');
@@ -391,7 +415,7 @@ export function App() {
     event.preventDefault(); const code = search.trim(); if (!code) return;
     setBusy(true); setError('');
     try {
-      if (offlineSignedIn) throw new TypeError('Offline session');
+      if (offlineSignedIn || offlineNetwork) throw new TypeError('Offline session');
       const exact = await client.get<PosProduct>(`/products/lookup/barcode/${encodeURIComponent(code)}`);
       setBusy(false); await addProduct(exact);
     } catch (caught) {
@@ -430,14 +454,14 @@ export function App() {
   }
   async function openShift(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
-    try { const opened = await client.post<PosShift>(`/stores/${storeId}/finance/cash-shifts`, { deviceId, openingCashMinor: openingCash }); setShift(opened); setClosingCash(opened.expectedCashMinor); if (hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
+    try { const opened = await client.post<PosShift>(`/stores/${storeId}/finance/cash-shifts`, { deviceId, openingCashMinor: openingCash }); setShift(opened); setClosingCash(opened.expectedCashMinor); if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
     catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   }
   async function closeShift(event: FormEvent) {
     event.preventDefault(); if (!shift) return;
     setBusy(true); setError('');
-    try { await client.post(`/stores/${storeId}/finance/cash-shifts/${shift.id}/close`, { actualCashMinor: closingCash }); setShift(null); if (hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, null).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
+    try { await client.post(`/stores/${storeId}/finance/cash-shifts/${shift.id}/close`, { actualCashMinor: closingCash }); setShift(null); if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, null).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
     catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   }
@@ -454,7 +478,7 @@ export function App() {
       try {
         const result = await client.get<PosPage<PosShift>>(`/stores/${payload.storeId}/finance/cash-shifts?limit=100`);
         const updated = result.items.find(value => value.id === shift.id) ?? null; setShift(updated); setClosingCash(updated?.expectedCashMinor ?? '0');
-        if (hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, updated).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`));
+        if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, updated).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`));
       } catch (caught) {
         setQueueNotice(`Чек принят, но данные смены не обновились: ${message(caught)}`);
       }
@@ -472,7 +496,7 @@ export function App() {
         setBusy(true); setError(''); setQueueNotice('');
         await enqueueSale(userId, storeId, request.operationId, request);
         await refreshQueueSummary().catch(caught => setQueueNotice(`Продажа сохранена, но её статус пока не обновился: ${message(caught)}`));
-        if (offlineSignedIn) {
+        if (offlineSignedIn || offlineNetwork) {
           setQueueNotice('Продажа сохранена на кассе. Отправим её, когда появится связь.');
           setCart([]); setReceipt(null); setCustomerId('');
           setTenders(current => current.slice(0, 1).map(tender => ({ ...tender, id: crypto.randomUUID(), amountMinor: '0', reference: '' })));
@@ -569,7 +593,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     {activeScreen === 'sync' && cacheError && <p role="status" className="cache-warning">Не удалось обновить товары: {cacheError}. Продажи при наличии связи доступны.</p>}
     {activeScreen === 'sale' && stockNotice && <p role="status" className="stock-notice">{stockNotice}</p>}
     {queueNotice && <p role="status" className="stock-notice">{queueNotice}</p>}
-    {activeScreen === 'sync' && hasDesktopCache() && <section id="sync" className="panel sync-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Отправка продаж</h2><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{!networkOnline || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : (queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? `Ожидают повторной отправки: ${(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0)} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales()} disabled={!deviceReady || !networkOnline || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div><details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>}
+    {activeScreen === 'sync' && hasDesktopCache() && <section id="sync" className="panel sync-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Отправка продаж</h2><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{offlineNetwork || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : (queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? `Ожидают повторной отправки: ${(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0)} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales()} disabled={!deviceReady || offlineNetwork || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div><details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>}
     {pending && <section className="panel pending"><h2>Проверка предыдущей продажи</h2><p>Не удалось получить подтверждение. Нажмите «Проверить продажу», чтобы избежать повторного списания. Магазин: {stores.find(store => store.id === pending.storeId)?.name ?? 'другой магазин'}.</p><button disabled={busy || !deviceReady || storeId !== pending.storeId} onClick={() => void retryPending()} className="primary">Проверить продажу</button></section>}
     {activeScreen === 'sale' && <div className="columns" id="workspace">
       <section className="panel catalog-panel" aria-label="Каталог товаров">
@@ -623,7 +647,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
         </section></div>}
       </section>
     </div>}
-    {activeScreen === 'history' && <div id="history"><SalesHistory client={client} storeId={storeId} enabled={deviceReady && !offlineSignedIn && can('sales.view')} revision={salesRevision} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} shift={shift} deviceId={deviceId} onReturned={sale => { setSalesRevision(value => value + 1); if (receipt?.id === sale.id) setReceipt(sale); void client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts`).then(async result => { const updated = result.items.find(value => value.id === shift?.id) ?? null; setShift(updated); setClosingCash(updated?.expectedCashMinor ?? '0'); const currentStore = stores.find(store => store.id === storeId); if (currentStore && hasDesktopCache() && loginMode === 'password') await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, currentStore, updated); }).catch(caught => setError(message(caught))); }} onPrint={sale => { setReceipt(sale); setReceiptScreen('history'); window.requestAnimationFrame(() => document.getElementById('receipt')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }} /></div>}
+    {activeScreen === 'history' && <div id="history"><SalesHistory client={client} storeId={storeId} enabled={deviceReady && !offlineSignedIn && can('sales.view')} revision={salesRevision} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} shift={shift} deviceId={deviceId} onReturned={sale => { setSalesRevision(value => value + 1); if (receipt?.id === sale.id) setReceipt(sale); void client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts`).then(async result => { const updated = result.items.find(value => value.id === shift?.id) ?? null; setShift(updated); setClosingCash(updated?.expectedCashMinor ?? '0'); const currentStore = stores.find(store => store.id === storeId); if (currentStore && hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, currentStore, updated); }).catch(caught => setError(message(caught))); }} onPrint={sale => { setReceipt(sale); setReceiptScreen('history'); window.requestAnimationFrame(() => document.getElementById('receipt')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }} /></div>}
     {activeScreen === 'shift' && <section id="shift" className="panel shift-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Кассовая смена</h2><p>Открывайте смену и проверяйте сумму наличных в кассе.</p></div><div className="shift-state"><span>Статус смены</span><strong>{shift ? 'Открыта' : 'Не открыта'}</strong></div><p className="shift-cash">{projectedShift ? `Ожидаемая наличность: ${formatMinor(projectedShift.expectedCashMinor)} сомони${projectedShift.queuedCashMinor > 0n ? ` · ещё не отправлено: ${formatMinor(projectedShift.queuedCashMinor)} сомони` : ''}` : 'На этой кассе нет открытой смены.'}</p>{!shift && can('finance.cash') && <form className="shift-form" onSubmit={openShift}><label>Начальный остаток, сомони<MoneyInput required valueMinor={openingCash} onMinorChange={setOpeningCash} /></label><button className="primary" disabled={busy || !deviceReady || Boolean(pending) || offlineSignedIn}>Открыть смену</button></form>}{shift && can('finance.cash') && <form className="shift-form" onSubmit={closeShift}><label>Фактическая наличность, сомони<MoneyInput required valueMinor={closingCash} onMinorChange={setClosingCash} /></label><button className="primary" disabled={busy || Boolean(pending) || offlineSignedIn || Boolean(projectedShift?.queuedCashMinor)}>Закрыть смену</button></form>}{!can('finance.cash') && <p className="muted">У вас нет права открывать или закрывать кассовую смену.</p>}{offlineSignedIn && <p className="muted">Для управления сменой нужна связь.</p>}</section>}
     {receipt && activeScreen === receiptScreen && <section id="receipt" className="panel receipt"><div className="receipt-heading"><div><h2>Чек {receipt.number}</h2><small>Не является фискальным чеком</small></div><div><button className="quiet" onClick={() => window.print()}>Печать</button><button disabled={busy || !printerHost.trim() || Boolean(receipt.returns?.length)} onClick={() => void printEscPos()}>На чековый принтер</button></div></div>{(receipt.returns?.length ?? 0) > 0 && <p className="receipt-returned">Возврат по этому чеку · возвращено {formatMinor(receipt.returns.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</p>}<p>{receipt.store.name} · {receipt.store.address ?? ''} · {receipt.store.phone ?? ''}</p><p>{new Date(receipt.createdAt).toLocaleString('ru-RU')} · кассир {receipt.employee.name}</p>{receipt.customer && <p>{receipt.customer.firstName} {receipt.customer.phone}</p>}<ul>{receipt.items.map(item => <li key={item.id}><span>{item.product.name} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul><p>Скидка: {formatMinor(receipt.discountMinor)}</p><p className="total">Итого <strong>{formatMinor(receipt.totalMinor)}</strong></p>{receipt.payments.map(part => <p key={part.id}>{part.paymentMethod.name}: {formatMinor(part.amountMinor)}</p>)}<details className="printer-setting"><summary>Настроить чековый принтер</summary><label>Адрес принтера<input value={printerHost} onChange={event => { setPrinterHost(event.target.value); localStorage.setItem('koreacrm-pos-printer-host', event.target.value); }} placeholder="Например, 192.168.1.50" /></label></details></section>}
     {activeScreen === 'sale' && <p className="footnote">F2 поиск · F3 клиент · F5 оплата · Esc очистить поиск. {hasDesktopCache() ? 'Если пропадёт связь, касса сохранит продажу и отправит её позже.' : 'Для продажи нужна связь с магазином.'}</p>}

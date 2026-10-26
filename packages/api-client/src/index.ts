@@ -15,12 +15,12 @@ export class ApiError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
 
-export function createApiClient(baseUrl: string, deviceId: string) {
+export function createApiClient(baseUrl: string, deviceId: string, requestTimeoutMs = 12_000) {
   let accessToken = '';
   let refreshToken = '';
   let refreshing: Promise<void> | null = null;
   async function raw<T>(path: string, body?: unknown, method = 'GET', authorized = true): Promise<T> {
-    const response = await fetch(endpoint(baseUrl, path), { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(authorized && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
+    const response = await fetch(endpoint(baseUrl, path), { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(authorized && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(requestTimeoutMs) });
     if (!response.ok) {
       const result: unknown = await response.json().catch(() => null);
       const message = result && typeof result === 'object' && 'message' in result && typeof result.message === 'string' ? result.message : `API returned ${response.status}`;
