@@ -5,6 +5,7 @@ import { isLocalServerUrl, normalizeServerUrl } from '../src/server-url.ts';
 test('POS accepts a cabinet login link and uses its API', () => {
   assert.equal(normalizeServerUrl('https://shop.example/login'), 'https://shop.example/api');
   assert.equal(normalizeServerUrl(' https://shop.example/login/?next=%2Fsales '), 'https://shop.example/api');
+  assert.equal(normalizeServerUrl('https://shop.example/login'), normalizeServerUrl('https://shop.example/api'));
 });
 
 test('POS keeps explicit and direct API addresses', () => {

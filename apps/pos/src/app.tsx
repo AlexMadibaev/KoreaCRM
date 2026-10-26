@@ -32,6 +32,7 @@ const savedStoreKey = 'koreacrm-pos-store-v1';
 const message = (caught: unknown) => {
   if (caught instanceof TypeError) return 'Нет связи. Проверьте подключение и попробуйте ещё раз.';
   if (caught instanceof ApiError) {
+    if (caught.status === 401) return 'Сессия кассира завершилась. Войдите снова.';
     if (caught.status === 403) return 'У вас нет доступа к этому действию. Обратитесь к администратору.';
     if (caught.status >= 500) return 'Сервис временно недоступен. Попробуйте ещё раз позже.';
     if (/^(Forbidden|Unauthorized|Not Found|Internal Server Error|API returned \d+)$/i.test(caught.message)) return 'Не удалось выполнить действие. Попробуйте ещё раз.';
@@ -75,11 +76,12 @@ export function App() {
   });
   const [connectionOpen, setConnectionOpen] = useState(() => !localStorage.getItem(apiUrlKey));
   const [showSignup, setShowSignup] = useState(false);
-  const client = useMemo(() => {
+  const clientBaseUrl = useMemo(() => {
     let baseUrl = apiUrl.trim().replace(/\/+$/, '');
     try { baseUrl = normalizeServerUrl(apiUrl); } catch { /* Validate on sign-in. */ }
-    return createApiClient(baseUrl, deviceId);
-  }, [apiUrl, deviceId]);
+    return baseUrl;
+  }, [apiUrl]);
+  const client = useMemo(() => createApiClient(clientBaseUrl, deviceId), [clientBaseUrl, deviceId]);
   const [registrationRequested, setRegistrationRequested] = useState(() => Boolean(localStorage.getItem(savedStoreKey)));
   const [registerNonce, setRegisterNonce] = useState(0);
   const [signedIn, setSignedIn] = useState(false), [login, setLogin] = useState(''), [cashierName, setCashierName] = useState(''), [password, setPassword] = useState(''), [permissions, setPermissions] = useState<string[]>([]);
