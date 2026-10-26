@@ -150,6 +150,12 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline-color:
 .cart-remove:hover:not(:disabled) { background: #fff0f0; color: #bd4848; }
 .cart-line-controls { justify-content: space-between; margin-top: 7px; padding-left: 58px; }
 .cart-line-controls > strong { color: #25252b; font-size: 12px; }
+.cart-manual-discount { display: grid; gap: 3px; color: #85858e; font-size: 10px; }
+.cart-manual-discount input { width: 90px; min-height: 30px; margin: 0; padding: 4px 7px; border: 1px solid #e9e9ee; border-radius: 7px; background: #fff; color: #25252b; font-size: 11px; }
+.customer-personal-discount { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+.customer-personal-discount label { display: grid; gap: 4px; color: #85858e; font-size: 10px; }
+.customer-personal-discount input { width: 100px; min-height: 34px; margin: 0; padding: 6px 8px; border: 1px solid #e9e9ee; border-radius: 8px; background: #fff; color: #25252b; }
+.customer-personal-discount button { min-height: 34px; font-size: 11px; }
 .quantity-control { display: inline-flex; align-items: center; gap: 3px; }
 .quantity-control button { width: 25px; height: 25px; min-height: 25px; padding: 0; border-color: #e9e9ee; border-radius: 6px; color: #3a3a42; font-size: 14px; }
 .quantity-control input { width: 34px; min-height: 25px; height: 25px; margin: 0; padding: 2px; border: 0; background: transparent; font-size: 11px; text-align: center; appearance: textfield; }

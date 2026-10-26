@@ -4,7 +4,7 @@ import { createApiClient } from '@koreacrm/api-client';
 
 type Client = ReturnType<typeof createApiClient>;
 export type CacheStatus = { storeId: string; productCount: number; customerCount: number; lastSyncedAt: string | null };
-export type CachedProduct = { id: string; name: string; sku: string; barcodes: string[]; priceMinor: number | null; availableQuantity: number; active: boolean };
+export type CachedProduct = { id: string; name: string; sku: string; brandId: string | null; categoryId: string | null; barcodes: string[]; priceMinor: number | null; availableQuantity: number; active: boolean };
 
 export function hasDesktopCache() { return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window; }
 
@@ -49,6 +49,8 @@ export async function refreshCatalogCache(client: Client, userId: string, storeI
         id: product.id,
         name: product.name,
         sku: product.sku,
+        brandId: product.brandId,
+        categoryId: product.categoryId,
         barcodes: product.barcodes.map(barcode => barcode.value),
         priceMinor: settings?.priceMinor ?? null,
         availableQuantity: Math.max(0, (stock?.quantity ?? 0) - (stock?.reservedQuantity ?? 0)),

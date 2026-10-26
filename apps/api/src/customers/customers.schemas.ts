@@ -14,6 +14,7 @@ export const bonusListSchema = z.object({ page: z.coerce.number().int().positive
 export const bonusCorrectionSchema = z.object({ operationId: uuid, deltaMinor: z.string().regex(/^-?[1-9]\d{0,15}$/), reason: z.string().trim().min(5).max(500) });
 export const createSchema = z.object({ firstName: z.string().trim().min(1).max(100), lastName: nullableText, phone: z.string().regex(/^\+[1-9]\d{7,14}$/, 'Use E.164 phone number'), email: z.string().email().nullable().optional(), birthday: z.coerce.date().nullable().optional(), gender: nullableText, address: nullableText, notes: nullableText, discountPercent: discount.optional() });
 export const patchSchema = createSchema.partial();
+export const personalDiscountSchema = z.object({ discountPercent: discount });
 export const debtPaymentSchema = z.object({ operationId: uuid, paymentMethodId: uuid, amountMinor: z.string().regex(/^[1-9]\d{0,17}$/), cashShiftId: uuid.optional() });
 
 export function parseInput<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {

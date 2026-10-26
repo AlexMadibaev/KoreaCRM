@@ -168,7 +168,7 @@ export class CatalogService {
       this.db.product.findMany({
         where,
         select: {
-          id: true, name: true, sku: true, status: true,
+          id: true, name: true, sku: true, brandId: true, categoryId: true, status: true,
           barcodes: { select: { value: true } },
           images: { orderBy: { sortOrder: 'asc' }, select: { storageKey: true } },
           storeSettings: { where: { storeId }, select: { priceMinor: true, active: true } },
@@ -184,7 +184,7 @@ export class CatalogService {
         const settings = product.storeSettings[0];
         const stock = product.stocks[0];
         return {
-          id: product.id, name: product.name, sku: product.sku, status: product.status,
+          id: product.id, name: product.name, sku: product.sku, brandId: product.brandId, categoryId: product.categoryId, status: product.status,
           barcodes: product.barcodes, images: product.images,
           priceMinor: settings?.priceMinor ?? null,
           availableQuantity: Math.max(0, (stock?.quantity ?? 0) - (stock?.reservedQuantity ?? 0)),

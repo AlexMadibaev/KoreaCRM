@@ -1,11 +1,11 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AccessGuard, RequirePermission, StoreScopeGuard } from '../auth/guards';
 import type { AccessContext } from '../auth/policy';
 import { CustomersService } from './customers.service';
 import { segmentSettingsSchema } from './customer-segments';
-import { activitySchema, bonusCorrectionSchema, bonusListSchema, commentListSchema, commentSchema, createSchema, debtPaymentSchema, historySchema, listSchema, parseInput, patchSchema } from './customers.schemas';
+import { activitySchema, bonusCorrectionSchema, bonusListSchema, commentListSchema, commentSchema, createSchema, debtPaymentSchema, historySchema, listSchema, parseInput, patchSchema, personalDiscountSchema } from './customers.schemas';
 
 type AuthorizedRequest = Request & { access: AccessContext };
 
@@ -23,8 +23,9 @@ export class CustomersController {
   @Get(':id/activity') @RequirePermission('customers.view') activity(@Param('id', ParseUUIDPipe) id: string, @Query() query: unknown, @Req() req: AuthorizedRequest) { return this.service.activity(id, parseInput(activitySchema, query), req.access); }
   @Post(':id/comments') @RequirePermission('customers.edit') addComment(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.addComment(id, parseInput(commentSchema, body), req.access.userId); }
   @Get(':id') @RequirePermission('customers.view') get(@Param('id', ParseUUIDPipe) id: string) { return this.service.get(id); }
-  @Post() @RequirePermission('customers.create') create(@Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.create(parseInput(createSchema, body), req.access.userId); }
-  @Patch(':id') @RequirePermission('customers.edit') edit(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.edit(id, parseInput(patchSchema, body), req.access.userId); }
+  @Post() @RequirePermission('customers.create') create(@Body() body: unknown, @Req() req: AuthorizedRequest) { const input = parseInput(createSchema, body); if (Number(input.discountPercent ?? '0') > 0 && !req.access.permissions.includes('customers.discount.edit')) throw new ForbiddenException('Personal discount permission required'); return this.service.create(input, req.access.userId); }
+  @Patch(':id/discount') @RequirePermission('customers.discount.edit') personalDiscount(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.setPersonalDiscount(id, parseInput(personalDiscountSchema, body).discountPercent, req.access.userId); }
+  @Patch(':id') @RequirePermission('customers.edit') edit(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { const input = parseInput(patchSchema, body); if (input.discountPercent !== undefined && !req.access.permissions.includes('customers.discount.edit')) throw new ForbiddenException('Personal discount permission required'); return this.service.edit(id, input, req.access.userId); }
   @Delete(':id') @RequirePermission('customers.delete') delete(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.delete(id, req.access.userId); }
 }
 

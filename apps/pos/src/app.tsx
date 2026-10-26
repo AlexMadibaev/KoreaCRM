@@ -4,6 +4,7 @@ import { Button, MoneyInput } from '@koreacrm/ui';
 import { invoke } from '@tauri-apps/api/core';
 import type { PosCustomer, PosPage, PosPaymentMethod, PosProduct, PosSale, PosSettings, PosShift, PosStock, PosStore } from '@koreacrm/types';
 import { calculateCartWithDiscount, formatMinor, validatePayments } from './calculations';
+import { loyaltyPercent, type LoyaltySettings } from './loyalty';
 import { buildEscPosReceipt } from './escpos';
 import { hasDesktopCache, readCachedCustomers, readCachedProducts, readCatalogCacheStatus, refreshCatalogCache, type CacheStatus } from './local-cache';
 import { enqueueSale, listSyncQueue, retryConflictSale, setSyncStatus, syncQueueSummary, type QueueEntry, type QueueSummary } from './sync-queue';
@@ -17,13 +18,14 @@ import { ProductResults, type CatalogItem, type PosCatalogProduct } from './prod
 const CameraCodeScanner = lazy(() => import('./camera-code-scanner').then(module => ({ default: module.CameraCodeScanner })));
 type PosScreen = 'sale' | 'history' | 'shift' | 'sync';
 
-type Line = { product: Pick<PosProduct, 'id' | 'name' | 'sku'>; imageKey?: string; quantity: number; available: number; priceMinor: number };
+type Line = { product: Pick<PosProduct, 'id' | 'name' | 'sku' | 'brandId' | 'categoryId'>; imageKey?: string; quantity: number; available: number; priceMinor: number; discountMinor: string };
 type Tender = { id: string; methodId: string; amountMinor: string; reference: string };
 type SaleRequest = { operationId: string; deviceId: string; cashShiftId?: string; customerId?: string; items: { productId: string; quantity: number; priceMinor: string; discountMinor: string }[]; payments: { paymentMethodId: string; amountMinor: string; reference?: string }[] };
 type PendingSale = { storeId: string; request: SaleRequest };
 const defaultApiUrl = import.meta.env.VITE_API_URL ?? '';
 const apiUrlKey = 'koreacrm-pos-api-url-v1';
 const pendingKey = 'koreacrm-pos-pending-sale-v1';
+const loyaltyKey = 'koreacrm-pos-loyalty-v1';
 const deviceKey = 'koreacrm-pos-device-v1';
 const savedStoreKey = 'koreacrm-pos-store-v1';
 const message = (caught: unknown) => {
@@ -96,7 +98,9 @@ export function App() {
   const syncBusyRef = useRef(false);
   const [stores, setStores] = useState<PosStore[]>([]), [storeId, setStoreId] = useState(''), [deviceReady, setDeviceReady] = useState(false), [shift, setShift] = useState<PosShift | null>(null), [openingCash, setOpeningCash] = useState('0'), [closingCash, setClosingCash] = useState('0');
   const [methods, setMethods] = useState<PosPaymentMethod[]>([]), [customers, setCustomers] = useState<PosCustomer[]>([]), [customerSearch, setCustomerSearch] = useState(''), [customerId, setCustomerId] = useState('');
+  const [loyalty, setLoyalty] = useState<LoyaltySettings | null>(null);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+  const [personalDiscountDraft, setPersonalDiscountDraft] = useState('0');
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false), [customerFirstName, setCustomerFirstName] = useState(''), [customerLastName, setCustomerLastName] = useState(''), [customerPhone, setCustomerPhone] = useState(''), [customerCreateError, setCustomerCreateError] = useState(''), [creatingCustomer, setCreatingCustomer] = useState(false);
   const [search, setSearch] = useState(''), [products, setProducts] = useState<CatalogItem[]>([]), [cart, setCart] = useState<Line[]>([]), [tenders, setTenders] = useState<Tender[]>([]);
   const [stockNotice, setStockNotice] = useState('');
@@ -117,20 +121,25 @@ export function App() {
   const paymentRows = tenders.map(tender => ({ methodId: tender.methodId, amountMinor: tender.amountMinor, kind: methods.find(method => method.id === tender.methodId)?.kind ?? '' }));
   const cashPayment = paymentRows.some(row => row.kind === 'CASH');
   const selectedCustomer = customers.find(customer => customer.id === customerId);
+  useEffect(() => { setPersonalDiscountDraft(selectedCustomer?.discountPercent ?? '0'); }, [selectedCustomer?.id, selectedCustomer?.discountPercent]);
   const customerMatches = customers.filter(customer => !customerSearch.trim() || `${customer.firstName} ${customer.lastName ?? ''} ${customer.phone}`.toLocaleLowerCase('ru').includes(customerSearch.trim().toLocaleLowerCase('ru'))).slice(0, 8);
   const customerDiscountPercent = selectedCustomer?.discountPercent ?? '0';
+  const cartSubtotal = cart.reduce((sum, line) => sum + BigInt(line.priceMinor) * BigInt(line.quantity), 0n);
+  const cartPercents = loyalty ? cart.map(line => loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null, cartSubtotal)) : [];
+  const cartLines = cart.map(line => ({ productId: line.product.id, quantity: line.quantity, available: line.available, priceMinor: line.priceMinor, discountMinor: line.discountMinor }));
   let cartTotal: ReturnType<typeof calculateCartWithDiscount> | null = null;
   let cartError = '';
-  try { if (cart.length) cartTotal = calculateCartWithDiscount(cart.map(line => ({ productId: line.product.id, quantity: line.quantity, available: line.available, priceMinor: line.priceMinor, discountMinor: '0' })), customerDiscountPercent); } catch { cartError = 'Проверьте количество товаров и скидку клиента.'; }
+  try { if (cart.length && loyalty) cartTotal = calculateCartWithDiscount(cartLines, cartPercents); } catch { cartError = 'Проверьте количество товаров и скидку клиента.'; }
   const paid = tenders.reduce((total, tender) => total + BigInt(validMinor(tender.amountMinor) ? tender.amountMinor : '0'), 0n);
   const checkoutHint = pending ? 'Сначала проверьте предыдущую продажу.' : !cart.length ? 'Сначала добавьте товар в чек.' : !deviceReady ? 'Подождите, пока касса подключится.' : cartError ? 'Проверьте количество товаров и скидку клиента.' : cashPayment && !shift ? 'Для оплаты наличными откройте раздел «Кассовая смена».' : cartTotal && paid !== cartTotal.total ? 'Внесённая сумма должна совпадать с итогом чека.' : '';
   const projectedShift = shift ? projectShiftCash(shift.expectedCashMinor, shift.id, methods.filter(method => method.kind === 'CASH').map(method => method.id), queueEntries) : null;
 
   async function finishOnlineSignIn(identityLogin: string, normalizedApiUrl: string, passwordForOffline?: string) {
       setServerReachable(true); localStorage.setItem(apiUrlKey, normalizedApiUrl);
-      const [me, available, paymentMethods] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods')]);
+      const [me, available, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods'), client.get<LoyaltySettings>('/loyalty/settings')]);
+      setLoyalty(loyaltySettings); localStorage.setItem(`${loyaltyKey}:${normalizedApiUrl}`, JSON.stringify(loyaltySettings));
       if (!me.permissions.includes('sales.create')) throw new Error('Нет права оформлять продажи');
-      const active = paymentMethods.filter(method => method.active && (!hasDesktopCache() || method.kind !== 'BONUS') && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
+      const active = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS' && !hasDesktopCache()) && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
       if (!active.length || !available.length) throw new Error('Нет доступного магазина или способа оплаты');
       const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === localStorage.getItem(savedStoreKey)) ?? available[0]!;
       if (hasDesktopCache() && passwordForOffline) {
@@ -162,6 +171,9 @@ export function App() {
           const shift = saved.shiftJson ? JSON.parse(saved.shiftJson) as PosShift : null;
           if (!permissions.includes('sales.create') || !active.length) throw new Error('Локальные права кассира недоступны');
           const customers = await readCachedCustomers(saved.userId, saved.storeId);
+          const cachedLoyalty = localStorage.getItem(`${loyaltyKey}:${normalizedApiUrl}`);
+          if (!cachedLoyalty) throw new Error('Настройки скидок не сохранены. Подключитесь к серверу и войдите снова.');
+          setLoyalty(JSON.parse(cachedLoyalty) as LoyaltySettings);
           offlinePasswordRef.current = password;
           localStorage.setItem(apiUrlKey, normalizedApiUrl);
           setCashierName(login); setUserId(saved.userId); setStoreId(saved.storeId); setStores([store]); setMethods(active); setPermissions(permissions); setShift(shift); setCustomers(customers); setDeviceReady(true); setCacheStatus(status); setClosingCash(shift?.expectedCashMinor ?? '0');
@@ -239,11 +251,11 @@ export function App() {
       checking = true;
       try {
         await client.login(login, offlinePasswordRef.current);
-        const [me, paymentMethods] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosPaymentMethod[]>('/sale-payment-methods')]);
+        const [me, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosPaymentMethod[]>('/sale-payment-methods'), client.get<LoyaltySettings>('/loyalty/settings')]);
         if (!me.permissions.includes('sales.create') || me.userId !== userId) throw new Error('Права кассира изменились. Выйдите и войдите заново при подключённом сервере.');
-        const activeMethods = paymentMethods.filter(method => method.active && (!hasDesktopCache() || method.kind !== 'BONUS') && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
+        const activeMethods = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS' && !hasDesktopCache()) && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
         if (!activeMethods.length) throw new Error('Доступные способы оплаты изменились. Выйдите и войдите заново.');
-        if (active) { offlinePasswordRef.current = ''; reconnectingRef.current = true; setCashierName(me.name || me.login || login); setPermissions(me.permissions); setMethods(activeMethods); setServerReachable(true); setOfflineSignedIn(false); setQueueNotice('Связь восстановлена. Отправляем сохранённые продажи.'); }
+        if (active) { setLoyalty(loyaltySettings); localStorage.setItem(`${loyaltyKey}:${apiUrl.trim().replace(/\/+$/, '')}`, JSON.stringify(loyaltySettings)); offlinePasswordRef.current = ''; reconnectingRef.current = true; setCashierName(me.name || me.login || login); setPermissions(me.permissions); setMethods(activeMethods); setServerReachable(true); setOfflineSignedIn(false); setQueueNotice('Связь восстановлена. Отправляем сохранённые продажи.'); }
       } catch (caught) {
         if (active && ((caught instanceof ApiError && [401, 403].includes(caught.status)) || (caught instanceof Error && !(caught instanceof TypeError) && !(caught instanceof ApiError)))) { offlinePasswordRef.current = ''; setDeviceReady(false); setQueueNotice('Не удалось восстановить вход. Когда появится связь, выйдите и войдите снова.'); }
       } finally { checking = false; }
@@ -362,7 +374,7 @@ export function App() {
         available = cached.availableQuantity; priceMinor = cached.priceMinor; setServerReachable(false);
         setQueueNotice('Нет связи. Цена и остаток взяты из сохранённых данных.');
       }
-      setStockNotice(''); setCart(current => [...current, { product, imageKey: 'images' in product ? product.images[0]?.storageKey : undefined, quantity: 1, available, priceMinor }]); setSearch(''); setProducts([]); searchRef.current?.focus();
+      setStockNotice(''); setCart(current => [...current, { product, imageKey: 'images' in product ? product.images[0]?.storageKey : undefined, quantity: 1, available, priceMinor, discountMinor: '0' }]); setSearch(''); setProducts([]); searchRef.current?.focus();
     } catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   }
@@ -370,7 +382,7 @@ export function App() {
     const requested = Number(rawValue);
     if (!Number.isFinite(requested)) return;
     const quantity = Math.max(1, Math.min(Math.trunc(requested), line.available));
-    setCart(current => current.map(item => item.product.id === line.product.id ? { ...item, quantity } : item));
+    setCart(current => current.map(item => item.product.id === line.product.id ? { ...item, quantity, discountMinor: (BigInt(item.discountMinor) > BigInt(item.priceMinor) * BigInt(quantity) ? BigInt(item.priceMinor) * BigInt(quantity) : BigInt(item.discountMinor)).toString() } : item));
     setStockNotice(requested > line.available ? `Для «${line.product.name}» доступно только ${line.available} шт. Количество автоматически изменено на ${line.available}.` : '');
   }
   async function scan(event: KeyboardEvent<HTMLInputElement>) {
@@ -386,6 +398,17 @@ export function App() {
       if ((caught instanceof ApiError && caught.status === 404) || (hasDesktopCache() && connectionFailed(caught))) { const cached = hasDesktopCache() && userId && storeId ? await readCachedProducts(userId, storeId) : []; const match = [...products, ...cached].find(product => product.sku.toLowerCase() === code.toLowerCase() || ('barcodes' in product && product.barcodes.some(barcode => (typeof barcode === 'string' ? barcode : barcode.value) === code))); if (match) await addProduct(match); else setError('Штрихкод не найден. Выберите товар из списка.'); }
       else setError(message(caught));
     }
+  }
+  async function savePersonalDiscount() {
+    if (!selectedCustomer || !can('customers.discount.edit') || offlineSignedIn || !serverReachable) return;
+    const discountPercent = personalDiscountDraft.trim().replace(',', '.');
+    if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(discountPercent) || Number(discountPercent) > 100) { setError('Укажите скидку от 0 до 100%.'); return; }
+    setBusy(true); setError('');
+    try {
+      const updated = await client.patch<PosCustomer>(`/customers/${selectedCustomer.id}/discount`, { discountPercent });
+      setCustomers(current => current.map(customer => customer.id === updated.id ? updated : customer));
+    } catch (caught) { setError(message(caught)); }
+    finally { setBusy(false); }
   }
   async function createCustomer(event: FormEvent) {
     event.preventDefault();
@@ -441,7 +464,7 @@ export function App() {
   async function checkout(event: FormEvent) {
     event.preventDefault(); if (!deviceReady) { setError('Касса ещё подключается. Подождите немного.'); return; } if (pending) { setError('Сначала проверьте предыдущую продажу.'); return; }
     try {
-      const totals = calculateCartWithDiscount(cart.map(line => ({ productId: line.product.id, quantity: line.quantity, available: line.available, priceMinor: line.priceMinor, discountMinor: '0' })), customerDiscountPercent);
+      const totals = calculateCartWithDiscount(cartLines, cartPercents);
       validatePayments(paymentRows, totals.total, customerId || null, cashPayment ? shift?.id ?? null : null, selectedCustomer?.bonusBalanceMinor ?? '0');
       const request: SaleRequest = { operationId: crypto.randomUUID(), deviceId, ...(cashPayment && shift ? { cashShiftId: shift.id } : {}), ...(customerId ? { customerId } : {}), items: cart.map((line, index) => ({ productId: line.product.id, quantity: line.quantity, priceMinor: String(line.priceMinor), discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: tenders.map(tender => ({ paymentMethodId: tender.methodId, amountMinor: tender.amountMinor, ...(tender.reference ? { reference: tender.reference } : {}) })) };
       if (hasDesktopCache()) {
@@ -561,7 +584,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
           {!cart.length && <div className="empty-cart"><div className="empty-cart-icon" aria-hidden="true">▤</div><strong>Чек пока пуст</strong><p>Выберите товар слева, чтобы начать продажу.</p></div>}
           <ul className="cart">{cart.map((line, index) => <li key={line.product.id}>
             <div className="cart-line-main"><div className="cart-line-image">{line.imageKey ? <img src={`${apiUrl.trim().replace(/\/+$/, '')}/product-images/${encodeURIComponent(line.imageKey)}`} alt="" /> : <span aria-hidden="true">▣</span>}</div><div className="item-name"><strong>{line.product.name}</strong><span>{formatMinor(line.priceMinor)} сомони · доступно {line.available}</span></div><button type="button" className="cart-remove" aria-label={`Убрать ${line.product.name}`} disabled={Boolean(pending)} onClick={() => setCart(current => current.filter(item => item.product.id !== line.product.id))}>×</button></div>
-            <div className="cart-line-controls"><div className="quantity-control"><button type="button" aria-label={`Уменьшить количество ${line.product.name}`} disabled={Boolean(pending) || line.quantity <= 1} onClick={() => changeQuantity(line, String(line.quantity - 1))}>−</button><input aria-label={`Количество ${line.product.name}`} type="number" min="1" max={line.available} value={line.quantity} disabled={Boolean(pending)} onChange={event => changeQuantity(line, event.target.value)} /><button type="button" aria-label={`Увеличить количество ${line.product.name}`} disabled={Boolean(pending)} onClick={() => changeQuantity(line, String(line.quantity + 1))}>+</button></div><strong>{cartLineTotal(cartTotal?.lines[index]?.totalMinor)} сомони</strong></div>
+            <div className="cart-line-controls"><div className="quantity-control"><button type="button" aria-label={`Уменьшить количество ${line.product.name}`} disabled={Boolean(pending) || line.quantity <= 1} onClick={() => changeQuantity(line, String(line.quantity - 1))}>−</button><input aria-label={`Количество ${line.product.name}`} type="number" min="1" max={line.available} value={line.quantity} disabled={Boolean(pending)} onChange={event => changeQuantity(line, event.target.value)} /><button type="button" aria-label={`Увеличить количество ${line.product.name}`} disabled={Boolean(pending)} onClick={() => changeQuantity(line, String(line.quantity + 1))}>+</button></div><label className="cart-manual-discount">Скидка, сомони<MoneyInput aria-label={`Ручная скидка ${line.product.name}`} valueMinor={line.discountMinor} onMinorChange={minor => setCart(current => current.map(item => item.product.id === line.product.id ? { ...item, discountMinor: (BigInt(minor) > BigInt(item.priceMinor) * BigInt(item.quantity) ? BigInt(item.priceMinor) * BigInt(item.quantity) : BigInt(minor)).toString() } : item))} disabled={Boolean(pending)} /></label><strong>{cartLineTotal(cartTotal?.lines[index]?.totalMinor)} сомони</strong></div>
           </li>)}</ul>
         </div>
         <form className="checkout-form" onSubmit={checkout}>
@@ -578,6 +601,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
               {can('customers.create') && <button type="button" className="customer-picker-create" disabled={creatingCustomer || offlineSignedIn || !serverReachable} onClick={() => { setCustomerCreateError(''); if (/^\+?\d[\d\s()-]*$/.test(customerSearch.trim())) setCustomerPhone(customerSearch.trim()); else setCustomerFirstName(customerSearch.trim()); setCustomerCreateOpen(true); setCustomerPickerOpen(false); }}>＋ Добавить нового клиента</button>}
             </div>}
           </div>
+          {selectedCustomer && can('customers.discount.edit') && <div className="customer-personal-discount"><label>Персональная скидка, %<input inputMode="decimal" value={personalDiscountDraft} onChange={event => setPersonalDiscountDraft(event.target.value)} disabled={busy || offlineSignedIn || !serverReachable} /></label><button type="button" className="secondary" onClick={() => void savePersonalDiscount()} disabled={busy || offlineSignedIn || !serverReachable || personalDiscountDraft.replace(',', '.') === selectedCustomer.discountPercent}>Сохранить скидку</button></div>}
           {customerId && customerDiscountPercent !== '0' && <p className="muted">Персональная скидка: {customerDiscountPercent}%.</p>}{selectedCustomer && methods.some(method => method.kind === 'BONUS') && <p className="muted">Доступно бонусов: {formatMinor(selectedCustomer.bonusBalanceMinor ?? '0')}</p>}
           {cartError && <p role="alert" className="cart-discount-error">{cartError}</p>}
           <div className="order-totals"><div><span>Товары</span><strong>{cartTotal ? formatMinor(cartTotal.subtotal) : '0,00'} сомони</strong></div>{selectedCustomer && cartTotal && cartTotal.discount > 0n && <div><span>Скидка клиента ({customerDiscountPercent}%)</span><strong>− {formatMinor(cartTotal.discount)} сомони</strong></div>}<div className="order-total"><span>Итого</span><strong>{cartTotal ? formatMinor(cartTotal.total) : '0,00'} сомони</strong></div></div>

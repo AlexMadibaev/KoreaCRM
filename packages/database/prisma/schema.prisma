@@ -42,6 +42,8 @@ model User {
   customerPayments CustomerPayment[]
   customerComments CustomerComment[]
   bonusTransactions BonusTransaction[]
+  rewardBalanceMinor Decimal @default(0) @db.Decimal(18, 0)
+  rewardTransactions EmployeeRewardTransaction[]
   notifications Notification[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -570,6 +572,27 @@ model CustomerSegmentSettings {
   id        Int      @id @default(1)
   rules     Json
   updatedAt DateTime @updatedAt
+}
+
+model LoyaltySettings {
+  id        Int      @id @default(1)
+  rules     Json
+  updatedAt DateTime @updatedAt
+}
+
+model EmployeeRewardTransaction {
+  id                String   @id @default(uuid()) @db.Uuid
+  operationId       String   @unique @db.Uuid
+  employeeId        String   @db.Uuid
+  employee          User     @relation(fields: [employeeId], references: [id])
+  saleId            String   @db.Uuid
+  deltaMinor        Decimal  @db.Decimal(18, 0)
+  balanceAfterMinor Decimal  @db.Decimal(18, 0)
+  reason            String
+  createdAt         DateTime @default(now())
+
+  @@index([employeeId, createdAt])
+  @@index([saleId])
 }
 
 enum SalePaymentKind {

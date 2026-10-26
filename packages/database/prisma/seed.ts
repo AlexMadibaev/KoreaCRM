@@ -11,7 +11,7 @@ const permissionCodes = [
   'brands.view', 'brands.create', 'brands.edit', 'brands.delete',
   'categories.view', 'categories.create', 'categories.edit', 'categories.delete',
   'sales.view', 'sales.create', 'sales.return',
-  'customers.view', 'customers.create', 'customers.edit', 'customers.delete',
+  'customers.view', 'customers.create', 'customers.edit', 'customers.discount.edit', 'customers.delete',
   'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay',
   'employees.view', 'employees.create', 'employees.edit',
   'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel',
@@ -24,12 +24,12 @@ const roleCodes = ['OWNER', 'DIRECTOR', 'MANAGER', 'ADMIN', 'ACCOUNTANT', 'WAREH
 const roleGrants: Record<string, string[]> = {
   OWNER: permissionCodes,
   DIRECTOR: permissionCodes.filter((code) => code !== 'settings.edit'),
-  MANAGER: ['products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay', 'reports.view'],
-  ADMIN: ['products.view', 'products.create', 'products.edit', 'brands.view', 'brands.create', 'brands.edit', 'categories.view', 'categories.create', 'categories.edit', 'sales.view', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'employees.create', 'employees.edit', 'inventory.view', 'inventory.adjust', 'reports.view'],
+  MANAGER: ['customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay', 'reports.view'],
+  ADMIN: ['customers.discount.edit', 'products.view', 'products.create', 'products.edit', 'brands.view', 'brands.create', 'brands.edit', 'categories.view', 'categories.create', 'categories.edit', 'sales.view', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'employees.create', 'employees.edit', 'inventory.view', 'inventory.adjust', 'reports.view'],
   ACCOUNTANT: ['sales.view', 'customers.view', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.supplier_pay', 'finance.customer_pay', 'suppliers.view', 'purchases.view', 'reports.view'],
   WAREHOUSE: ['products.view', 'brands.view', 'categories.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'purchases.view', 'purchases.receive', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.send', 'transfers.receive', 'transfers.cancel'],
-  CASHIER: ['products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'finance.cash_view', 'finance.cash', 'finance.customer_pay'],
-  SELLER: ['products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'customers.view', 'customers.create'],
+  CASHIER: ['customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'finance.cash_view', 'finance.cash', 'finance.customer_pay'],
+  SELLER: ['customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'customers.view', 'customers.create'],
 };
 
 async function main() {

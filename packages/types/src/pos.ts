@@ -1,5 +1,5 @@
 export type PosStore = { id: string; name: string; code: string };
-export type PosProduct = { id: string; name: string; sku: string; status: string; barcodes: { value: string }[] };
+export type PosProduct = { id: string; name: string; sku: string; brandId: string | null; categoryId: string | null; status: string; barcodes: { value: string }[] };
 export type PosStock = { productId: string; quantity: number; reservedQuantity: number };
 export type PosSettings = { active: boolean; priceMinor: number | null } | null;
 export type PosCustomer = { id: string; firstName: string; lastName: string | null; phone: string; discountPercent: string; bonusBalanceMinor: string };

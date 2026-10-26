@@ -6,12 +6,14 @@ import { DatabaseService } from '../database.service';
 import { FinanceService } from '../finance/finance.service';
 import { StockService } from '../stock/stock.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { automaticPercent, defaultLoyaltySettings, loyaltySettingsSchema, percentBasisPoints } from '../loyalty/loyalty.rules';
 import { paymentMethodPatchSchema, paymentMethodSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
 
 type SaleInput = z.infer<typeof saleSchema>;
 const maximum = new Prisma.Decimal('999999999999999999');
 const sum = (values: Prisma.Decimal[]) => values.reduce((value, part) => value.plus(part), new Prisma.Decimal(0));
 const retryable = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
+const derivedOperationId = (id: string, kind: string) => { const hex = createHash('sha256').update(`${id}:${kind}`).digest('hex'); return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`; };
 const saleInclude = { items: { include: { product: { select: { name: true, sku: true } } } }, payments: { include: { paymentMethod: true } }, customer: { select: { id: true, firstName: true, lastName: true, phone: true } }, store: { select: { name: true, code: true, address: true, phone: true } }, employee: { select: { name: true } }, returns: { include: { items: true }, orderBy: { createdAt: 'asc' } } } as const;
 
 @Injectable()
@@ -102,6 +104,32 @@ export class SalesService {
           const orders = customer.ordersCount - (fullReturn ? 1 : 0);
           if (spent.lt(0) || orders < 0) throw new ConflictException('Customer totals cannot be reduced for this return');
           await tx.customer.update({ where: { id: sale.customerId }, data: { totalSpentMinor: spent, ordersCount: orders, averageCheckMinor: orders ? spent.div(orders).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP) : new Prisma.Decimal(0) } });
+          const earned = await tx.bonusTransaction.findUnique({ where: { operationId: derivedOperationId(sale.operationId, 'earn') } });
+          if (earned && earned.deltaMinor.gt(0) && sale.totalMinor.gt(0)) {
+            const previouslyReturned = sum(sale.returns.map(previous => previous.amountMinor));
+            const reversedBefore = earned.deltaMinor.mul(previouslyReturned).div(sale.totalMinor).floor();
+            const reversedAfter = earned.deltaMinor.mul(previouslyReturned.plus(amount)).div(sale.totalMinor).floor();
+            const reversal = reversedAfter.minus(reversedBefore);
+            if (reversal.gt(0)) {
+              const current = await tx.customer.findUniqueOrThrow({ where: { id: customer.id } });
+              const nextBalance = current.bonusBalanceMinor.minus(reversal);
+              await tx.customer.update({ where: { id: customer.id }, data: { bonusBalanceMinor: nextBalance } });
+              await tx.bonusTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'return'), customerId: customer.id, actorId, type: 'CORRECTION', deltaMinor: reversal.neg(), balanceAfterMinor: nextBalance, reason: `Возврат бонусов по чеку ${sale.number}` } });
+            }
+          }
+        }
+        const reward = await tx.employeeRewardTransaction.findUnique({ where: { operationId: derivedOperationId(sale.operationId, 'employee-earn') } });
+        if (reward && reward.deltaMinor.gt(0) && sale.totalMinor.gt(0)) {
+          const previouslyReturned = sum(sale.returns.map(previous => previous.amountMinor));
+          const reversedBefore = reward.deltaMinor.mul(previouslyReturned).div(sale.totalMinor).floor();
+          const reversedAfter = reward.deltaMinor.mul(previouslyReturned.plus(amount)).div(sale.totalMinor).floor();
+          const reversal = reversedAfter.minus(reversedBefore);
+          if (reversal.gt(0)) {
+            const employee = await tx.user.findUniqueOrThrow({ where: { id: sale.employeeId } });
+            const nextBalance = employee.rewardBalanceMinor.minus(reversal);
+            await tx.user.update({ where: { id: employee.id }, data: { rewardBalanceMinor: nextBalance } });
+            await tx.employeeRewardTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'employee-return'), employeeId: employee.id, saleId: sale.id, deltaMinor: reversal.neg(), balanceAfterMinor: nextBalance, reason: `Возврат по чеку ${sale.number}` } });
+          }
         }
         await tx.auditLog.create({ data: { userId: actorId, action: 'SALE_RETURNED', entityType: 'SaleReturn', entityId: record.id, newValue: { saleId: id, amountMinor: amount.toString(), reason: input.reason, cashShiftId: input.cashShiftId, items: requested } } });
         await tx.posDevice.update({ where: { deviceId: input.deviceId }, data: { lastActivityAt: new Date() } });
@@ -127,6 +155,8 @@ export class SalesService {
         if (!device || device.storeId !== storeId || device.status !== 'ACTIVE') throw new ConflictException('POS device is not active in this store');
         const customer = input.customerId ? await tx.customer.findFirst({ where: { id: input.customerId, deletedAt: null } }) : null;
         if (input.customerId && !customer) throw new NotFoundException('Customer not found');
+        const savedLoyalty = await tx.loyaltySettings.findUnique({ where: { id: 1 } });
+        const loyalty = savedLoyalty ? loyaltySettingsSchema.parse(savedLoyalty.rules) : defaultLoyaltySettings;
         const lines = [];
         for (const item of input.items) {
           const product = await tx.product.findFirst({ where: { id: item.productId, deletedAt: null } });
@@ -143,9 +173,14 @@ export class SalesService {
           const discount = new Prisma.Decimal(item.discountMinor);
           if (discount.gt(gross)) throw new BadRequestException('Line discount exceeds line price');
           const cost = batch.purchasePriceMinor.mul(item.quantity);
-          lines.push({ productId: item.productId, quantity: item.quantity, priceMinor: price, currentPriceMinor: settings?.priceMinor ?? null, purchasePriceMinor: batch.purchasePriceMinor, discountMinor: discount, totalMinor: gross.minus(discount), profitMinor: gross.minus(discount).minus(cost), batchId: batch.id, gross, cost });
+          lines.push({ productId: item.productId, brandId: product.brandId, categoryId: product.categoryId, quantity: item.quantity, priceMinor: price, currentPriceMinor: settings?.priceMinor ?? null, purchasePriceMinor: batch.purchasePriceMinor, discountMinor: discount, totalMinor: gross.minus(discount), profitMinor: gross.minus(discount).minus(cost), batchId: batch.id, gross, cost });
         }
         const subtotal = sum(lines.map(line => line.gross));
+        if (loyalty.mode === 'DISCOUNT') for (const line of lines) {
+          const percent = automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null, BigInt(subtotal.toString()));
+          const minimumDiscount = line.gross.mul(percentBasisPoints(percent).toString()).div(10000).floor();
+          if (line.discountMinor.lt(minimumDiscount)) throw new BadRequestException(`Automatic discount is missing for product ${line.productId}`);
+        }
         const discount = sum(lines.map(line => line.discountMinor));
         const total = subtotal.minus(discount);
         const cost = sum(lines.map(line => line.cost));
@@ -168,6 +203,7 @@ export class SalesService {
         if (!sum(input.payments.map(payment => new Prisma.Decimal(payment.amountMinor))).eq(total)) throw new BadRequestException('Payments must equal sale total');
         if (debt.gt(0) && !customer) throw new BadRequestException('Customer is required for debt sale');
         if (bonus.gt(0)) {
+          if (loyalty.mode !== 'BONUS') throw new BadRequestException('Bonus payments are disabled in discount mode');
           if (allowNegativeStock) throw new BadRequestException('Bonus payments require an online sale');
           if (!customer) throw new BadRequestException('Customer is required for bonus payment');
           if (bonus.gt(customer.bonusBalanceMinor)) throw new ConflictException('Customer bonus balance is insufficient');
@@ -202,6 +238,24 @@ export class SalesService {
             const transaction = await tx.bonusTransaction.create({ data: { operationId: input.operationId, customerId: customer.id, actorId, type: 'SPEND', deltaMinor: bonus.neg(), balanceAfterMinor: bonusBalance, reason: `Оплата бонусами по чеку ${sale.number}` } });
             await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_BONUS_SPENT', entityType: 'BonusTransaction', entityId: transaction.id, newValue: { customerId: customer.id, saleId: sale.id, amountMinor: bonus.toString() } } });
           }
+          if (loyalty.mode === 'BONUS') {
+            const earned = total.minus(bonus).minus(debt).mul(percentBasisPoints(loyalty.bonusEarnPercent).toString()).div(10000).floor();
+            if (earned.gt(0)) {
+              const current = await tx.customer.findUniqueOrThrow({ where: { id: customer.id } });
+              const nextBalance = current.bonusBalanceMinor.plus(earned);
+              if (nextBalance.gt(maximum)) throw new ConflictException('Bonus balance exceeds database range');
+              await tx.customer.update({ where: { id: customer.id }, data: { bonusBalanceMinor: nextBalance } });
+              await tx.bonusTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'earn'), customerId: customer.id, actorId, type: 'EARN', deltaMinor: earned, balanceAfterMinor: nextBalance, reason: `Начисление по чеку ${sale.number}` } });
+            }
+          }
+        }
+        const rewardEarned = total.minus(debt).minus(bonus).mul(percentBasisPoints(loyalty.consultantEarnPercent).toString()).div(10000).floor();
+        if (rewardEarned.gt(0)) {
+          const employee = await tx.user.findUniqueOrThrow({ where: { id: actorId } });
+          const nextBalance = employee.rewardBalanceMinor.plus(rewardEarned);
+          if (nextBalance.gt(maximum)) throw new ConflictException('Employee reward balance exceeds database range');
+          await tx.user.update({ where: { id: actorId }, data: { rewardBalanceMinor: nextBalance } });
+          await tx.employeeRewardTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'employee-earn'), employeeId: actorId, saleId: sale.id, deltaMinor: rewardEarned, balanceAfterMinor: nextBalance, reason: `Продажа ${sale.number}` } });
         }
         await tx.auditLog.create({ data: { userId: actorId, action: 'SALE_COMPLETED', entityType: 'Sale', entityId: sale.id, newValue: { storeId, totalMinor: total.toString(), debtMinor: debt.toString(), itemCount: lines.length } } });
         await tx.posDevice.update({ where: { deviceId: input.deviceId }, data: { lastActivityAt: new Date() } });

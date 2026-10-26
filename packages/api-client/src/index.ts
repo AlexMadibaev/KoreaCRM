@@ -38,6 +38,7 @@ export function createApiClient(baseUrl: string, deviceId: string) {
     async loginWithPosCode(code: string) { const result = await raw<{ accessToken: string; refreshToken: string; login: string }>('/auth/pos-code', { code, deviceId }, 'POST', false); accessToken = result.accessToken; refreshToken = result.refreshToken; return result.login; },
     async get<T>(path: string): Promise<T> { try { return await raw<T>(path); } catch (error) { if (error instanceof ApiError && error.status === 401 && refreshToken) { await refresh(); return raw<T>(path); } throw error; } },
     async post<T>(path: string, body: unknown): Promise<T> { try { return await raw<T>(path, body, 'POST'); } catch (error) { if (error instanceof ApiError && error.status === 401 && refreshToken) { await refresh(); return raw<T>(path, body, 'POST'); } throw error; } },
+    async patch<T>(path: string, body: unknown): Promise<T> { try { return await raw<T>(path, body, 'PATCH'); } catch (error) { if (error instanceof ApiError && error.status === 401 && refreshToken) { await refresh(); return raw<T>(path, body, 'PATCH'); } throw error; } },
     async logout() { const token = refreshToken; accessToken = ''; refreshToken = ''; if (token) await raw('/auth/logout', { refreshToken: token }, 'POST', false); },
   };
 }

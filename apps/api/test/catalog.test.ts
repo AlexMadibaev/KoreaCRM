@@ -78,7 +78,7 @@ test('POS catalog returns image, store price and available stock together', asyn
       findMany: async (input: { select: { storeSettings: { where: { storeId: string } }; stocks: { where: { storeId: string } } } }) => {
         settingsStore = input.select.storeSettings.where.storeId;
         stockStore = input.select.stocks.where.storeId;
-        return [{ id: 'product-1', name: 'Cream', sku: 'SKU-1', status: 'ACTIVE', barcodes: [], images: [{ storageKey: 'photo.png' }], storeSettings: [{ priceMinor: 129000, active: true }], stocks: [{ quantity: 5, reservedQuantity: 2 }] }];
+        return [{ id: 'product-1', name: 'Cream', sku: 'SKU-1', brandId: null, categoryId: null, status: 'ACTIVE', barcodes: [], images: [{ storageKey: 'photo.png' }], storeSettings: [{ priceMinor: 129000, active: true }], stocks: [{ quantity: 5, reservedQuantity: 2 }] }];
       },
       count: async () => 1,
     },
@@ -87,5 +87,5 @@ test('POS catalog returns image, store price and available stock together', asyn
   const result = await new CatalogService(db).posProducts('store-1', { page: 1, limit: 20 });
   assert.equal(settingsStore, 'store-1');
   assert.equal(stockStore, 'store-1');
-  assert.deepEqual(result.items[0], { id: 'product-1', name: 'Cream', sku: 'SKU-1', status: 'ACTIVE', barcodes: [], images: [{ storageKey: 'photo.png' }], priceMinor: 129000, availableQuantity: 3, active: true });
+  assert.deepEqual(result.items[0], { id: 'product-1', name: 'Cream', sku: 'SKU-1', brandId: null, categoryId: null, status: 'ACTIVE', barcodes: [], images: [{ storageKey: 'photo.png' }], priceMinor: 129000, availableQuantity: 3, active: true });
 });

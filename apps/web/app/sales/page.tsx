@@ -6,15 +6,16 @@ import { CatalogShell } from '../../components/catalog-shell';
 import { SalesLedger, type Sale } from '../../components/sales-ledger';
 import { api, queryString, type Page } from '../../lib/api';
 import { calculateSaleTotals, type ReceiptDiscount } from '../../lib/sale-calculations';
+import { loyaltyPercent, type LoyaltySettings } from '../../lib/loyalty';
 
 type Store = { id: string; name: string };
-type Product = { id: string; name: string; sku: string };
+type Product = { id: string; name: string; sku: string; brandId: string | null; categoryId: string | null };
 type Stock = { productId: string; quantity: number; reservedQuantity: number };
 type Settings = { priceMinor: number | null; active: boolean } | null;
 type Method = { id: string; name: string; kind: string; active: boolean };
 type Customer = { id: string; firstName: string; lastName: string | null; phone: string; discountPercent: string; bonusBalanceMinor: string };
 type Shift = { id: string; deviceId: string; status: string; expectedCashMinor: string };
-type Line = { productId: string; name: string; sku: string; quantity: number; available: number; priceMinor: number; discountMinor: string };
+type Line = { productId: string; name: string; sku: string; brandId: string | null; categoryId: string | null; quantity: number; available: number; priceMinor: number; discountMinor: string };
 type Tender = { key: string; paymentMethodId: string; amountMinor: string; reference: string };
 const format = (minor: string | number | bigint) => { const value = BigInt(minor); const absolute = value < 0n ? -value : value; return `${value < 0n ? '-' : ''}${new Intl.NumberFormat('ru-RU').format(absolute / 100n)},${String(absolute % 100n).padStart(2, '0')}`; };
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : 'Не удалось выполнить операцию';
@@ -23,6 +24,7 @@ const validMoney = (value: string) => /^(0|[1-9]\d{0,17})$/.test(value);
 export default function SalesPage() {
   const [permissions, setPermissions] = useState<string[]>([]), [stores, setStores] = useState<Store[]>([]), [storeId, setStoreId] = useState('');
   const [methods, setMethods] = useState<Method[]>([]), [customers, setCustomers] = useState<Customer[]>([]), [customerId, setCustomerId] = useState(''), [customerSearch, setCustomerSearch] = useState('');
+  const [loyalty, setLoyalty] = useState<LoyaltySettings | null>(null);
   const [shifts, setShifts] = useState<Shift[]>([]), [cashShiftId, setCashShiftId] = useState(''), [browserId, setBrowserId] = useState(''), [openingCash, setOpeningCash] = useState('0');
   const [search, setSearch] = useState(''), [products, setProducts] = useState<Product[]>([]), [lines, setLines] = useState<Line[]>([]);
   const [receiptDiscountKind, setReceiptDiscountKind] = useState<ReceiptDiscount['kind']>('FIXED'), [receiptDiscountValue, setReceiptDiscountValue] = useState('0');
@@ -37,7 +39,7 @@ export default function SalesPage() {
   const selectedCustomer = customers.find(customer => customer.id === customerId);
   let totals: ReturnType<typeof calculateSaleTotals> | null = null;
   let saleError = '';
-  try { if (lines.length) totals = calculateSaleTotals(lines, selectedCustomer?.discountPercent ?? '0', { kind: receiptDiscountKind, value: receiptDiscountValue }); }
+  try { if (lines.length && loyalty) { const gross = lines.reduce((sum, line) => sum + BigInt(line.priceMinor) * BigInt(line.quantity), 0n); totals = calculateSaleTotals(lines, lines.map(line => loyaltyPercent(loyalty, line, selectedCustomer?.discountPercent ?? null, gross)), { kind: receiptDiscountKind, value: receiptDiscountValue }); } }
   catch (caught) { saleError = caught instanceof Error && caught.message === 'Receipt discount exceeds remaining total' ? 'Скидка на чек превышает сумму после других скидок.' : 'Проверьте товары, количество и скидки.'; }
   const total = totals?.total ?? 0n;
   const tendered = tenders.reduce((value, tender) => value + BigInt(validMoney(tender.amountMinor) ? tender.amountMinor : '0'), 0n);
@@ -49,10 +51,11 @@ export default function SalesPage() {
     const device = saved || `WEB-${crypto.randomUUID()}`;
     if (!saved) localStorage.setItem('koreacrm-web-pos-device', device);
     setBrowserId(device); setOperationId(crypto.randomUUID());
-    Promise.all([api<{ permissions: string[] }>('/auth/me'), api<Store[]>('/stores'), api<Method[]>('/sale-payment-methods')]).then(([me, available, paymentMethods]) => {
+    Promise.all([api<{ permissions: string[] }>('/auth/me'), api<Store[]>('/stores'), api<Method[]>('/sale-payment-methods'), api<LoyaltySettings>('/loyalty/settings')]).then(([me, available, paymentMethods, loyaltySettings]) => {
+      setLoyalty(loyaltySettings);
       const selectedStoreId = new URLSearchParams(window.location.search).get('storeId');
       setPermissions(me.permissions); setStores(available); setStoreId(available.find(store => store.id === selectedStoreId)?.id ?? available[0]?.id ?? '');
-      const active = paymentMethods.filter(method => method.active && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
+      const active = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS') && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
       setMethods(active); setTenders([{ key: crypto.randomUUID(), paymentMethodId: active.find(method => method.kind === 'CARD')?.id ?? active[0]?.id ?? '', amountMinor: '0', reference: '' }]);
     }).catch(caught => setError(errorMessage(caught)));
   }, []);
@@ -94,7 +97,7 @@ export default function SalesPage() {
       const available = stock.items.find(item => item.productId === product.id);
       if (!settings?.active || settings.priceMinor === null) throw new Error('Нет активной цены для магазина');
       if (!available || available.quantity - available.reservedQuantity <= 0) throw new Error('Нет доступного остатка');
-      setLines(current => [...current, { productId: product.id, name: product.name, sku: product.sku, quantity: 1, available: available.quantity - available.reservedQuantity, priceMinor: settings.priceMinor!, discountMinor: '0' }]);
+      setLines(current => [...current, { productId: product.id, name: product.name, sku: product.sku, brandId: product.brandId, categoryId: product.categoryId, quantity: 1, available: available.quantity - available.reservedQuantity, priceMinor: settings.priceMinor!, discountMinor: '0' }]);
       setSearch(''); setProducts([]);
     } catch (caught) { setError(errorMessage(caught)); }
     finally { setBusy(false); }
@@ -136,7 +139,8 @@ export default function SalesPage() {
       <div className="grid gap-3 md:grid-cols-2"><label className="block">Поиск клиента<input className="mt-1 block w-full rounded border p-2" value={customerSearch} onChange={event => setCustomerSearch(event.target.value)} placeholder="Имя или телефон" /></label><label className="block">Клиент<select className="mt-1 block w-full rounded border p-2" value={customerId} onChange={event => setCustomerId(event.target.value)}><option value="">Без клиента</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.firstName} {customer.lastName ?? ''} · {customer.phone}</option>)}</select></label></div>
       {stockNotice && <p role="status" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{stockNotice}</p>}
       {selectedCustomer && Number(selectedCustomer.discountPercent) > 0 && <p className="text-sm text-emerald-800">Персональная скидка клиента: {selectedCustomer.discountPercent}% после ручной скидки на товар.</p>}
-      {selectedCustomer && <p className="text-sm text-slate-600">Доступно бонусов: {format(selectedCustomer.bonusBalanceMinor)}. Для оплаты бонусами добавьте способ «Бонусы».</p>}
+      {selectedCustomer && loyalty?.mode === 'DISCOUNT' && Number(selectedCustomer.discountPercent) === 0 && totals && <p className="text-sm text-emerald-800">Скидка по чеку: {loyaltyPercent(loyalty, lines[0]!, '0', totals.subtotal)}%. Для разных товаров ставка может отличаться.</p>}
+      {selectedCustomer && loyalty?.mode === 'BONUS' && <p className="text-sm text-slate-600">Доступно бонусов: {format(selectedCustomer.bonusBalanceMinor)}. Для оплаты бонусами добавьте способ «Бонусы».</p>}
       {bonusTendered > 0n && (!selectedCustomer || bonusTendered > BigInt(selectedCustomer.bonusBalanceMinor)) && <p role="alert" className="rounded border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{!selectedCustomer ? 'Выберите клиента для оплаты бонусами.' : `Бонусов недостаточно. Доступно: ${format(selectedCustomer.bonusBalanceMinor)}.`}</p>}
       <div className="flex flex-wrap items-end gap-3 rounded-xl border border-emerald-100 bg-emerald-50/50 p-4"><label className="text-sm font-medium">Скидка на весь чек<select aria-label="Вид скидки на чек" className="mt-1 block w-44 rounded border p-2" value={receiptDiscountKind} onChange={event => { setReceiptDiscountKind(event.target.value as ReceiptDiscount['kind']); setReceiptDiscountValue('0'); }}><option value="FIXED">Сумма</option><option value="PERCENT">Процент</option></select></label><label className="text-sm font-medium">{receiptDiscountKind === 'FIXED' ? 'Сумма, сомони' : 'Процент'}{receiptDiscountKind === 'FIXED' ? <MoneyInput aria-label="Размер скидки на чек" className="mt-1 block w-44 rounded border p-2" valueMinor={receiptDiscountValue} onMinorChange={setReceiptDiscountValue} placeholder="0,00" /> : <input aria-label="Размер скидки на чек" className="mt-1 block w-44 rounded border p-2" inputMode="decimal" value={receiptDiscountValue} onChange={event => setReceiptDiscountValue(event.target.value)} placeholder="0,00" />}</label>{totals && totals.receiptDiscountMinor > 0n && <p className="text-sm text-emerald-900">Скидка на чек: {format(totals.receiptDiscountMinor)}</p>}</div>
       {saleError && <p role="alert" className="rounded border border-red-200 bg-red-50 p-3 text-sm text-red-700">{saleError}</p>}

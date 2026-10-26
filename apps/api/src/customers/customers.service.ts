@@ -139,7 +139,7 @@ export class CustomersService {
     const salesWhere: Prisma.SaleWhereInput = { customerId: id, storeId: storeIds ? { in: storeIds } : undefined };
     const returnsWhere: Prisma.SaleReturnWhereInput = { sale: { customerId: id }, storeId: storeIds ? { in: storeIds } : undefined };
     const paymentsWhere: Prisma.CustomerPaymentWhereInput = { customerId: id, storeId: storeIds ? { in: storeIds } : undefined };
-    const auditsWhere: Prisma.AuditLogWhereInput = { entityType: 'Customer', entityId: id, action: { in: ['CUSTOMER_CREATED', 'CUSTOMER_UPDATED'] } };
+    const auditsWhere: Prisma.AuditLogWhereInput = { entityType: 'Customer', entityId: id, action: { in: ['CUSTOMER_CREATED', 'CUSTOMER_UPDATED', 'CUSTOMER_DISCOUNT_UPDATED'] } };
     const take = query.page * query.limit;
     const [sales, returns, payments, comments, bonuses, audits, saleCount, returnCount, paymentCount, commentCount, bonusCount, auditCount] = await Promise.all([
       this.db.sale.findMany({ where: salesWhere, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take, select: { id: true, number: true, totalMinor: true, createdAt: true, store: { select: { name: true } }, employee: { select: { name: true } } } }),
@@ -147,7 +147,7 @@ export class CustomersService {
       this.db.customerPayment.findMany({ where: paymentsWhere, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take, select: { id: true, amountMinor: true, createdAt: true, paymentMethod: { select: { name: true } }, employee: { select: { name: true } } } }),
       this.db.customerComment.findMany({ where: { customerId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take, select: { id: true, text: true, createdAt: true, author: { select: { name: true } } } }),
       this.db.bonusTransaction.findMany({ where: { customerId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take, select: { id: true, type: true, deltaMinor: true, reason: true, createdAt: true, actor: { select: { name: true } } } }),
-      this.db.auditLog.findMany({ where: auditsWhere, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take, select: { id: true, action: true, createdAt: true, user: { select: { name: true } } } }),
+      this.db.auditLog.findMany({ where: auditsWhere, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take, select: { id: true, action: true, oldValue: true, newValue: true, createdAt: true, user: { select: { name: true } } } }),
       this.db.sale.count({ where: salesWhere }), this.db.saleReturn.count({ where: returnsWhere }), this.db.customerPayment.count({ where: paymentsWhere }), this.db.customerComment.count({ where: { customerId: id } }), this.db.bonusTransaction.count({ where: { customerId: id } }), this.db.auditLog.count({ where: auditsWhere }),
     ]);
     const items = [
@@ -156,7 +156,7 @@ export class CustomersService {
       ...payments.map(payment => ({ id: payment.id, kind: 'PAYMENT', title: 'Погашение долга', detail: payment.paymentMethod.name, amountMinor: payment.amountMinor.toString(), createdAt: payment.createdAt, actorName: payment.employee.name })),
       ...comments.map(comment => ({ id: comment.id, kind: 'COMMENT', title: 'Комментарий', detail: comment.text, amountMinor: null, createdAt: comment.createdAt, actorName: comment.author.name })),
       ...bonuses.map(bonus => ({ id: bonus.id, kind: 'BONUS', title: bonus.type === 'CORRECTION' ? 'Корректировка бонусов' : bonus.type === 'EARN' ? 'Начисление бонусов' : bonus.type === 'SPEND' ? 'Списание бонусов' : 'Сгорание бонусов', detail: bonus.reason, amountMinor: bonus.deltaMinor.toString(), createdAt: bonus.createdAt, actorName: bonus.actor.name })),
-      ...audits.map(audit => ({ id: audit.id, kind: 'PROFILE', title: audit.action === 'CUSTOMER_CREATED' ? 'Карточка создана' : 'Карточка изменена', detail: '', amountMinor: null, createdAt: audit.createdAt, actorName: audit.user?.name ?? null })),
+      ...audits.map(audit => ({ id: audit.id, kind: 'PROFILE', title: audit.action === 'CUSTOMER_CREATED' ? 'Карточка создана' : audit.action === 'CUSTOMER_DISCOUNT_UPDATED' ? 'Персональная скидка изменена' : 'Карточка изменена', detail: audit.action === 'CUSTOMER_DISCOUNT_UPDATED' ? `${(audit.oldValue as { discountPercent?: string } | null)?.discountPercent ?? '0'}% → ${(audit.newValue as { discountPercent?: string } | null)?.discountPercent ?? '0'}%` : '', amountMinor: null, createdAt: audit.createdAt, actorName: audit.user?.name ?? null })),
     ].sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime() || right.id.localeCompare(left.id));
     return { items: items.slice((query.page - 1) * query.limit, take), total: saleCount + returnCount + paymentCount + commentCount + bonusCount + auditCount, page: query.page, limit: query.limit };
   }
@@ -172,6 +172,7 @@ export class CustomersService {
     try { return await this.db.$transaction(async tx => {
       const customer = await tx.customer.create({ data: { ...input, discountPercent: input.discountPercent ?? '0' } });
       await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_CREATED', entityType: 'Customer', entityId: customer.id, newValue: { phone: customer.phone } } });
+      if (customer.discountPercent.gt(0)) await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_DISCOUNT_UPDATED', entityType: 'Customer', entityId: customer.id, oldValue: { discountPercent: '0' }, newValue: { discountPercent: customer.discountPercent.toString() } } });
       return customer;
     }); } catch (error) { if (retryable(error)) throw new ConflictException('Customer phone already exists'); throw error; }
   }
@@ -181,8 +182,19 @@ export class CustomersService {
     try { return await this.db.$transaction(async tx => {
       const customer = await tx.customer.update({ where: { id }, data: input });
       await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_UPDATED', entityType: 'Customer', entityId: id, newValue: input } });
+      if (input.discountPercent !== undefined && !existing.discountPercent.eq(input.discountPercent)) await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_DISCOUNT_UPDATED', entityType: 'Customer', entityId: id, oldValue: { discountPercent: existing.discountPercent.toString() }, newValue: { discountPercent: input.discountPercent } } });
       return customer;
     }); } catch (error) { if (retryable(error)) throw new ConflictException('Customer phone already exists'); throw error; }
+  }
+  async setPersonalDiscount(id: string, discountPercent: string, actorId: string) {
+    return this.db.$transaction(async tx => {
+      const existing = await tx.customer.findFirst({ where: { id, deletedAt: null } });
+      if (!existing) throw new NotFoundException('Customer not found');
+      if (existing.discountPercent.eq(discountPercent)) return existing;
+      const updated = await tx.customer.update({ where: { id }, data: { discountPercent } });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_DISCOUNT_UPDATED', entityType: 'Customer', entityId: id, oldValue: { discountPercent: existing.discountPercent.toString() }, newValue: { discountPercent } } });
+      return updated;
+    });
   }
   async delete(id: string, actorId: string) {
     const customer = await this.db.customer.findFirst({ where: { id, deletedAt: null } });

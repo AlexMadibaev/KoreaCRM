@@ -11,7 +11,7 @@ import { accessToken, ensureAccessToken } from '../lib/session';
 type Me = { name: string; login: string; role: string; permissions: string[] };
 const groups: { title: string; links: [string, string][] }[] = [
   { title: 'Рабочее пространство', links: [['/dashboard', 'Обзор'], ['/products', 'Товары'], ['/stock', 'Остатки'], ['/sales', 'Продажи'], ['/customers', 'Клиенты'], ['/notifications', 'Уведомления']] },
-  { title: 'Управление', links: [['/brands', 'Бренды'], ['/categories', 'Категории'], ['/suppliers', 'Поставщики'], ['/purchases', 'Закупки'], ['/transfers', 'Перемещения'], ['/inventories', 'Инвентаризация'], ['/employees', 'Сотрудники и роли']] },
+  { title: 'Управление', links: [['/brands', 'Бренды'], ['/categories', 'Категории'], ['/suppliers', 'Поставщики'], ['/purchases', 'Закупки'], ['/transfers', 'Перемещения'], ['/inventories', 'Инвентаризация'], ['/loyalty', 'Лояльность'], ['/employees', 'Сотрудники и роли']] },
   { title: 'Аналитика', links: [['/finance', 'Финансы'], ['/finance/categories', 'Категории расходов']] },
 ];
 const navIcons: Record<string, ReactNode> = {
@@ -27,6 +27,7 @@ const navIcons: Record<string, ReactNode> = {
   '/purchases': <><path d="M4 8h16l-1 13H5L4 8ZM8 9V6a4 4 0 0 1 8 0v3"/><path d="M12 12v6m-2-2 2 2 2-2"/></>,
   '/transfers': <><path d="M4 7h15l-3-3M19 7l-3 3M20 17H5l3-3M5 17l3 3"/><path d="M4 11v2M20 11v2"/></>,
   '/inventories': <><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4V2h6v2M9 10h6M9 14h6M9 18h3"/><path d="m6.5 10 .7.7 1.3-1.4"/></>,
+  '/loyalty': <><path d="M4 7h16v4c-2 0-2 2 0 2v4H4v-4c2 0 2-2 0-2V7Z"/><path d="m10 10 4 4m0-4-4 4"/></>,
   '/employees': <><circle cx="9" cy="8" r="3"/><path d="M3 20v-1a6 6 0 0 1 8-5.66"/><circle cx="17" cy="16" r="4"/><path d="M17 14v4M15 16h4"/></>,
   '/finance': <><path d="M3 19h18M5 16V9M10 16V5M15 16v-4M20 16V7"/><path d="m4 7 6-4 5 6 5-4"/></>,
   '/finance/categories': <><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 9h18M7 15h4M16 14h2M17 13v4"/></>,

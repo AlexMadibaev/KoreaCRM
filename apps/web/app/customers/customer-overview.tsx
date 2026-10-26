@@ -64,6 +64,6 @@ export function CustomerOverview({ customer }: { customer: CustomerOverviewData 
       <div><dt className="text-slate-500">Адрес</dt><dd>{customer.address || 'Не указан'}</dd></div>
       <div><dt className="text-slate-500">Персональная скидка</dt><dd>{customer.discountPercent}%</dd></div>
     </dl>
-    <p className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600">Бонусный баланс: <strong className="text-slate-900">{money(customer.bonusBalanceMinor)}</strong>. Автоматическое начисление и оплата бонусами пока не включены.</p>
+    <p className="rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-600">Бонусный баланс: <strong className="text-slate-900">{money(customer.bonusBalanceMinor)}</strong>. Бонусы начисляются и используются, когда включена бонусная система.</p>
   </div>;
 }

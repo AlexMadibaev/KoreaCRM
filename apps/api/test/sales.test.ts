@@ -8,6 +8,7 @@ import { SalesService } from '../src/sales/sales.service';
 import { saleListSchema } from '../src/sales/sales.schemas';
 import type { StockService } from '../src/stock/stock.service';
 import type { NotificationsService } from '../src/notifications/notifications.service';
+import { defaultLoyaltySettings } from '../src/loyalty/loyalty.rules';
 
 const notifications = { recordLargeReturn: async () => undefined, recordLargeDiscount: async () => undefined } as unknown as NotificationsService;
 
@@ -70,6 +71,7 @@ test('queued sale can create negative stock and records an alert while normal sa
     store: { findFirst: async () => ({ id: storeId }) },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
     product: { findFirst: async () => ({ id: productId, sku: 'KR-1' }) },
+    loyaltySettings: { findUnique: async () => null },
     storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 200 }) },
     stock: { findUnique: async () => ({ quantity: 0, reservedQuantity: 0 }) },
     productBatch: { findFirst: async () => ({ id: 'batch-1', purchasePriceMinor: new Prisma.Decimal(40) }) },
@@ -97,6 +99,7 @@ test('bonus payment debits the selected customer once and rejects an insufficien
   let savedSale: { id: string; number: string; requestHash: string; storeId: string } | null = null;
   let movements = 0;
   let discountChecks = 0;
+  let loyaltyMode: 'DISCOUNT' | 'BONUS' = 'BONUS';
   const bonusEntries: { deltaMinor: Prisma.Decimal; balanceAfterMinor: Prisma.Decimal; operationId: string }[] = [];
   const tx = {
     sale: {
@@ -107,10 +110,12 @@ test('bonus payment debits the selected customer once and rejects an insufficien
     store: { findFirst: async () => ({ id: storeId }) },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
     customer: {
-      findFirst: async () => ({ id: customerId, bonusBalanceMinor: bonusBalance, totalSpentMinor: new Prisma.Decimal(0), debtBalanceMinor: new Prisma.Decimal(0), ordersCount: 0 }),
+      findFirst: async () => ({ id: customerId, discountPercent: new Prisma.Decimal(0), bonusBalanceMinor: bonusBalance, totalSpentMinor: new Prisma.Decimal(0), debtBalanceMinor: new Prisma.Decimal(0), ordersCount: 0 }),
+      findUniqueOrThrow: async () => ({ id: customerId, bonusBalanceMinor: bonusBalance }),
       update: async ({ data }: { data: { bonusBalanceMinor?: Prisma.Decimal } }) => { if (data.bonusBalanceMinor) bonusBalance = data.bonusBalanceMinor; },
     },
     product: { findFirst: async () => ({ id: productId, sku: 'KR-1' }) },
+    loyaltySettings: { findUnique: async () => ({ rules: { ...defaultLoyaltySettings, mode: loyaltyMode, bonusEarnPercent: '10' } }) },
     storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 100 }) },
     stock: { findUnique: async () => ({ quantity: 5, reservedQuantity: 0 }) },
     productBatch: { findFirst: async () => ({ id: 'batch-1', purchasePriceMinor: new Prisma.Decimal(40) }) },
@@ -131,14 +136,18 @@ test('bonus payment debits the selected customer once and rejects an insufficien
   const request = { ...input, customerId, payments: [{ paymentMethodId: bonusMethodId, amountMinor: '50' }, { paymentMethodId, amountMinor: '50' }] };
   await service.create(storeId, request, 'actor');
   await service.create(storeId, request, 'actor');
-  assert.equal(bonusBalance.toString(), '50');
+  assert.equal(bonusBalance.toString(), '55');
   assert.equal(movements, 1);
   assert.equal(discountChecks, 1);
-  assert.equal(bonusEntries.length, 1);
+  assert.equal(bonusEntries.length, 2);
   assert.equal(bonusEntries[0]!.deltaMinor.toString(), '-50');
   assert.equal(bonusEntries[0]!.balanceAfterMinor.toString(), '50');
+  assert.equal(bonusEntries[1]!.deltaMinor.toString(), '5');
+  assert.equal(bonusEntries[1]!.balanceAfterMinor.toString(), '55');
   savedSale = null;
-  await assert.rejects(service.create(storeId, { ...request, operationId: '77777777-7777-4777-8777-777777777777', payments: [{ paymentMethodId: bonusMethodId, amountMinor: '51' }, { paymentMethodId, amountMinor: '49' }] }, 'actor'), ConflictException);
+  await assert.rejects(service.create(storeId, { ...request, operationId: '77777777-7777-4777-8777-777777777777', payments: [{ paymentMethodId: bonusMethodId, amountMinor: '56' }, { paymentMethodId, amountMinor: '44' }] }, 'actor'), ConflictException);
+  loyaltyMode = 'DISCOUNT';
+  await assert.rejects(service.create(storeId, { ...request, operationId: '88888888-8888-4888-8888-888888888888' }, 'actor'), BadRequestException);
   assert.equal(movements, 1);
 });
 
@@ -163,6 +172,7 @@ test('cash return restores stock and withdraws cash once; replay is read only', 
     saleReturn: { findUnique: async () => record, create: async ({ data }: { data: Omit<NonNullable<typeof record>, 'id' | 'items'> }) => { record = { ...data, id: 'return-1', items: [] }; sale.returns.push(record); return record; } },
     saleReturnItem: { create: async ({ data }: { data: { saleItemId: string; quantity: number } }) => { record!.items.push(data); return { id: 'return-item-1' }; } },
     sale: { findFirst: async () => sale, findUniqueOrThrow: async () => sale },
+    employeeRewardTransaction: { findUnique: async () => null },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
     cashShift: { findFirst: async () => ({ status: 'OPEN' }) },
     auditLog: { create: async ({ data }: { data: { action: string } }) => { audit = data.action; } },
@@ -189,6 +199,7 @@ test('partial cash returns allocate discounted amount exactly and reject excess 
     saleReturn: { findUnique: async ({ where }: { where: { operationId: string } }) => records.find(record => record.operationId === where.operationId) ?? null, create: async ({ data }: { data: Omit<(typeof records)[number], 'id' | 'items'> }) => { const record = { ...data, id: `return-${++nextRecord}`, items: [] }; records.push(record); return record; } },
     saleReturnItem: { create: async ({ data }: { data: { saleReturnId: string; saleItemId: string; quantity: number } }) => { records.find(record => record.id === data.saleReturnId)!.items.push(data); return { id: `return-item-${nextRecord}` }; } },
     sale: { findFirst: async () => sale, findUniqueOrThrow: async () => sale },
+    employeeRewardTransaction: { findUnique: async () => null },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
     cashShift: { findFirst: async () => ({ status: 'OPEN' }) },
     auditLog: { create: async () => ({}) },

@@ -10,10 +10,10 @@ function percentBasisPoints(value: string) {
   return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0') || '0');
 }
 
-export function calculateSaleTotals(lines: SaleLine[], customerPercent: string, receiptDiscount: ReceiptDiscount) {
+export function calculateSaleTotals(lines: SaleLine[], customerPercent: string | string[], receiptDiscount: ReceiptDiscount) {
   if (!lines.length || new Set(lines.map(line => line.productId)).size !== lines.length) throw new Error('Invalid sale lines');
-  const customerBasisPoints = percentBasisPoints(customerPercent);
   const portions = lines.map((line, index) => {
+    const customerBasisPoints = percentBasisPoints(typeof customerPercent === 'string' ? customerPercent : customerPercent[index] ?? '0');
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > line.available || !Number.isInteger(line.priceMinor) || line.priceMinor < 0 || !money.test(line.discountMinor)) throw new Error('Invalid sale line');
     const gross = BigInt(line.priceMinor) * BigInt(line.quantity);
     const manual = BigInt(line.discountMinor);

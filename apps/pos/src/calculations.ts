@@ -18,14 +18,14 @@ export function lineDiscountMinor(line: CartLine, customerDiscountPercent = '0')
   return { manual, personal, total: manual + personal };
 }
 
-export function calculateCart(lines: CartLine[], customerDiscountPercent = '0') {
+export function calculateCart(lines: CartLine[], customerDiscountPercent: string | string[] = '0') {
   if (!lines.length || new Set(lines.map(line => line.productId)).size !== lines.length) throw new Error('Invalid cart');
   let subtotal = 0n;
   let discount = 0n;
-  for (const line of lines) {
+  for (const [index, line] of lines.entries()) {
     if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > line.available || !Number.isInteger(line.priceMinor) || line.priceMinor < 0 || !amount.test(line.discountMinor)) throw new Error('Invalid cart line');
     const gross = BigInt(line.priceMinor) * BigInt(line.quantity);
-    const lineDiscount = lineDiscountMinor(line, customerDiscountPercent).total;
+    const lineDiscount = lineDiscountMinor(line, typeof customerDiscountPercent === 'string' ? customerDiscountPercent : customerDiscountPercent[index] ?? '0').total;
     subtotal += gross;
     discount += lineDiscount;
   }
@@ -35,13 +35,13 @@ export function calculateCart(lines: CartLine[], customerDiscountPercent = '0') 
 
 export type CartDiscount = { kind: 'FIXED' | 'PERCENT'; value: string };
 
-export function calculateCartWithDiscount(lines: CartLine[], customerDiscountPercent = '0', cartDiscount: CartDiscount = { kind: 'FIXED', value: '0' }) {
+export function calculateCartWithDiscount(lines: CartLine[], customerDiscountPercent: string | string[] = '0', cartDiscount: CartDiscount = { kind: 'FIXED', value: '0' }) {
   const base = calculateCart(lines, customerDiscountPercent);
   const desired = cartDiscount.kind === 'FIXED' ? amount.test(cartDiscount.value) ? BigInt(cartDiscount.value) : -1n : base.total * discountBasisPoints(cartDiscount.value) / 10000n;
   if (desired < 0n || desired > base.total) throw new Error('Cart discount exceeds remaining total');
   const portions = lines.map((line, index) => {
     const gross = BigInt(line.priceMinor) * BigInt(line.quantity);
-    const previousDiscount = lineDiscountMinor(line, customerDiscountPercent).total;
+    const previousDiscount = lineDiscountMinor(line, typeof customerDiscountPercent === 'string' ? customerDiscountPercent : customerDiscountPercent[index] ?? '0').total;
     const remaining = gross - previousDiscount;
     const scaled = desired * remaining;
     return { index, productId: line.productId, gross, previousDiscount, remaining, allocated: base.total > 0n ? scaled / base.total : 0n, remainder: base.total > 0n ? scaled % base.total : 0n };

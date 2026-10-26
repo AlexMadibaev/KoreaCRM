@@ -9,6 +9,10 @@ pub struct CachedProduct {
     pub id: String,
     pub name: String,
     pub sku: String,
+    #[serde(default)]
+    pub brand_id: Option<String>,
+    #[serde(default)]
+    pub category_id: Option<String>,
     pub barcodes: Vec<String>,
     pub price_minor: Option<i64>,
     pub available_quantity: i64,
@@ -64,6 +68,8 @@ pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
            id TEXT NOT NULL,
            name TEXT NOT NULL,
            sku TEXT NOT NULL,
+           brand_id TEXT,
+           category_id TEXT,
            barcodes_json TEXT NOT NULL,
            price_minor INTEGER,
            available_quantity INTEGER NOT NULL,
@@ -117,6 +123,9 @@ pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
     )?;
     let has_discount = connection.prepare("PRAGMA table_info(cached_customers)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?.iter().any(|column| column == "discount_percent");
     if !has_discount { connection.execute("ALTER TABLE cached_customers ADD COLUMN discount_percent TEXT NOT NULL DEFAULT '0'", [])?; }
+    let product_columns = connection.prepare("PRAGMA table_info(cached_products)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !product_columns.iter().any(|column| column == "brand_id") { connection.execute("ALTER TABLE cached_products ADD COLUMN brand_id TEXT", [])?; }
+    if !product_columns.iter().any(|column| column == "category_id") { connection.execute("ALTER TABLE cached_products ADD COLUMN category_id TEXT", [])?; }
     Ok(())
 }
 
@@ -134,7 +143,7 @@ fn replace_snapshot(connection: &mut Connection, snapshot: &CatalogSnapshot) -> 
             return Err("Invalid cached product".into());
         }
         let barcodes = serde_json::to_string(&product.barcodes).map_err(|error| error.to_string())?;
-        tx.execute("INSERT INTO cached_products (store_id,id,name,sku,barcodes_json,price_minor,available_quantity,active) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)", params![scope, product.id, product.name, product.sku, barcodes, product.price_minor, product.available_quantity, product.active]).map_err(|error| error.to_string())?;
+        tx.execute("INSERT INTO cached_products (store_id,id,name,sku,brand_id,category_id,barcodes_json,price_minor,available_quantity,active) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)", params![scope, product.id, product.name, product.sku, product.brand_id, product.category_id, barcodes, product.price_minor, product.available_quantity, product.active]).map_err(|error| error.to_string())?;
     }
     for customer in &snapshot.customers {
         tx.execute("INSERT INTO cached_customers (store_id,id,first_name,last_name,phone,discount_percent) VALUES (?1,?2,?3,?4,?5,?6)", params![scope, customer.id, customer.first_name, customer.last_name, customer.phone, customer.discount_percent]).map_err(|error| error.to_string())?;
@@ -169,11 +178,11 @@ pub fn catalog_cache_status(app: tauri::AppHandle, user_id: String, store_id: St
 
 fn products_with_local_sales(connection: &Connection, user_id: &str, store_id: &str) -> Result<Vec<CachedProduct>, String> {
     let scope = format!("{user_id}:{store_id}");
-    let mut statement = connection.prepare("SELECT id,name,sku,barcodes_json,price_minor,available_quantity,active FROM cached_products WHERE store_id=?1 ORDER BY name,id").map_err(|error| error.to_string())?;
+    let mut statement = connection.prepare("SELECT id,name,sku,brand_id,category_id,barcodes_json,price_minor,available_quantity,active FROM cached_products WHERE store_id=?1 ORDER BY name,id").map_err(|error| error.to_string())?;
     let rows = statement.query_map([&scope], |row| {
-        let barcodes_json: String = row.get(3)?;
-        let barcodes = serde_json::from_str(&barcodes_json).map_err(|error| rusqlite::Error::FromSqlConversionFailure(3, rusqlite::types::Type::Text, Box::new(error)))?;
-        Ok(CachedProduct { id: row.get(0)?, name: row.get(1)?, sku: row.get(2)?, barcodes, price_minor: row.get(4)?, available_quantity: row.get(5)?, active: row.get(6)? })
+        let barcodes_json: String = row.get(5)?;
+        let barcodes = serde_json::from_str(&barcodes_json).map_err(|error| rusqlite::Error::FromSqlConversionFailure(5, rusqlite::types::Type::Text, Box::new(error)))?;
+        Ok(CachedProduct { id: row.get(0)?, name: row.get(1)?, sku: row.get(2)?, brand_id: row.get(3)?, category_id: row.get(4)?, barcodes, price_minor: row.get(6)?, available_quantity: row.get(7)?, active: row.get(8)? })
     }).map_err(|error| error.to_string())?;
     let mut products = rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|error| error.to_string())?;
     let mut pending = connection.prepare("SELECT payload_json FROM sync_queue WHERE scope_key=?1 AND (status<>'SYNCED' OR created_at>COALESCE((SELECT last_synced_at FROM cache_meta WHERE store_id=?1),''))").map_err(|error| error.to_string())?;
@@ -226,10 +235,19 @@ mod tests {
     }
 
     #[test]
+    fn adds_brand_and_category_to_existing_product_cache() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE cached_products (store_id TEXT NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,sku TEXT NOT NULL,barcodes_json TEXT NOT NULL,price_minor INTEGER,available_quantity INTEGER NOT NULL,active INTEGER NOT NULL,PRIMARY KEY (store_id,id)); INSERT INTO cached_products (store_id,id,name,sku,barcodes_json,price_minor,available_quantity,active) VALUES ('store-a','product-a','Cream','A','[]',100,3,1);").unwrap();
+        initialize(&db).unwrap();
+        let fields: (Option<String>, Option<String>) = db.query_row("SELECT brand_id,category_id FROM cached_products WHERE id='product-a'", [], |row| Ok((row.get(0)?, row.get(1)?))).unwrap();
+        assert_eq!(fields, (None, None));
+    }
+
+    #[test]
     fn snapshot_replacement_is_atomic_and_scoped_to_store() {
         let mut db = Connection::open_in_memory().unwrap();
         initialize(&db).unwrap();
-        let first = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { id: "product-a".into(), name: "Cream".into(), sku: "A".into(), barcodes: vec!["123".into()], price_minor: Some(100), available_quantity: 3, active: true }], customers: vec![], permissions: vec!["sales.create".into()] };
+        let first = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { id: "product-a".into(), name: "Cream".into(), sku: "A".into(), brand_id: None, category_id: None, barcodes: vec!["123".into()], price_minor: Some(100), available_quantity: 3, active: true }], customers: vec![], permissions: vec!["sales.create".into()] };
         replace_snapshot(&mut db, &first).unwrap();
         assert_eq!(status(&db, "user-a", "store-a").unwrap().product_count, 1);
         let invalid = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { available_quantity: -1, ..first.products[0].clone() }], customers: vec![], permissions: vec![] };
@@ -245,7 +263,7 @@ mod tests {
     fn cached_quantity_reserves_queued_and_recently_synced_sales() {
         let mut db = Connection::open_in_memory().unwrap();
         initialize(&db).unwrap();
-        let snapshot = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { id: "product-a".into(), name: "Cream".into(), sku: "A".into(), barcodes: vec![], price_minor: Some(100), available_quantity: 3, active: true }], customers: vec![], permissions: vec![] };
+        let snapshot = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { id: "product-a".into(), name: "Cream".into(), sku: "A".into(), brand_id: None, category_id: None, barcodes: vec![], price_minor: Some(100), available_quantity: 3, active: true }], customers: vec![], permissions: vec![] };
         replace_snapshot(&mut db, &snapshot).unwrap();
         db.execute("UPDATE cache_meta SET last_synced_at='2020-01-01T00:00:00.000Z'", []).unwrap();
         db.execute("INSERT INTO sync_queue (operation_id,scope_key,entity_type,entity_id,payload_json,status) VALUES ('op-1','user-a:store-a','SALE','op-1','{\"operationId\":\"op-1\",\"items\":[{\"productId\":\"product-a\",\"quantity\":1}]}','ERROR')", []).unwrap();

@@ -29,6 +29,19 @@ export class EmployeesService {
   async roles() { return this.db.role.findMany({ where: { deletedAt: null }, select: rolePublic, orderBy: { name: 'asc' } }); }
   async permissions() { return this.db.permission.findMany({ select: { code: true }, orderBy: { code: 'asc' } }); }
 
+  async rewards(id: string, actor: AccessContext) {
+    if (id !== actor.userId && !actor.permissions.includes('employees.view')) throw new ForbiddenException();
+    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, name: true, rewardBalanceMinor: true, allStores: true, stores: { select: { storeId: true } } } });
+    if (!employee) throw new NotFoundException('Employee not found');
+    if (id !== actor.userId && !actor.allStores && (employee.allStores || !employee.stores.length || employee.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
+    const [sales, returns, transactions] = await Promise.all([
+      this.db.sale.aggregate({ where: { employeeId: id }, _count: { id: true }, _sum: { totalMinor: true } }),
+      this.db.saleReturn.aggregate({ where: { sale: { employeeId: id } }, _count: { id: true }, _sum: { amountMinor: true } }),
+      this.db.employeeRewardTransaction.findMany({ where: { employeeId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100, select: { id: true, saleId: true, deltaMinor: true, balanceAfterMinor: true, reason: true, createdAt: true } }),
+    ]);
+    return { employeeId: id, employeeName: employee.name, balanceMinor: employee.rewardBalanceMinor, saleCount: sales._count.id, returnCount: returns._count.id, salesTotalMinor: (sales._sum.totalMinor ?? new Prisma.Decimal(0)).minus(returns._sum.amountMinor ?? 0), transactions };
+  }
+
   async activity(id: string, actor: AccessContext, query: z.infer<typeof employeeActivitySchema>) {
     const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, allStores: true, stores: { select: { storeId: true } } } });
     if (!employee) throw new NotFoundException('Employee not found');
