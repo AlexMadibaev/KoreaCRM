@@ -26,7 +26,7 @@ async function owner(request: NextRequest) {
   }).catch(() => null);
   if (!response?.ok) return false;
   const me = await response.json() as { role?: string };
-  return me.role === 'OWNER';
+  return me.role === 'OWNER' || me.role === 'SUPERUSER';
 }
 
 async function status() {

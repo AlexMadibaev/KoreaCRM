@@ -11,7 +11,7 @@ export class PosDevicesService {
   async register(storeId: string, input: z.infer<typeof registerDeviceSchema>, actorId: string) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try { return await this.db.$transaction(async tx => {
-        if (!await tx.store.findFirst({ where: { id: storeId, deletedAt: null } })) throw new NotFoundException('Store not found');
+        if (!await tx.store.findFirst({ where: { id: storeId, deletedAt: null, status: 'ACTIVE' } })) throw new NotFoundException('Active store not found');
         const existing = await tx.posDevice.findUnique({ where: { deviceId: input.deviceId } });
         if (existing?.storeId !== undefined && existing.storeId !== storeId) throw new ConflictException('Device is assigned to another store');
         if (existing?.status === 'DISABLED') throw new ConflictException('Device is disabled');

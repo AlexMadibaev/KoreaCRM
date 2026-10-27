@@ -19,13 +19,15 @@ const permissionCodes = [
   'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel',
   'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel',
   'reports.view', 'settings.edit',
+  'stores.view', 'stores.create', 'stores.edit', 'stores.archive',
 ];
-const roleCodes = ['OWNER', 'DIRECTOR', 'MANAGER', 'ADMIN', 'ACCOUNTANT', 'WAREHOUSE', 'CASHIER', 'SELLER'];
+const roleCodes = ['SUPERUSER', 'OWNER', 'DIRECTOR', 'MANAGER', 'ADMIN', 'ACCOUNTANT', 'WAREHOUSE', 'CASHIER', 'SELLER'];
 const roleGrants: Record<string, string[]> = {
+  SUPERUSER: permissionCodes,
   OWNER: permissionCodes,
   DIRECTOR: permissionCodes.filter((code) => code !== 'settings.edit'),
-  MANAGER: ['customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay', 'reports.view'],
-  ADMIN: ['customers.discount.edit', 'products.view', 'products.create', 'products.edit', 'brands.view', 'brands.create', 'brands.edit', 'categories.view', 'categories.create', 'categories.edit', 'sales.view', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'employees.create', 'employees.edit', 'inventory.view', 'inventory.adjust', 'reports.view'],
+  MANAGER: ['customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay', 'reports.view', 'stores.view', 'stores.edit'],
+  ADMIN: ['customers.discount.edit', 'products.view', 'products.create', 'products.edit', 'brands.view', 'brands.create', 'brands.edit', 'categories.view', 'categories.create', 'categories.edit', 'sales.view', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'employees.create', 'employees.edit', 'inventory.view', 'inventory.adjust', 'reports.view', 'stores.view', 'stores.edit'],
   ACCOUNTANT: ['sales.view', 'customers.view', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.supplier_pay', 'finance.customer_pay', 'suppliers.view', 'purchases.view', 'reports.view'],
   WAREHOUSE: ['products.view', 'brands.view', 'categories.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'purchases.view', 'purchases.receive', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.send', 'transfers.receive', 'transfers.cancel'],
   CASHIER: ['customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'finance.cash_view', 'finance.cash', 'finance.customer_pay'],
@@ -42,7 +44,7 @@ async function main() {
     await prisma.permission.upsert({ where: { code }, update: {}, create: { code } });
   }
   for (const code of roleCodes) {
-    await prisma.role.upsert({ where: { code }, update: { name: code, system: true }, create: { code, name: code, system: true } });
+    await prisma.role.upsert({ where: { code }, update: { system: true }, create: { code, name: code, system: true } });
   }
   for (const name of ['Аренда', 'Зарплата', 'Коммунальные', 'Реклама', 'Транспорт', 'Хозяйственные', 'Закупка', 'Прочее']) {
     await prisma.expenseCategory.upsert({ where: { name }, update: {}, create: { name } });
@@ -61,28 +63,35 @@ async function main() {
   const permissionByCode = new Map(permissions.map((permission) => [permission.code, permission.id]));
   for (const code of roleCodes) {
     const role = await prisma.role.findUniqueOrThrow({ where: { code } });
-    await prisma.rolePermission.createMany({
-      data: roleGrants[code]!.map((permissionCode) => ({ roleId: role.id, permissionId: permissionByCode.get(permissionCode)! })),
-      skipDuplicates: true,
-    });
+    if (!role.permissionsCustomizedAt) {
+      await prisma.rolePermission.createMany({
+        data: roleGrants[code]!.map((permissionCode) => ({ roleId: role.id, permissionId: permissionByCode.get(permissionCode)! })),
+        skipDuplicates: true,
+      });
+    }
   }
   const ownerRole = await prisma.role.findUniqueOrThrow({ where: { code: 'OWNER' } });
+  const superuserRole = await prisma.role.findUniqueOrThrow({ where: { code: 'SUPERUSER' } });
   await prisma.store.upsert({
     where: { code: 'MAIN' },
     update: {},
     create: { code: 'MAIN', name: 'Основной магазин' },
   });
-  await prisma.user.upsert({
+  const seededUser = await prisma.user.upsert({
     where: { login: ownerLogin },
     update: {},
     create: {
       login: ownerLogin,
       name: 'Владелец',
       passwordHash: await hash(ownerPassword),
-      roleId: ownerRole.id,
+      roleId: superuserRole.id,
       allStores: true,
     },
   });
+  if (seededUser.roleId === ownerRole.id) {
+    await prisma.user.update({ where: { id: seededUser.id }, data: { roleId: superuserRole.id } });
+    await prisma.auditLog.create({ data: { userId: seededUser.id, action: 'SUPERUSER_ASSIGNED', entityType: 'User', entityId: seededUser.id, newValue: { role: 'SUPERUSER' } } });
+  }
 }
 
 main().finally(() => prisma.$disconnect());

@@ -141,14 +141,14 @@ export function App() {
 
   async function finishOnlineSignIn(identityLogin: string, normalizedApiUrl: string, offlineCredential?: { mode: 'password' | 'scan'; value: string }) {
       setServerReachable(true); localStorage.setItem(apiUrlKey, normalizedApiUrl); setApiUrl(normalizedApiUrl);
-      const [me, available, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods'), client.get<LoyaltySettings>('/loyalty/settings')]);
+      const [me, available, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; primaryStoreId: string | null; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods'), client.get<LoyaltySettings>('/loyalty/settings')]);
       setLoyalty(loyaltySettings); localStorage.setItem(`${loyaltyKey}:${normalizedApiUrl}`, JSON.stringify(loyaltySettings));
       if (!me.permissions.includes('sales.create')) throw new Error('Нет права оформлять продажи');
       const active = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS' && !hasDesktopCache()) && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
       if (!active.length || !available.length) throw new Error('Нет доступного магазина или способа оплаты');
       const rememberedStoreId = localStorage.getItem(`${savedStoreKey}:${me.userId}`);
-      const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === rememberedStoreId) ?? available[0]!;
-      setRegistrationRequested(available.length === 1 || chosen.id === rememberedStoreId || chosen.id === pending?.storeId);
+      const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === me.primaryStoreId) ?? available.find(store => store.id === rememberedStoreId) ?? available[0]!;
+      setRegistrationRequested(available.length === 1 || chosen.id === me.primaryStoreId || chosen.id === rememberedStoreId || chosen.id === pending?.storeId);
       if (hasDesktopCache() && offlineCredential) {
         try {
           const common = { deviceId, apiUrl: normalizedApiUrl, login: identityLogin, userId: me.userId, store: chosen, methods: active, permissions: me.permissions };

@@ -104,6 +104,7 @@ export class AuthService {
       login: user.login,
       name: user.name,
       role: user.role.code,
+      primaryStoreId: user.primaryStoreId,
       permissions: user.role.permissions.map((item) => item.permission.code),
       allStores: user.allStores,
       storeIds: user.stores.map((item) => item.storeId),

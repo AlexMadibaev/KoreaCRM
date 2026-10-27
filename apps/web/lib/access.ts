@@ -13,10 +13,11 @@ export const routePermission: Record<string, string> = {
   '/transfers': 'transfers.view',
   '/inventories': 'inventory.view',
   '/employees': 'employees.view',
+  '/stores': 'stores.view',
   '/finance': 'finance.view',
   '/finance/categories': 'finance.view',
 };
 
 export function firstCabinetPath(permissions: string[]) {
-  return ['/dashboard', '/sales', '/products', '/stock', '/customers', '/employees', '/account'].find(path => !routePermission[path] || permissions.includes(routePermission[path])) ?? '/account';
+  return ['/dashboard', '/sales', '/products', '/stock', '/customers', '/stores', '/employees', '/account'].find(path => !routePermission[path] || permissions.includes(routePermission[path])) ?? '/account';
 }

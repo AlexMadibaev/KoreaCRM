@@ -18,9 +18,12 @@ model User {
   active        Boolean        @default(true)
   deletedAt     DateTime?
   allStores     Boolean        @default(false)
+  primaryStoreId String?        @db.Uuid
+  primaryStore  Store?          @relation("PrimaryStore", fields: [primaryStoreId], references: [id], onDelete: SetNull)
   roleId        String         @db.Uuid
   role          Role           @relation(fields: [roleId], references: [id])
   stores        UserStore[]
+  managedStores Store[]         @relation("StoreManager")
   refreshTokens RefreshToken[]
   auditLogs     AuditLog[]
   stockMovements StockMovement[]
@@ -49,6 +52,7 @@ model User {
   updatedAt     DateTime       @updatedAt
 
   @@index([deletedAt])
+  @@index([primaryStoreId])
 }
 
 model Role {
@@ -56,6 +60,7 @@ model Role {
   code        String           @unique
   name        String
   system      Boolean          @default(false)
+  permissionsCustomizedAt DateTime?
   deletedAt   DateTime?
   users       User[]
   permissions RolePermission[]
@@ -86,8 +91,11 @@ model Store {
   code      String      @unique
   address   String?
   phone     String?
+  managerId String?     @db.Uuid
+  manager   User?       @relation("StoreManager", fields: [managerId], references: [id], onDelete: SetNull)
   status    String      @default("ACTIVE")
   users     UserStore[]
+  primaryUsers User[]   @relation("PrimaryStore")
   productSettings StoreProductSettings[]
   stocks    Stock[]
   notifications Notification[]
@@ -107,6 +115,8 @@ model Store {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
   deletedAt DateTime?
+
+  @@index([managerId])
 }
 
 enum PosDeviceStatus {

@@ -30,7 +30,7 @@ test('employee creation hashes the password and assigns stores in one transactio
   };
   const db = {
     role: { findUnique: async () => ({ id: 'role-a', permissions: [{ permission: { code: 'sales.view' } }] }) },
-    store: { count: async () => 1 },
+    store: { count: async () => 1, findFirst: async () => ({ id: 'store-a' }) },
     $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
     user: { findUniqueOrThrow: async () => ({ id: 'employee-1', name: input.name, login: input.login }) },
   } as unknown as DatabaseService;

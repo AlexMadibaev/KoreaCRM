@@ -150,7 +150,7 @@ export class SalesService {
           if (existing.storeId !== storeId || existing.requestHash !== requestHash) throw new ConflictException('Operation ID was used for another sale');
           return existing;
         }
-        if (!await tx.store.findFirst({ where: { id: storeId, deletedAt: null } })) throw new NotFoundException('Store not found');
+        if (!await tx.store.findFirst({ where: { id: storeId, deletedAt: null, status: 'ACTIVE' } })) throw new NotFoundException('Active store not found');
         const device = await tx.posDevice.findUnique({ where: { deviceId: input.deviceId } });
         if (!device || device.storeId !== storeId || device.status !== 'ACTIVE') throw new ConflictException('POS device is not active in this store');
         const customer = input.customerId ? await tx.customer.findFirst({ where: { id: input.customerId, deletedAt: null } }) : null;

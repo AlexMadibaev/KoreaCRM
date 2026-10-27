@@ -50,7 +50,7 @@ export class StockService {
 
   async stores(access: AccessContext) {
     return this.db.store.findMany({
-      where: { deletedAt: null, id: access.allStores ? undefined : { in: access.storeIds } },
+      where: { deletedAt: null, status: 'ACTIVE', id: access.allStores ? undefined : { in: access.storeIds } },
       select: { id: true, name: true, code: true },
       orderBy: { name: 'asc' },
     });

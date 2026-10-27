@@ -83,5 +83,5 @@ test('assigned store list does not expose other stores', async () => {
   let where: unknown;
   const db = { store: { findMany: async (query: { where: unknown }) => { where = query.where; return []; } } } as unknown as DatabaseService;
   await new StockService(db).stores({ userId: 'user-1', permissions: ['inventory.view'], allStores: false, storeIds: ['store-1'] });
-  assert.deepEqual(where, { deletedAt: null, id: { in: ['store-1'] } });
+  assert.deepEqual(where, { deletedAt: null, status: 'ACTIVE', id: { in: ['store-1'] } });
 });

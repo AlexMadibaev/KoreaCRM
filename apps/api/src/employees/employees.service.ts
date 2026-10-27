@@ -7,7 +7,7 @@ import type { AccessContext } from '../auth/policy';
 import { hashPosCode, newPosCodes } from '../auth/pos-code';
 import { employeeActivitySchema, employeeCreateSchema, employeeListSchema, employeePatchSchema, roleCreateSchema, rolePatchSchema } from './employees.schemas';
 
-const userPublic = { id: true, name: true, login: true, active: true, deletedAt: true, allStores: true, createdAt: true, roleId: true, role: { select: { id: true, code: true, name: true, permissions: { select: { permission: { select: { code: true } } } } } }, stores: { select: { storeId: true } } } as const;
+const userPublic = { id: true, name: true, login: true, active: true, deletedAt: true, allStores: true, primaryStoreId: true, createdAt: true, roleId: true, role: { select: { id: true, code: true, name: true, permissions: { select: { permission: { select: { code: true } } } } } }, stores: { select: { storeId: true } } } as const;
 const rolePublic = { id: true, code: true, name: true, system: true, deletedAt: true, permissions: { select: { permission: { select: { code: true } } } } } as const;
 const unique = (values: string[]) => [...new Set(values)];
 const isDuplicate = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
@@ -87,6 +87,7 @@ export class EmployeesService {
   private async allowedRole(roleId: string, actor: AccessContext) {
     const role = await this.db.role.findUnique({ where: { id: roleId }, select: rolePublic });
     if (!role || role.deletedAt) throw new NotFoundException('Role not found');
+    if (role.code === 'SUPERUSER' && actor.role !== 'SUPERUSER') throw new ForbiddenException('Only a superuser can assign this role');
     if (role.permissions.some(item => !actor.permissions.includes(item.permission.code))) throw new ForbiddenException('Role grants permissions you do not have');
     return role;
   }
@@ -103,16 +104,26 @@ export class EmployeesService {
     return allStores ? [] : uniqueIds;
   }
 
+  private async allowedPrimaryStore(primaryStoreId: string | null | undefined, allStores: boolean, storeIds: string[], actor: AccessContext) {
+    const chosen = primaryStoreId === undefined ? (storeIds.length === 1 ? storeIds[0]! : null) : primaryStoreId;
+    if (!chosen) return null;
+    if (!allStores && !storeIds.includes(chosen)) throw new BadRequestException('Primary store must be assigned to the employee');
+    if (!actor.allStores && !actor.storeIds.includes(chosen)) throw new ForbiddenException('Primary store is outside your access');
+    if (!await this.db.store.findFirst({ where: { id: chosen, deletedAt: null, status: 'ACTIVE' }, select: { id: true } })) throw new BadRequestException('Primary store is unavailable');
+    return chosen;
+  }
+
   async create(input: z.infer<typeof employeeCreateSchema>, actor: AccessContext) {
     await this.allowedRole(input.roleId, actor);
     const storeIds = await this.allowedScope(input.allStores, input.storeIds, actor);
+    const primaryStoreId = await this.allowedPrimaryStore(input.primaryStoreId, input.allStores, storeIds, actor);
     const passwordHash = await hash(input.password);
     const pinHash = input.pin ? await hash(input.pin) : null;
     try {
       const id = await this.db.$transaction(async tx => {
-        const employee = await tx.user.create({ data: { name: input.name, login: input.login, passwordHash, pinHash, roleId: input.roleId, allStores: input.allStores } });
+        const employee = await tx.user.create({ data: { name: input.name, login: input.login, passwordHash, pinHash, roleId: input.roleId, allStores: input.allStores, primaryStoreId } });
         if (storeIds.length) await tx.userStore.createMany({ data: storeIds.map(storeId => ({ userId: employee.id, storeId })) });
-        await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_CREATED', entityType: 'User', entityId: employee.id, newValue: { login: input.login, roleId: input.roleId, allStores: input.allStores, storeIds } } });
+        await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_CREATED', entityType: 'User', entityId: employee.id, newValue: { login: input.login, roleId: input.roleId, allStores: input.allStores, storeIds, primaryStoreId } } });
         return employee.id;
       });
       return this.db.user.findUniqueOrThrow({ where: { id }, select: userPublic });
@@ -127,19 +138,25 @@ export class EmployeesService {
     await this.allowedRole(current.roleId, actor);
     const roleId = input.roleId ?? current.roleId;
     await this.allowedRole(roleId, actor);
+    if (current.role.code === 'SUPERUSER' && (roleId !== current.roleId || input.active === false)) {
+      const count = await this.db.user.count({ where: { roleId: current.roleId, active: true, deletedAt: null } });
+      if (count <= 1) throw new ConflictException('Нельзя отключить последнего суперпользователя');
+    }
     const allStores = input.allStores ?? current.allStores;
     const storeIds = await this.allowedScope(allStores, input.storeIds ?? current.stores.map(item => item.storeId), actor);
+    const requestedPrimary = input.primaryStoreId !== undefined ? input.primaryStoreId : current.primaryStoreId && (allStores || storeIds.includes(current.primaryStoreId)) ? current.primaryStoreId : undefined;
+    const primaryStoreId = await this.allowedPrimaryStore(requestedPrimary, allStores, storeIds, actor);
     const passwordHash = input.password ? await hash(input.password) : undefined;
     const pinHash = input.pin === null ? null : input.pin ? await hash(input.pin) : undefined;
     try {
       await this.db.$transaction(async tx => {
-        await tx.user.update({ where: { id }, data: { name: input.name, login: input.login, active: input.active, roleId, allStores, passwordHash, pinHash } });
+        await tx.user.update({ where: { id }, data: { name: input.name, login: input.login, active: input.active, roleId, allStores, primaryStoreId, passwordHash, pinHash } });
         if (input.storeIds !== undefined || input.allStores !== undefined) {
           await tx.userStore.deleteMany({ where: { userId: id } });
           if (storeIds.length) await tx.userStore.createMany({ data: storeIds.map(storeId => ({ userId: id, storeId })) });
         }
         if (input.active === false || input.password) await tx.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
-        await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_UPDATED', entityType: 'User', entityId: id, oldValue: { roleId: current.roleId, allStores: current.allStores, active: current.active }, newValue: { roleId, allStores, storeIds, active: input.active, name: input.name, login: input.login, passwordChanged: Boolean(input.password), pinChanged: input.pin !== undefined } } });
+        await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_UPDATED', entityType: 'User', entityId: id, oldValue: { roleId: current.roleId, allStores: current.allStores, primaryStoreId: current.primaryStoreId, active: current.active }, newValue: { roleId, allStores, primaryStoreId, active: input.active, name: input.name, login: input.login, passwordChanged: Boolean(input.password), pinChanged: input.pin !== undefined } } });
       });
       return this.db.user.findUniqueOrThrow({ where: { id }, select: userPublic });
     } catch (error) { if (isDuplicate(error)) throw new ConflictException('Login already exists'); throw error; }
@@ -152,9 +169,9 @@ export class EmployeesService {
     if (!actor.allStores && (current.allStores || current.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
     await this.allowedRole(current.roleId, actor);
     await this.db.$transaction(async tx => {
-      if (current.active && current.role.code === 'OWNER') {
-        const owners = await tx.user.count({ where: { active: true, deletedAt: null, role: { code: 'OWNER' } } });
-        if (owners <= 1) throw new ConflictException('Нельзя удалить последнего владельца');
+      if (current.active && (current.role.code === 'OWNER' || current.role.code === 'SUPERUSER')) {
+        const owners = await tx.user.count({ where: { active: true, deletedAt: null, roleId: current.roleId } });
+        if (owners <= 1) throw new ConflictException('Нельзя удалить последнего владельца или суперпользователя');
       }
       const removed = await tx.user.updateMany({ where: { id, deletedAt: null }, data: { active: false, deletedAt: new Date(), login: `deleted_${id.replace(/-/g, '')}`, pinHash: null, posQrHash: null, posEanHash: null } });
       if (removed.count !== 1) throw new NotFoundException('Сотрудник не найден');
@@ -187,18 +204,18 @@ export class EmployeesService {
   async updateRole(id: string, input: z.infer<typeof rolePatchSchema>, actor: AccessContext) {
     const current = await this.db.role.findUnique({ where: { id }, select: rolePublic });
     if (!current || current.deletedAt) throw new NotFoundException('Role not found');
-    if (current.system) throw new ConflictException('System role cannot be edited');
+    if (current.code === 'SUPERUSER') throw new ConflictException('Роль суперпользователя менять нельзя');
     if (current.permissions.some(item => !actor.permissions.includes(item.permission.code))) throw new ForbiddenException();
     const codes = input.permissions ? await this.checkedPermissions(input.permissions, actor) : undefined;
     if (codes && !codes.includes('settings.edit') && (await this.db.user.findUnique({ where: { id: actor.userId }, select: { roleId: true } }))?.roleId === id) throw new ConflictException('You cannot remove your own role management right');
     await this.db.$transaction(async tx => {
-      await tx.role.update({ where: { id }, data: { name: input.name } });
+      await tx.role.update({ where: { id }, data: { name: input.name, ...(codes ? { permissionsCustomizedAt: new Date() } : {}) } });
       if (codes) {
         const permissions = await tx.permission.findMany({ where: { code: { in: codes } }, select: { id: true } });
         await tx.rolePermission.deleteMany({ where: { roleId: id } });
         if (permissions.length) await tx.rolePermission.createMany({ data: permissions.map(permission => ({ roleId: id, permissionId: permission.id })) });
       }
-      await tx.auditLog.create({ data: { userId: actor.userId, action: 'ROLE_UPDATED', entityType: 'Role', entityId: id, newValue: { name: input.name, permissions: codes } } });
+      await tx.auditLog.create({ data: { userId: actor.userId, action: 'ROLE_UPDATED', entityType: 'Role', entityId: id, oldValue: { name: current.name, permissions: current.permissions.map(item => item.permission.code) }, newValue: { name: input.name ?? current.name, permissions: codes ?? current.permissions.map(item => item.permission.code) } } });
     });
     return this.db.role.findUniqueOrThrow({ where: { id }, select: rolePublic });
   }

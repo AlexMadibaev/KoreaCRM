@@ -11,10 +11,12 @@ import { accessToken, ensureAccessToken } from '../lib/session';
 type Me = { name: string; login: string; role: string; permissions: string[] };
 const groups: { title: string; links: [string, string][] }[] = [
   { title: 'Рабочее пространство', links: [['/dashboard', 'Обзор'], ['/products', 'Товары'], ['/stock', 'Остатки'], ['/sales', 'Продажи'], ['/customers', 'Клиенты'], ['/notifications', 'Уведомления']] },
-  { title: 'Управление', links: [['/brands', 'Бренды'], ['/categories', 'Категории'], ['/suppliers', 'Поставщики'], ['/purchases', 'Закупки'], ['/transfers', 'Перемещения'], ['/inventories', 'Инвентаризация'], ['/loyalty', 'Лояльность'], ['/employees', 'Сотрудники и роли']] },
-  { title: 'Аналитика', links: [['/finance', 'Финансы'], ['/finance/categories', 'Категории расходов']] },
+  { title: 'Управление', links: [['/stores', 'Магазины'], ['/brands', 'Бренды'], ['/categories', 'Категории'], ['/suppliers', 'Поставщики'], ['/purchases', 'Закупки'], ['/transfers', 'Перемещения'], ['/inventories', 'Инвентаризация'], ['/loyalty', 'Лояльность'], ['/employees', 'Сотрудники и роли']] },
+  { title: 'Аналитика', links: [['/finance', 'Финансы'], ['/finance/categories', 'Категории расходов'], ['/audit', 'Журнал действий']] },
 ];
 const navIcons: Record<string, ReactNode> = {
+  '/stores': <><path d="M3 10h18l-1.5-6h-15L3 10Z"/><path d="M5 10v10h14V10M9 20v-6h6v6M3 10c0 2 3 3 4.5 0 1.5 3 4.5 3 4.5 0"/></>,
+  '/audit': <><path d="M5 3h14v18H5zM8 8h8M8 12h8M8 16h5"/></>,
   '/dashboard': <><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></>,
   '/products': <><path d="M3 7.5 12 3l9 4.5v9L12 21l-9-4.5z"/><path d="M3 7.5 12 12l9-4.5M12 12v9M7.5 5.25l9 4.5"/></>,
   '/stock': <><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M3 10h18M9 15h6M7 2h10"/></>,
@@ -86,7 +88,7 @@ export function CatalogShell({ children }: { children: React.ReactNode }) {
   return <div className="crm-shell">
     <aside id="crm-navigation" className={`crm-sidebar ${menuOpen ? 'crm-sidebar-open' : ''}`}>
       <Link href={firstCabinetPath(me?.permissions ?? [])} className="crm-brand" onClick={() => setMenuOpen(false)}><span><Image className="crm-brand-logo" src="/koreacrm-logo.svg" alt="Korea CRM" width={163} height={26} /><small>Управление магазином</small></span></Link>
-      <nav aria-label="Основная навигация">{groups.map(group => { const links = group.links.filter(([href]) => { if (href === '/notifications') return me?.permissions.includes('inventory.view') || me?.permissions.includes('sales.view'); const required = routePermission[href]; return required && me?.permissions.includes(required); }); return links.length ? <div className="crm-nav-group" key={group.title}><div className="crm-nav-title">{group.title}</div>{links.map(([href, label]) => <Link key={href} href={href} onClick={() => setMenuOpen(false)} aria-current={pathname === href ? 'page' : undefined} className={`crm-nav-link ${pathname === href ? 'active' : ''}`}><span className="crm-nav-icon"><NavIcon href={href} /></span>{label}</Link>)}</div> : null; })}</nav>
+      <nav aria-label="Основная навигация">{groups.map(group => { const links = group.links.filter(([href]) => { if (href === '/notifications') return me?.permissions.includes('inventory.view') || me?.permissions.includes('sales.view'); if (href === '/audit') return me?.role === 'SUPERUSER'; const required = routePermission[href]; return required && me?.permissions.includes(required); }); return links.length ? <div className="crm-nav-group" key={group.title}><div className="crm-nav-title">{group.title}</div>{links.map(([href, label]) => <Link key={href} href={href} onClick={() => setMenuOpen(false)} aria-current={pathname === href ? 'page' : undefined} className={`crm-nav-link ${pathname === href ? 'active' : ''}`}><span className="crm-nav-icon"><NavIcon href={href} /></span>{label}</Link>)}</div> : null; })}</nav>
       <Link href="/account" className={`crm-sidebar-account ${pathname === '/account' ? 'active' : ''}`} onClick={() => setMenuOpen(false)}><span className="crm-avatar">{(me?.name || 'П').slice(0, 1).toUpperCase()}</span><span><strong>{me?.name || 'Профиль'}</strong><small>Личный кабинет</small></span><span aria-hidden="true">›</span></Link>
     </aside>
     {menuOpen && <button className="crm-backdrop" aria-label="Закрыть меню" onClick={() => { setMenuOpen(false); menuButtonRef.current?.focus(); }} />}
