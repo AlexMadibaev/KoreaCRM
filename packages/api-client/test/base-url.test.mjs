@@ -54,10 +54,16 @@ test('POS request stops waiting for an unreachable server', async () => {
   const fetchMock = mock.method(globalThis, 'fetch', (_url, options) => new Promise((_resolve, reject) => {
     options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
   }));
+  let watchdog;
   try {
     const client = createApiClient('https://shop.example/api', 'test-device', 10);
-    await assert.rejects(client.login('cashier', 'test-password'), error => error?.name === 'TimeoutError');
+    const request = client.login('cashier', 'test-password');
+    const deadline = new Promise((_resolve, reject) => {
+      watchdog = setTimeout(() => reject(new Error('POS request timeout did not fire')), 1_000);
+    });
+    await assert.rejects(Promise.race([request, deadline]), error => error?.name === 'TimeoutError');
   } finally {
+    clearTimeout(watchdog);
     fetchMock.mock.restore();
   }
 });
