@@ -4,7 +4,7 @@ import { createApiClient } from '@koreacrm/api-client';
 
 type Client = ReturnType<typeof createApiClient>;
 export type CacheStatus = { storeId: string; productCount: number; customerCount: number; lastSyncedAt: string | null };
-export type CachedProduct = { id: string; name: string; sku: string; brandId: string | null; categoryId: string | null; barcodes: string[]; priceMinor: number | null; availableQuantity: number; active: boolean };
+export type CachedProduct = { id: string; name: string; sku: string; brandId: string | null; categoryId: string | null; imageKey: string | null; barcodes: string[]; priceMinor: number | null; availableQuantity: number; active: boolean };
 
 export function hasDesktopCache() { return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window; }
 
@@ -35,7 +35,7 @@ async function allPages<T>(client: Client, path: string): Promise<T[]> {
 export async function refreshCatalogCache(client: Client, userId: string, storeId: string, permissions: string[], progress: (value: string) => void): Promise<CacheStatus> {
   progress('Загружаем товары и остатки…');
   const [products, stocks, customers] = await Promise.all([
-    allPages<PosProduct>(client, '/products'),
+    allPages<PosProduct & { images: { storageKey: string }[] }>(client, '/products'),
     allPages<PosStock>(client, `/stores/${storeId}/stock`),
     permissions.includes('customers.view') ? allPages<PosCustomer>(client, '/customers') : Promise.resolve([]),
   ]);
@@ -51,6 +51,7 @@ export async function refreshCatalogCache(client: Client, userId: string, storeI
         sku: product.sku,
         brandId: product.brandId,
         categoryId: product.categoryId,
+        imageKey: product.images[0]?.storageKey ?? null,
         barcodes: product.barcodes.map(barcode => barcode.value),
         priceMinor: settings?.priceMinor ?? null,
         availableQuantity: Math.max(0, (stock?.quantity ?? 0) - (stock?.reservedQuantity ?? 0)),

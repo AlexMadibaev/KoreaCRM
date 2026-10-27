@@ -19,8 +19,20 @@ export function createApiClient(baseUrl: string, deviceId: string, requestTimeou
   let accessToken = '';
   let refreshToken = '';
   let refreshing: Promise<void> | null = null;
+  let resolvedBaseUrl = baseUrl;
   async function raw<T>(path: string, body?: unknown, method = 'GET', authorized = true): Promise<T> {
-    const response = await fetch(endpoint(baseUrl, path), { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(authorized && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(requestTimeoutMs) });
+    const options: RequestInit = { method, headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), ...(authorized && accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}), signal: AbortSignal.timeout(requestTimeoutMs) };
+    let response = await fetch(endpoint(resolvedBaseUrl, path), options);
+    if (response.status === 404 && new URL(resolvedBaseUrl).pathname.replace(/\/+$/, '') === '/api') {
+      const result: unknown = await response.clone().json().catch(() => null);
+      const missingRoute = result && typeof result === 'object' && 'message' in result && result.message === `Cannot ${method} /api/${path.replace(/^\/+/, '')}`;
+      if (missingRoute) {
+        const rootBaseUrl = new URL(resolvedBaseUrl).origin;
+        const retry = await fetch(endpoint(rootBaseUrl, path), options);
+        if (retry.status !== 404) resolvedBaseUrl = rootBaseUrl;
+        response = retry;
+      }
+    }
     if (!response.ok) {
       const result: unknown = await response.json().catch(() => null);
       const message = result && typeof result === 'object' && 'message' in result && typeof result.message === 'string' ? result.message : `API returned ${response.status}`;
@@ -34,6 +46,7 @@ export function createApiClient(baseUrl: string, deviceId: string, requestTimeou
     return refreshing;
   }
   return {
+    baseUrl: () => resolvedBaseUrl,
     async login(login: string, password: string) { const tokens = await raw<{ accessToken: string; refreshToken: string }>('/auth/login', { login, password, deviceId }, 'POST', false); accessToken = tokens.accessToken; refreshToken = tokens.refreshToken; },
     async loginWithPosCode(code: string) { const result = await raw<{ accessToken: string; refreshToken: string; login: string }>('/auth/pos-code', { code, deviceId }, 'POST', false); accessToken = result.accessToken; refreshToken = result.refreshToken; return result.login; },
     async get<T>(path: string): Promise<T> { try { return await raw<T>(path); } catch (error) { if (error instanceof ApiError && error.status === 401 && refreshToken) { await refresh(); return raw<T>(path); } throw error; } },

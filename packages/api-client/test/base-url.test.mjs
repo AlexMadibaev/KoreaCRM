@@ -19,6 +19,21 @@ test('POS login keeps the /api prefix of a public server address', async () => {
   }
 });
 
+test('POS retries at the same origin when a proxy leaves /api in the upstream route', async () => {
+  const requests = [];
+  const fetchMock = mock.method(globalThis, 'fetch', async url => {
+    requests.push(String(url));
+    if (String(url).includes('/api/')) return new Response(JSON.stringify({ message: 'Cannot POST /api/auth/login' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+    return new Response(JSON.stringify({ accessToken: 'test', refreshToken: 'test' }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  try {
+    const client = createApiClient('https://shop.example/api', 'test-device');
+    await client.login('cashier', 'test-password');
+    assert.equal(client.baseUrl(), 'https://shop.example');
+    assert.deepEqual(requests, ['https://shop.example/api/auth/login', 'https://shop.example/auth/login']);
+  } finally { fetchMock.mock.restore(); }
+});
+
 test('health request keeps the /api prefix', async () => {
   const requests = [];
   const fetchMock = mock.method(globalThis, 'fetch', async (url) => {

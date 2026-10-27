@@ -14,7 +14,7 @@ import { projectShiftCash } from './shift-projection';
 import { queuedSaleDetails } from './queued-sale-details';
 import { isLocalServerUrl, normalizeServerUrl } from './server-url';
 import { SalesHistory } from './sales-history';
-import { ProductResults, type CatalogItem, type PosCatalogProduct } from './product-results';
+import { ProductImage, ProductResults, type CatalogItem, type PosCatalogProduct } from './product-results';
 
 const CameraCodeScanner = lazy(() => import('./camera-code-scanner').then(module => ({ default: module.CameraCodeScanner })));
 type PosScreen = 'sale' | 'history' | 'shift' | 'sync';
@@ -82,7 +82,7 @@ export function App() {
     return baseUrl;
   }, [apiUrl]);
   const client = useMemo(() => createApiClient(clientBaseUrl, deviceId), [clientBaseUrl, deviceId]);
-  const [registrationRequested, setRegistrationRequested] = useState(() => Boolean(localStorage.getItem(savedStoreKey)));
+  const [registrationRequested, setRegistrationRequested] = useState(false);
   const [registerNonce, setRegisterNonce] = useState(0);
   const [signedIn, setSignedIn] = useState(false), [login, setLogin] = useState(''), [cashierName, setCashierName] = useState(''), [password, setPassword] = useState(''), [permissions, setPermissions] = useState<string[]>([]);
   const [loginMode, setLoginMode] = useState<'password' | 'scan'>('password'), [scanCode, setScanCode] = useState(''), [cameraOpen, setCameraOpen] = useState(false);
@@ -146,8 +146,9 @@ export function App() {
       if (!me.permissions.includes('sales.create')) throw new Error('Нет права оформлять продажи');
       const active = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS' && !hasDesktopCache()) && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
       if (!active.length || !available.length) throw new Error('Нет доступного магазина или способа оплаты');
-      const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === localStorage.getItem(savedStoreKey)) ?? available[0]!;
-      if (available.length === 1 || localStorage.getItem(savedStoreKey)) setRegistrationRequested(true);
+      const rememberedStoreId = localStorage.getItem(`${savedStoreKey}:${me.userId}`);
+      const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === rememberedStoreId) ?? available[0]!;
+      setRegistrationRequested(available.length === 1 || chosen.id === rememberedStoreId || chosen.id === pending?.storeId);
       if (hasDesktopCache() && offlineCredential) {
         try {
           const common = { deviceId, apiUrl: normalizedApiUrl, login: identityLogin, userId: me.userId, store: chosen, methods: active, permissions: me.permissions };
@@ -221,7 +222,7 @@ export function App() {
   }
   function signInWithCode(event: FormEvent) { event.preventDefault(); void authenticateCode(scanCode); }
   const cameraDetected = useCallback((code: string) => { setCameraOpen(false); setScanCode(code); void authenticateCode(code); }, [client, apiUrl, pending]);
-  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* End this cashier session even if the server is unreachable. */ } finally { offlineCredentialRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setActiveScreen('sale'); setCart([]); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCashierName(''); setLogin(''); setPassword(''); setScanCode(''); setCustomerId(''); setCustomers([]); setShift(null); setDeviceReady(false); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setLoginMode('scan'); setBusy(false); } }
+  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* End this cashier session even if the server is unreachable. */ } finally { offlineCredentialRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setActiveScreen('sale'); setCart([]); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCashierName(''); setLogin(''); setPassword(''); setScanCode(''); setCustomerId(''); setCustomers([]); setShift(null); setDeviceReady(false); setRegistrationRequested(false); setStores([]); setStoreId(''); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setLoginMode('scan'); setBusy(false); } }
   const refreshQueueSummary = useCallback(async () => {
     if (!hasDesktopCache() || !userId || !storeId) return;
     const [summary, entries] = await Promise.all([syncQueueSummary(userId, storeId), listSyncQueue(userId, storeId)]);
@@ -336,7 +337,7 @@ export function App() {
         const [shiftPage, customerPage] = await Promise.all(tasks);
         if (!active) return;
         const opened = (shiftPage as PosPage<PosShift>).items.find(value => value.deviceId === deviceId && value.status === 'OPEN') ?? null;
-        setShift(opened); setClosingCash(opened?.expectedCashMinor ?? '0'); setCustomers((customerPage as PosPage<PosCustomer> | undefined)?.items ?? []); setDeviceReady(true); localStorage.setItem(savedStoreKey, storeId);
+        setShift(opened); setClosingCash(opened?.expectedCashMinor ?? '0'); setCustomers((customerPage as PosPage<PosCustomer> | undefined)?.items ?? []); setDeviceReady(true); localStorage.setItem(`${savedStoreKey}:${userId}`, storeId);
         if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Локальный вход не готов: ${message(caught)}`));
       } catch (caught) { if (active) setError(message(caught)); }
     })();
@@ -402,7 +403,7 @@ export function App() {
         available = cached.availableQuantity; priceMinor = cached.priceMinor; setServerReachable(false);
         setQueueNotice('Нет связи. Цена и остаток взяты из сохранённых данных.');
       }
-      setStockNotice(''); setCart(current => [...current, { product, imageKey: 'images' in product ? product.images[0]?.storageKey : undefined, quantity: 1, available, priceMinor, discountMinor: '0' }]); setSearch(''); setProducts([]); searchRef.current?.focus();
+      setStockNotice(''); setCart(current => [...current, { product, imageKey: 'images' in product ? product.images[0]?.storageKey : 'imageKey' in product ? product.imageKey ?? undefined : undefined, quantity: 1, available, priceMinor, discountMinor: '0' }]); setSearch(''); setProducts([]); searchRef.current?.focus();
     } catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   }
@@ -587,7 +588,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     </aside>
     <div className="pos-content"><header className="topbar">
     <div className="topbar-brand"><div className="brand-mark" aria-hidden="true">K<span>•</span></div><div><p className="eyebrow">KOREA CRM</p><h1>{activeScreen === 'sale' ? 'Касса продаж' : activeScreen === 'history' ? 'История чеков' : activeScreen === 'shift' ? 'Кассовая смена' : 'Отправка продаж'}</h1></div></div>
-    <label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={busy || deviceReady}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
+    <label>Магазин{stores.length === 1 ? <strong className="assigned-store">{stores[0]!.name}</strong> : <select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={busy || deviceReady}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>}</label>
     {!deviceReady && <button disabled={busy} onClick={() => registrationRequested ? setRegisterNonce(value => value + 1) : setRegistrationRequested(true)}>{registrationRequested ? 'Повторить подключение' : 'Подключить кассу'}</button>}
     <span className={offlineSignedIn ? "connection-pill" : deviceReady ? "connection-pill is-ready" : "connection-pill"}><i aria-hidden="true" />{offlineSignedIn ? "Нет связи" : deviceReady ? "Касса готова" : "Подключаем кассу"}</span>
     <button className="cashier-switch" disabled={busy || Boolean(pending)} onClick={() => void signOut()}>Сменить кассира</button>
@@ -604,14 +605,14 @@ if (!signedIn) return <main className="login"><div className="login-shell">
         <label className="catalog-search"><span className="sr-only">Поиск или штрихкод</span><input ref={searchRef} autoFocus value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => void scan(event)} placeholder="Поиск товара или сканирование штрихкода · F2" disabled={Boolean(pending)} /></label>
         <div className="catalog-filters"><span className="active">Все товары</span><span>Нажмите на карточку, чтобы добавить в чек</span></div>
         {search.trim() && products.length === 0 && <div className="catalog-empty">По запросу «{search}» товары не найдены.</div>}
-        <ProductResults products={products} apiUrl={apiUrl} disabled={busy || Boolean(pending)} onAdd={product => void addProduct(product)} />
+        <ProductResults products={products} apiUrl={client.baseUrl()} disabled={busy || Boolean(pending)} onAdd={product => void addProduct(product)} />
       </section>
       <section className="panel order-panel" aria-label="Текущий чек">
         <div className="order-heading"><div><p className="eyebrow">ПРОДАЖА</p><h2>Текущий чек <span>{cart.length}</span></h2></div><button type="button" className="reset-order" disabled={!cart.length || Boolean(pending)} onClick={() => { setCart([]); setStockNotice(''); }}>Очистить</button></div>
         <div className="order-items">
           {!cart.length && <div className="empty-cart"><div className="empty-cart-icon" aria-hidden="true">▤</div><strong>Чек пока пуст</strong><p>Выберите товар слева, чтобы начать продажу.</p></div>}
           <ul className="cart">{cart.map((line, index) => <li key={line.product.id}>
-            <div className="cart-line-main"><div className="cart-line-image">{line.imageKey ? <img src={`${apiUrl.trim().replace(/\/+$/, '')}/product-images/${encodeURIComponent(line.imageKey)}`} alt="" /> : <span aria-hidden="true">▣</span>}</div><div className="item-name"><strong>{line.product.name}</strong><span>{formatMinor(line.priceMinor)} сомони · доступно {line.available}</span></div><button type="button" className="cart-remove" aria-label={`Убрать ${line.product.name}`} disabled={Boolean(pending)} onClick={() => setCart(current => current.filter(item => item.product.id !== line.product.id))}>×</button></div>
+            <div className="cart-line-main"><div className="cart-line-image"><ProductImage key={line.imageKey} storageKey={line.imageKey} apiUrl={client.baseUrl()} /></div><div className="item-name"><strong>{line.product.name}</strong><span>{formatMinor(line.priceMinor)} сомони · доступно {line.available}</span></div><button type="button" className="cart-remove" aria-label={`Убрать ${line.product.name}`} disabled={Boolean(pending)} onClick={() => setCart(current => current.filter(item => item.product.id !== line.product.id))}>×</button></div>
             <div className="cart-line-controls"><div className="quantity-control"><button type="button" aria-label={`Уменьшить количество ${line.product.name}`} disabled={Boolean(pending) || line.quantity <= 1} onClick={() => changeQuantity(line, String(line.quantity - 1))}>−</button><input aria-label={`Количество ${line.product.name}`} type="number" min="1" max={line.available} value={line.quantity} disabled={Boolean(pending)} onChange={event => changeQuantity(line, event.target.value)} /><button type="button" aria-label={`Увеличить количество ${line.product.name}`} disabled={Boolean(pending)} onClick={() => changeQuantity(line, String(line.quantity + 1))}>+</button></div><label className="cart-manual-discount">Скидка, сомони<MoneyInput aria-label={`Ручная скидка ${line.product.name}`} valueMinor={line.discountMinor} onMinorChange={minor => setCart(current => current.map(item => item.product.id === line.product.id ? { ...item, discountMinor: (BigInt(minor) > BigInt(item.priceMinor) * BigInt(item.quantity) ? BigInt(item.priceMinor) * BigInt(item.quantity) : BigInt(minor)).toString() } : item))} disabled={Boolean(pending)} /></label><strong>{cartLineTotal(cartTotal?.lines[index]?.totalMinor)} сомони</strong></div>
           </li>)}</ul>
         </div>
