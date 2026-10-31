@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { MoneyInput, formatCurrencyMinor } from '@koreacrm/ui';
 import { api, productImageUrl, type Brand, type Category, type Page, type Product } from '../lib/api';
 import { ProductImageCropper } from './product-image-cropper';
+import { ProductGallery } from './product-gallery';
 
 const fieldLabels = {
   name: 'Название', sku: 'Артикул', unit: 'Единица', description: 'Описание', country: 'Страна',
@@ -89,6 +90,18 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
   ];
   const productChanged = changedFields.length > 0 || brandId !== (product.brandId ?? '') || categoryId !== (product.categoryId ?? '') || status !== product.status || JSON.stringify(cleanBarcodes) !== JSON.stringify(oldBarcodes);
   const visibleImages = product.images.filter(image => !removedImages.includes(image.id)).sort((a, b) => a.sortOrder - b.sortOrder);
+  const galleryImages = [
+    ...visibleImages.map((image, index) => ({ id: image.id, src: productImageUrl(image.storageKey), alt: `Фото товара ${index + 1}` })),
+    ...pendingImages.map((image, index) => ({ id: image.id, src: image.url, alt: `Новое фото товара ${index + 1}`, pending: true })),
+  ];
+
+  function removeImage(imageId: string) {
+    const pending = pendingImages.find(image => image.id === imageId);
+    if (pending) {
+      setPendingImages(current => current.filter(image => image.id !== imageId));
+      URL.revokeObjectURL(pending.url);
+    } else setRemovedImages(current => [...current, imageId]);
+  }
 
   function selectImages(files: FileList | null) {
     if (!files?.length) return;
@@ -150,9 +163,8 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
       <section className="crm-panel crm-product-images crm-product-edit-gallery">
         <div className="crm-product-section-head"><span className="crm-eyebrow">ГАЛЕРЕЯ</span><h2>Фото товара</h2><p>Фото появятся в карточке после сохранения изменений.</p></div>
         <span className="crm-product-image-count">{visibleImages.length + pendingImages.length} / 20</span>
-        <div className="crm-product-image-preview">{visibleImages[0] || pendingImages[0] ? <img src={visibleImages[0] ? productImageUrl(visibleImages[0].storageKey) : pendingImages[0]?.url ?? ''} alt="Предпросмотр товара" /> : <div className="crm-product-image-empty">Добавьте фото товара</div>}</div>
+        <ProductGallery images={galleryImages} empty={<div className="crm-product-image-empty">Добавьте фото товара</div>} onRemove={removeImage} disabled={saving} />
         <div className="crm-product-image-toolbar"><p>Квадрат 360 × 360 · WebP после сохранения</p><label className="crm-outline-button crm-product-upload">＋ Добавить фото<input ref={input} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={saving || imageQueue.length > 0 || visibleImages.length + pendingImages.length >= 20} onChange={event => selectImages(event.target.files)} /></label></div>
-        <div className="crm-product-image-grid">{visibleImages.map(image => <div className="crm-product-image-tile" key={image.id}><img src={productImageUrl(image.storageKey)} alt="Фото товара" /><button type="button" disabled={saving} onClick={() => setRemovedImages(current => [...current, image.id])}>Убрать</button></div>)}{pendingImages.map(item => <div className="crm-product-image-tile crm-product-image-pending" key={item.id}><img src={item.url} alt="Новое фото" /><button type="button" disabled={saving} onClick={() => { setPendingImages(current => current.filter(image => image.id !== item.id)); URL.revokeObjectURL(item.url); }}>Убрать</button><span>Новое</span></div>)}</div>
       </section>
       <div className="crm-product-detail-side">
         <section className="crm-panel crm-product-edit-section"><div className="crm-product-section-head"><span className="crm-eyebrow">ОСНОВНОЕ</span><h2>О товаре</h2></div><div className="crm-product-form-grid">
