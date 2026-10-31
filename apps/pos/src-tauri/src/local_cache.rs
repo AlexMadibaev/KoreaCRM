@@ -50,10 +50,18 @@ pub struct CacheStatus {
     pub last_synced_at: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DatabaseHealth {
+    pub integrity: String,
+    pub journal_mode: String,
+}
+
 pub(crate) fn open_database(app: &tauri::AppHandle) -> Result<Connection, String> {
     let dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
     fs::create_dir_all(&dir).map_err(|error| error.to_string())?;
     let connection = Connection::open(dir.join("pos-cache.sqlite3")).map_err(|error| error.to_string())?;
+    connection.busy_timeout(std::time::Duration::from_secs(5)).map_err(|error| error.to_string())?;
     initialize(&connection).map_err(|error| error.to_string())?;
     Ok(connection)
 }
@@ -61,6 +69,8 @@ pub(crate) fn open_database(app: &tauri::AppHandle) -> Result<Connection, String
 pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(
         "PRAGMA foreign_keys = ON;
+         PRAGMA journal_mode = WAL;
+         PRAGMA synchronous = FULL;
          CREATE TABLE IF NOT EXISTS cache_meta (
            store_id TEXT PRIMARY KEY,
            last_synced_at TEXT NOT NULL
@@ -136,6 +146,18 @@ pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
     if !session_columns.iter().any(|column| column == "code_salt") { connection.execute("ALTER TABLE offline_sessions ADD COLUMN code_salt TEXT", [])?; }
     if !session_columns.iter().any(|column| column == "code_verifier") { connection.execute("ALTER TABLE offline_sessions ADD COLUMN code_verifier TEXT", [])?; }
     Ok(())
+}
+
+fn check_database(connection: &Connection) -> rusqlite::Result<DatabaseHealth> {
+    let integrity = connection.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
+    let journal_mode = connection.query_row("PRAGMA journal_mode", [], |row| row.get(0))?;
+    Ok(DatabaseHealth { integrity, journal_mode })
+}
+
+#[tauri::command]
+pub fn database_health(app: tauri::AppHandle) -> Result<DatabaseHealth, String> {
+    let connection = open_database(&app)?;
+    check_database(&connection).map_err(|error| error.to_string())
 }
 
 fn replace_snapshot(connection: &mut Connection, snapshot: &CatalogSnapshot) -> Result<(), String> {
@@ -241,6 +263,14 @@ mod tests {
         initialize(&db).unwrap();
         let rate: String = db.query_row("SELECT discount_percent FROM cached_customers WHERE id='customer-a'", [], |row| row.get(0)).unwrap();
         assert_eq!(rate, "0");
+    }
+
+    #[test]
+    fn database_reports_integrity() {
+        let db = Connection::open_in_memory().unwrap();
+        initialize(&db).unwrap();
+        let health = check_database(&db).unwrap();
+        assert_eq!(health.integrity, "ok");
     }
 
     #[test]

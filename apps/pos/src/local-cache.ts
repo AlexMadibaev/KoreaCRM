@@ -4,12 +4,17 @@ import { createApiClient } from '@koreacrm/api-client';
 
 type Client = ReturnType<typeof createApiClient>;
 export type CacheStatus = { storeId: string; productCount: number; customerCount: number; lastSyncedAt: string | null };
+export type DatabaseHealth = { integrity: string; journalMode: string };
 export type CachedProduct = { id: string; name: string; sku: string; brandId: string | null; categoryId: string | null; imageKey: string | null; barcodes: string[]; priceMinor: number | null; availableQuantity: number; active: boolean };
 
 export function hasDesktopCache() { return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window; }
 
 export async function readCatalogCacheStatus(userId: string, storeId: string): Promise<CacheStatus> {
   return invoke<CacheStatus>('catalog_cache_status', { userId, storeId });
+}
+
+export function readDatabaseHealth(): Promise<DatabaseHealth> {
+  return invoke<DatabaseHealth>('database_health');
 }
 
 export function readCachedProducts(userId: string, storeId: string): Promise<CachedProduct[]> {
