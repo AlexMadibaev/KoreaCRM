@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import type { Request, Response } from 'express';
+import sharp from 'sharp';
 import { DatabaseService } from '../database.service';
 import { AccessGuard, RequirePermission } from '../auth/guards';
 
@@ -21,6 +22,18 @@ export function imageFormat(buffer: Buffer): { extension: string; mime: string }
   return null;
 }
 
+export async function normalizeProductImage(buffer: Buffer): Promise<Buffer> {
+  try {
+    return await sharp(buffer, { limitInputPixels: 40_000_000 })
+      .autoOrient()
+      .resize(360, 360, { fit: 'cover', position: 'centre', kernel: 'lanczos3' })
+      .webp({ quality: 92, effort: 6, smartSubsample: true })
+      .toBuffer();
+  } catch {
+    throw new BadRequestException('Не удалось обработать изображение. Выберите исправный файл JPEG, PNG или WebP.');
+  }
+}
+
 @Injectable()
 export class ProductImagesService {
   constructor(private readonly db: DatabaseService) {}
@@ -33,10 +46,11 @@ export class ProductImagesService {
     if (!product) throw new NotFoundException('Товар не найден');
     const existing = await this.db.productImage.aggregate({ where: { productId }, _count: { _all: true }, _max: { sortOrder: true } });
     if (existing._count._all >= maximumImages) throw new ConflictException('У товара может быть не более 20 изображений');
-    const storageKey = `${randomUUID()}.${format.extension}`;
+    const optimized = await normalizeProductImage(file.buffer);
+    const storageKey = `${randomUUID()}.webp`;
     const filePath = join(imageDirectory, storageKey);
     await mkdir(imageDirectory, { recursive: true });
-    await writeFile(filePath, file.buffer, { flag: 'wx' });
+    await writeFile(filePath, optimized, { flag: 'wx' });
     try {
       return await this.db.$transaction(async tx => {
         const image = await tx.productImage.create({ data: { productId, storageKey, sortOrder: (existing._max.sortOrder ?? -1) + 1 } });
@@ -94,7 +108,7 @@ export class ProductImageFilesController {
     const bytes = await this.images.read(key);
     const mime = key.endsWith('.png') ? 'image/png' : key.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
     response.setHeader('X-Content-Type-Options', 'nosniff');
-    response.setHeader('Cache-Control', 'public, max-age=86400');
+    response.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     response.type(mime).send(bytes);
   }
 }
