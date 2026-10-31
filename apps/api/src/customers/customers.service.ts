@@ -5,6 +5,7 @@ import { DatabaseService } from '../database.service';
 import { FinanceService } from '../finance/finance.service';
 import type { AccessContext } from '../auth/policy';
 import { activitySchema, bonusCorrectionSchema, bonusListSchema, commentListSchema, commentSchema, createSchema, debtPaymentSchema, historySchema, listSchema, patchSchema } from './customers.schemas';
+import { normalizeCustomerName } from './customer-name';
 import { defaultSegmentSettings, deriveCustomerSegments, segmentCutoffs, segmentSettingsSchema, type SegmentSettings } from './customer-segments';
 
 type CustomerInput = z.infer<typeof createSchema>;
@@ -170,7 +171,7 @@ export class CustomersService {
   }
   async create(input: CustomerInput, actorId: string) {
     try { return await this.db.$transaction(async tx => {
-      const customer = await tx.customer.create({ data: { ...input, discountPercent: input.discountPercent ?? '0' } });
+      const customer = await tx.customer.create({ data: { ...input, firstName: normalizeCustomerName(input.firstName), lastName: input.lastName ? normalizeCustomerName(input.lastName) : null, discountPercent: input.discountPercent ?? '0' } });
       await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_CREATED', entityType: 'Customer', entityId: customer.id, newValue: { phone: customer.phone } } });
       if (customer.discountPercent.gt(0)) await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_DISCOUNT_UPDATED', entityType: 'Customer', entityId: customer.id, oldValue: { discountPercent: '0' }, newValue: { discountPercent: customer.discountPercent.toString() } } });
       return customer;
@@ -180,8 +181,9 @@ export class CustomersService {
     const existing = await this.db.customer.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new NotFoundException('Customer not found');
     try { return await this.db.$transaction(async tx => {
-      const customer = await tx.customer.update({ where: { id }, data: input });
-      await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_UPDATED', entityType: 'Customer', entityId: id, newValue: input } });
+      const normalized = { ...input, ...(input.firstName !== undefined ? { firstName: normalizeCustomerName(input.firstName) } : {}), ...(input.lastName !== undefined ? { lastName: input.lastName ? normalizeCustomerName(input.lastName) : null } : {}) };
+      const customer = await tx.customer.update({ where: { id }, data: normalized });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_UPDATED', entityType: 'Customer', entityId: id, newValue: normalized } });
       if (input.discountPercent !== undefined && !existing.discountPercent.eq(input.discountPercent)) await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_DISCOUNT_UPDATED', entityType: 'Customer', entityId: id, oldValue: { discountPercent: existing.discountPercent.toString() }, newValue: { discountPercent: input.discountPercent } } });
       return customer;
     }); } catch (error) { if (retryable(error)) throw new ConflictException('Customer phone already exists'); throw error; }
