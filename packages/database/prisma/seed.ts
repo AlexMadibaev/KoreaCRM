@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import { hash } from 'argon2';
 import { config } from 'dotenv';
 import { fileURLToPath } from 'node:url';
+import { importLegacyKorea } from './import-legacy-korea';
 
 config({ path: fileURLToPath(new URL('../../../.env', import.meta.url)) });
 
@@ -92,6 +93,7 @@ async function main() {
     await prisma.user.update({ where: { id: seededUser.id }, data: { roleId: superuserRole.id } });
     await prisma.auditLog.create({ data: { userId: seededUser.id, action: 'SUPERUSER_ASSIGNED', entityType: 'User', entityId: seededUser.id, newValue: { role: 'SUPERUSER' } } });
   }
+  if (process.env.KOREACRM_IMPORT_LEGACY === '1') await importLegacyKorea(prisma);
 }
 
 main().finally(() => prisma.$disconnect());
