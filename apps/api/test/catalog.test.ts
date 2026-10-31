@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { BadRequestException } from '@nestjs/common';
 import { CatalogService } from '../src/catalog/catalog.service';
+import { productUpdateSchema } from '../src/catalog/catalog.schemas';
 import type { DatabaseService } from '../src/database.service';
+
+test('a partial product update preserves omitted photos, barcodes, status and unit', () => {
+  assert.deepEqual(productUpdateSchema.parse({ name: 'New name' }), { name: 'New name' });
+  assert.deepEqual(productUpdateSchema.parse({ imageKeys: [], barcodes: [] }), { imageKeys: [], barcodes: [] });
+});
 
 test('product create writes barcodes and audit in one transaction', async () => {
   const calls: string[] = [];

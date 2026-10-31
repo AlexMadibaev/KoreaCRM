@@ -195,6 +195,38 @@ button, input, select, textarea { font-family: var(--ks-font-sans); }
 .crm-product-image-tile > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px; padding: 7px; font-size: 10px; }
 .crm-product-image-tile span { color: var(--ks-color-text-muted); }
 .crm-product-image-tile button { padding: 0; border: 0; background: none; color: var(--ks-color-danger); cursor: pointer; font-size: 10px; }
+.crm-product-detail { max-width: 1320px; margin-inline: auto; gap: 22px; }
+.crm-product-detail-header { align-items: start; padding: 4px 2px 0; }
+.crm-product-detail-header h1 { max-width: 940px; margin: 12px 0 7px; font-size: clamp(26px, 3vw, 38px); font-weight: 650; line-height: 1.16; letter-spacing: -.035em; }
+.crm-product-detail-grid { grid-template-columns: minmax(320px, .9fr) minmax(0, 1.1fr); gap: 18px; }
+.crm-product-detail .crm-panel, .crm-product-edit-layout .crm-panel { padding: clamp(20px, 2vw, 28px); border-color: #e9e5e8; border-radius: 20px; box-shadow: 0 7px 24px rgba(43, 27, 34, .025); }
+.crm-product-detail .crm-product-image-preview, .crm-product-edit-layout .crm-product-image-preview { aspect-ratio: 1; max-height: 550px; background: #fbf9fa; }
+.crm-product-detail .crm-product-image-preview img, .crm-product-edit-layout .crm-product-image-preview img { object-fit: contain; padding: 12px; }
+.crm-product-detail .crm-product-image-grid { margin-top: 16px; }
+.crm-product-detail .crm-product-facts dl > div { padding-block: 16px; }
+.crm-product-edit-layout { display: grid; gap: 18px; }
+.crm-product-edit-section label, .crm-product-edit-price label { display: grid; gap: 8px; min-width: 0; color: var(--ks-color-ink); font-size: 12px; font-weight: 700; }
+.crm-product-edit-section :is(input, select, textarea) { width: 100%; min-height: 44px; padding: 10px 12px; border: 1px solid var(--ks-color-border); border-radius: 10px; background: #fff; color: var(--ks-color-ink); font-size: 13px; font-weight: 400; }
+.crm-product-edit-section :is(input, select, textarea):focus { outline: 0; border-color: var(--ks-color-brand-strong); box-shadow: var(--ks-focus-ring); }
+.crm-product-edit-section textarea { resize: vertical; line-height: 1.5; }
+.crm-product-edit-price { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.crm-product-price-caption { margin: 12px 0 0; color: var(--ks-color-text-muted); font-size: 12px; }
+.crm-product-edit-gallery .crm-product-image-count { margin: 0 0 12px; }
+.crm-product-edit-gallery .crm-product-image-tile { position: relative; }
+.crm-product-edit-gallery .crm-product-image-tile > button { display: block; min-height: 32px; margin: 0 7px 7px; padding: 0 6px; }
+.crm-product-image-pending { border-color: var(--ks-color-border-brand); background: var(--ks-color-brand-subtle); }
+.crm-product-image-pending > span { position: absolute; top: 5px; left: 5px; padding: 4px 6px; border-radius: 6px; background: #fff; color: var(--ks-color-brand-strong); font-size: 10px; font-weight: 700; }
+.crm-product-save-bar { position: sticky; bottom: 14px; z-index: 20; display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 16px 18px; border: 1px solid var(--ks-color-border-brand); border-radius: 16px; background: #fff; box-shadow: 0 12px 32px rgba(55, 34, 43, .12); }
+.crm-product-save-bar strong { color: var(--ks-color-ink); font-size: 14px; }
+.crm-product-save-bar p { margin: 4px 0 0; color: var(--ks-color-text-muted); font-size: 12px; line-height: 1.4; }
+.crm-product-save-bar > div:last-child { display: flex; flex: 0 0 auto; gap: 8px; }
+.crm-product-save-bar button { min-height: 42px; padding: 9px 14px; }
+.crm-product-save-bar button:disabled { opacity: .5; cursor: default; }
+.crm-product-change-grid { display: grid; gap: 0; }
+.crm-product-change-grid > div { display: grid; grid-template-columns: minmax(110px, .7fr) minmax(0, 1fr) 20px minmax(0, 1fr); align-items: start; gap: 12px; padding: 12px 0; border-top: 1px solid var(--ks-color-border); font-size: 12px; line-height: 1.5; overflow-wrap: anywhere; }
+.crm-product-change-grid strong { color: var(--ks-color-ink); }
+.crm-product-change-grid span { color: var(--ks-color-text-muted); font-weight: 400; }
+.crm-product-change-grid b { color: var(--ks-color-brand-strong); font-weight: 700; }
 .crm-image-crop-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 20px; background: rgba(25, 22, 25, .65); }
 .crm-image-crop-dialog { width: min(100%, 440px); max-height: calc(100dvh - 40px); overflow: auto; box-sizing: border-box; padding: 24px; border-radius: 22px; background: #fff; box-shadow: 0 24px 80px rgba(20, 10, 15, .25); }
 .crm-image-crop-heading { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
@@ -227,6 +259,8 @@ button, input, select, textarea { font-family: var(--ks-font-sans); }
 .crm-product-form-footer button { min-height: 44px; cursor: pointer; }
 @media (max-width: 1050px) { .crm-product-detail-grid { grid-template-columns: minmax(0, 1fr); } .crm-product-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 650px) { .crm-product-detail-header { align-items: start; flex-direction: column; } .crm-product-detail-actions { width: 100%; } .crm-product-detail-actions button { flex: 1; } .crm-product-detail .crm-panel, .crm-product-form .crm-panel { padding: 18px; } .crm-product-price form { grid-template-columns: 1fr; } .crm-product-form-grid { grid-template-columns: 1fr; } .crm-product-facts dl, .crm-product-attributes dl { grid-template-columns: 1fr; } }
+@media (max-width: 650px) { .crm-product-edit-price { grid-template-columns: 1fr; } .crm-product-edit-layout .crm-panel { padding: 18px; } .crm-product-save-bar { bottom: 0; flex-direction: column; align-items: stretch; border-radius: 14px 14px 0 0; } .crm-product-save-bar > div:last-child { display: grid; grid-template-columns: 1fr 1.3fr; } .crm-product-save-bar button { padding-inline: 8px; } }
+@media (max-width: 650px) { .crm-product-change-grid > div { grid-template-columns: 1fr 16px 1fr; gap: 5px; } .crm-product-change-grid strong { grid-column: 1 / -1; } }
 
 /* Legacy utility classes still used by sales, employees, and customer views. */
 .crm-shell .text-violet-600, .crm-shell .text-violet-700 { color: var(--ks-color-brand-strong); }

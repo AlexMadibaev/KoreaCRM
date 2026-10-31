@@ -30,7 +30,12 @@ export const productSchema = z.object({
   barcodes: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
   imageKeys: z.array(z.string().trim().min(1).max(500)).max(20).default([]),
 });
-export const productUpdateSchema = productSchema.partial();
+export const productUpdateSchema = productSchema.partial().extend({
+  unit: z.string().trim().min(1).max(32).optional(),
+  status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
+  barcodes: z.array(z.string().trim().min(1).max(120)).max(30).optional(),
+  imageKeys: z.array(z.string().trim().min(1).max(500)).max(20).optional(),
+});
 export const storeSettingsSchema = z.object({
   priceMinor: z.number().int().min(0).max(2_147_483_647).nullable(),
   minStock: z.number().int().min(0).max(2_147_483_647),

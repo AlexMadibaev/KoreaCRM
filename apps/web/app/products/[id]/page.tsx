@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { ProductForm } from '../../../components/product-form';
+import { ProductDetailEditor } from '../../../components/product-detail-editor';
 import { ProductImages } from '../../../components/product-images';
 import { ProductPriceEditor } from '../../../components/product-price-editor';
 import { api, type Product } from '../../../lib/api';
@@ -48,9 +48,9 @@ export default function ProductDetailPage() {
       </div>
     </div>
     {error && <p role="alert" className="crm-alert">{error}</p>}
-    {editing ? <ProductForm product={product} onSaved={(saved) => { setProduct(saved); setEditing(false); }} /> : <>
+    {editing ? <ProductDetailEditor product={product} onSaved={(saved) => { setProduct(saved); setEditing(false); }} onCancel={() => setEditing(false)} /> : <>
       <div className="crm-product-detail-grid">
-        <ProductImages productId={product.id} images={product.images} onChange={images => setProduct(current => current ? { ...current, images } : current)} />
+        <ProductImages productId={product.id} images={product.images} onChange={images => setProduct(current => current ? { ...current, images } : current)} readOnly />
         <div className="crm-product-detail-side">
           <section className="crm-panel crm-product-facts"><div className="crm-product-section-head"><span className="crm-eyebrow">ОСНОВНОЕ</span><h2>О товаре</h2></div>
             <dl>
@@ -63,7 +63,7 @@ export default function ProductDetailPage() {
             </dl>
             {product.description && <div className="crm-product-description"><span>Описание</span><p>{product.description}</p></div>}
           </section>
-          <ProductPriceEditor productId={product.id} />
+          <ProductPriceEditor productId={product.id} readOnly />
         </div>
       </div>
       <section className="crm-panel crm-product-attributes"><div className="crm-product-section-head"><span className="crm-eyebrow">ХАРАКТЕРИСТИКИ</span><h2>Дополнительные данные</h2></div>

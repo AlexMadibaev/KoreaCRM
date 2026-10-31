@@ -7,7 +7,7 @@ import { api } from '../lib/api';
 type Store = { id: string; name: string };
 type Settings = { priceMinor: number | null; active: boolean } | null;
 
-export function ProductPriceEditor({ productId }: { productId: string }) {
+export function ProductPriceEditor({ productId, readOnly = false }: { productId: string; readOnly?: boolean }) {
   const [stores, setStores] = useState<Store[]>([]);
   const [storeId, setStoreId] = useState('');
   const [priceMinor, setPriceMinor] = useState('');
@@ -52,11 +52,11 @@ export function ProductPriceEditor({ productId }: { productId: string }) {
   return <section className="crm-panel crm-product-price">
     <div className="crm-product-section-head"><span className="crm-eyebrow">ПРОДАЖИ</span><h2>Цена продажи</h2><p>Отдельная цена для каждого магазина. Без цены товар нельзя добавить в чек.</p></div>
     {storeId && !loading && <div className="crm-product-current-price"><span>Текущая цена</span><strong>{savedPrice === null ? 'Не установлена' : formatCurrencyMinor(String(savedPrice))}</strong></div>}
-    <form onSubmit={save}>
+    {readOnly ? <label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={!stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label> : <form onSubmit={save}>
       <label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={saving || !stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
       <label>Новая цена, сомони<MoneyInput aria-label="Цена продажи, сомони" valueMinor={priceMinor} onMinorChange={setPriceMinor} placeholder="0,00" disabled={loading || saving || !storeId} required /></label>
       <button className="crm-primary-button" disabled={loading || saving || !storeId || !priceMinor}>{saving ? 'Сохранение…' : 'Сохранить цену'}</button>
-    </form>
+    </form>}
     {error && <p role="alert" className="crm-alert">{error}</p>}
     {notice && <p role="status" className="crm-product-notice">{notice}</p>}
   </section>;
