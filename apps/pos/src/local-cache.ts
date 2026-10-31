@@ -1,6 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { PosCustomer, PosPage, PosProduct, PosSettings, PosStock } from '@koreacrm/types';
+import type { PosCustomer, PosPage } from '@koreacrm/types';
 import { createApiClient } from '@koreacrm/api-client';
+import type { PosCatalogProduct } from './product-results';
 
 type Client = ReturnType<typeof createApiClient>;
 export type CacheStatus = { storeId: string; productCount: number; customerCount: number; lastSyncedAt: string | null };
@@ -39,33 +40,22 @@ async function allPages<T>(client: Client, path: string): Promise<T[]> {
 
 export async function refreshCatalogCache(client: Client, userId: string, storeId: string, permissions: string[], progress: (value: string) => void): Promise<CacheStatus> {
   progress('Загружаем товары и остатки…');
-  const [products, stocks, customers] = await Promise.all([
-    allPages<PosProduct & { images: { storageKey: string }[] }>(client, '/products'),
-    allPages<PosStock>(client, `/stores/${storeId}/stock`),
+  const [products, customers] = await Promise.all([
+    allPages<PosCatalogProduct>(client, `/stores/${storeId}/pos-products`),
     permissions.includes('customers.view') ? allPages<PosCustomer>(client, '/customers') : Promise.resolve([]),
   ]);
-  const stockByProduct = new Map(stocks.map(stock => [stock.productId, stock]));
-  const cachedProducts = [];
-  for (let start = 0; start < products.length; start += 8) {
-    const batch = await Promise.all(products.slice(start, start + 8).map(async product => {
-      const settings = await client.get<PosSettings>(`/stores/${storeId}/products/${product.id}/settings`);
-      const stock = stockByProduct.get(product.id);
-      return {
-        id: product.id,
-        name: product.name,
-        sku: product.sku,
-        brandId: product.brandId,
-        categoryId: product.categoryId,
-        imageKey: product.images[0]?.storageKey ?? null,
-        barcodes: product.barcodes.map(barcode => barcode.value),
-        priceMinor: settings?.priceMinor ?? null,
-        availableQuantity: Math.max(0, (stock?.quantity ?? 0) - (stock?.reservedQuantity ?? 0)),
-        active: product.status === 'ACTIVE' && Boolean(settings?.active),
-      };
-    }));
-    cachedProducts.push(...batch);
-    progress(`Цены товаров: ${cachedProducts.length} из ${products.length}`);
-  }
+  const cachedProducts = products.map(product => ({
+    id: product.id,
+    name: product.name,
+    sku: product.sku,
+    brandId: product.brandId,
+    categoryId: product.categoryId,
+    imageKey: product.images[0]?.storageKey ?? null,
+    barcodes: product.barcodes.map(barcode => barcode.value),
+    priceMinor: product.priceMinor,
+    availableQuantity: product.availableQuantity,
+    active: product.active,
+  }));
   progress('Сохраняем локальную базу…');
   return invoke<CacheStatus>('save_catalog_snapshot', {
     snapshot: {

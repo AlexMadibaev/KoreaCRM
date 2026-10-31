@@ -56,9 +56,12 @@ const cartLineTotal = (totalMinor?: bigint) => totalMinor === undefined ? '—' 
 
 function ConflictSaleCard({ entry, methods, disabled, onRetry }: { entry: QueueEntry; methods: PosPaymentMethod[]; disabled: boolean; onRetry: () => void }) {
   const details = queuedSaleDetails(entry.payloadJson);
+  const explanation = entry.error?.startsWith('Purchase cost is missing')
+    ? 'У товара не указана закупочная себестоимость. В кабинете внесите закупочную партию для этого товара, затем повторите отправку чека.'
+    : 'Продажу не удалось отправить. Проверьте товары и оплату или обратитесь к администратору.';
   return <article className="sync-conflict">
     <div className="sync-conflict-heading"><strong>Продажа не принята · {details ? formatMinor(details.totalMinor) : 'сумма неизвестна'}</strong><span>{new Date(entry.createdAt).toLocaleString('ru-RU')}</span></div>
-    <p role="alert">Продажу не удалось отправить. Проверьте товары и оплату или обратитесь к администратору.</p>
+    <p role="alert">{explanation}</p>
     <details><summary>Сведения для поддержки</summary>
       {entry.error && <p>Причина: {entry.error}</p>}
       <p>Номер операции: <code>{entry.operationId}</code></p>
