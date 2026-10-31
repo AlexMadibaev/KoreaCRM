@@ -270,7 +270,7 @@ export class CatalogService {
     return this.db.$transaction(async (tx) => {
       const item = await tx.storeProductSettings.upsert({
         where: { storeId_productId: { storeId, productId } },
-        create: { storeId, productId, priceMinor: input.priceMinor ?? null, minStock: input.minStock ?? 0, active: input.active ?? true },
+        create: { storeId, productId, priceMinor: input.priceMinor ?? null, costBasisMinor: input.costBasisMinor ?? null, minStock: input.minStock ?? 0, active: input.active ?? true },
         update: input,
       });
       await tx.auditLog.create({ data: { userId, action: old ? 'STORE_PRODUCT_SETTINGS_UPDATED' : 'STORE_PRODUCT_SETTINGS_CREATED', entityType: 'StoreProductSettings', entityId: `${storeId}:${productId}`, oldValue: old ? auditValue(old) : undefined, newValue: auditValue(item) } });

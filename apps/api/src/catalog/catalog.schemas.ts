@@ -38,6 +38,7 @@ export const productUpdateSchema = productSchema.partial().extend({
 });
 export const storeSettingsSchema = z.object({
   priceMinor: z.number().int().min(0).max(2_147_483_647).nullable(),
+  costBasisMinor: z.number().int().min(0).max(2_147_483_647).nullable(),
   minStock: z.number().int().min(0).max(2_147_483_647),
   active: z.boolean(),
 }).partial().refine((value) => Object.keys(value).length > 0, 'At least one setting is required');

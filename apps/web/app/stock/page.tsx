@@ -24,6 +24,8 @@ export default function StockPage() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<StockItem | null>(null);
   const [minimum, setMinimum] = useState('0');
+  const [costBasis, setCostBasis] = useState('');
+  const [savingCostBasis, setSavingCostBasis] = useState(false);
   const [savingMinimum, setSavingMinimum] = useState(false);
   const [targetQuantity, setTargetQuantity] = useState('');
   const [type, setType] = useState<'CORRECTION' | 'INVENTORY'>('CORRECTION');
@@ -66,6 +68,15 @@ export default function StockPage() {
     finally { setHistoryLoading(false); }
   }, [storeId, selected, historyPage]);
   useEffect(() => { void loadHistory(); }, [loadHistory]);
+  useEffect(() => {
+    if (!selected || !storeId) return;
+    let active = true;
+    setCostBasis('');
+    void api<{ costBasisMinor: number | null } | null>(`/stores/${storeId}/products/${selected.productId}/settings`)
+      .then(settings => { if (active) setCostBasis(settings?.costBasisMinor == null ? '' : (settings.costBasisMinor / 100).toFixed(2)); })
+      .catch(caught => { if (active) setError(caught instanceof Error ? caught.message : 'Не удалось загрузить себестоимость'); });
+    return () => { active = false; };
+  }, [selected?.productId, storeId]);
 
   async function adjust(event: FormEvent) {
     event.preventDefault();
@@ -92,6 +103,21 @@ export default function StockPage() {
       await load();
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось изменить минимум'); }
     finally { setSavingMinimum(false); }
+  }
+
+  async function saveCostBasis(event: FormEvent) {
+    event.preventDefault();
+    if (!storeId || !selected) return;
+    const value = costBasis.trim().replace(',', '.');
+    if (!/^\d+(?:\.\d{1,2})?$/.test(value)) { setError('Укажите себестоимость в сомони с точностью до двух знаков'); return; }
+    const minor = Math.round(Number(value) * 100);
+    if (!Number.isSafeInteger(minor) || minor > 2_147_483_647) { setError('Себестоимость слишком велика'); return; }
+    setSavingCostBasis(true); setError('');
+    try {
+      await api(`/stores/${storeId}/products/${selected.productId}/settings`, { method: 'PATCH', body: JSON.stringify({ costBasisMinor: minor }) });
+      setCostBasis((minor / 100).toFixed(2));
+    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось сохранить себестоимость'); }
+    finally { setSavingCostBasis(false); }
   }
 
   async function writeOff(event: FormEvent) {
@@ -129,6 +155,7 @@ export default function StockPage() {
     <div className="flex flex-wrap items-center gap-3"><button className="rounded border px-3 py-1 disabled:opacity-40" disabled={page === 1} onClick={() => setPage(page - 1)}>Назад</button><span>Страница {page} · всего {total}</span><button className="rounded border px-3 py-1 disabled:opacity-40" disabled={page * 20 >= total} onClick={() => setPage(page + 1)}>Далее</button></div>
     {selected && <section className="space-y-4 rounded-lg border bg-white p-5" id="stock-editor"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><h2 className="text-xl font-semibold">{selected.name}</h2><p className="text-sm text-slate-500">Сейчас в магазине: {selected.quantity} шт. · SKU {selected.sku}</p></div><button className="text-sm underline" onClick={() => setSelected(null)}>Закрыть</button></div>
       {canEditSettings && <form onSubmit={saveMinimum} className="flex flex-wrap items-end gap-3 border-b pb-5"><label className="text-sm">Минимальный остаток<input className="mt-1 block w-40 rounded border p-2" type="number" inputMode="numeric" min="0" max="2147483647" step="1" required value={minimum} onChange={(event) => setMinimum(event.target.value)} /></label><button disabled={savingMinimum} className="rounded border px-4 py-2 disabled:opacity-50">{savingMinimum ? 'Сохранение…' : 'Сохранить минимум'}</button></form>}
+      {canEditSettings && <form onSubmit={saveCostBasis} className="flex flex-wrap items-end gap-3 border-b pb-5"><label className="text-sm">Себестоимость для вручную внесённого остатка, сомони<input className="mt-1 block w-52 rounded border p-2" inputMode="decimal" placeholder="Например, 25,00" required value={costBasis} onChange={event => setCostBasis(event.target.value)} /></label><button disabled={savingCostBasis} className="rounded border px-4 py-2 disabled:opacity-50">{savingCostBasis ? 'Сохранение…' : 'Сохранить себестоимость'}</button><p className="w-full text-sm text-slate-500">Если товар поступил через закупку, касса использует себестоимость закупочной партии. Для остатков, внесённых вручную, укажите фактическую себестоимость здесь.</p></form>}
       {canAdjust && <form onSubmit={adjust} className="grid gap-3 border-b pb-5 md:grid-cols-4"><label className="text-sm">Операция<select className="mt-1 w-full rounded border p-2" value={type} onChange={(event) => setType(event.target.value as 'CORRECTION' | 'INVENTORY')}><option value="CORRECTION">Корректировка</option><option value="INVENTORY">Инвентаризация</option></select></label><label className="text-sm">Новое количество, шт.<input className="mt-1 w-full rounded border p-2" type="number" inputMode="numeric" min="0" max="2147483647" step="1" required value={targetQuantity} onChange={(event) => setTargetQuantity(event.target.value)} /></label><label className="text-sm">Причина изменения<input className="mt-1 w-full rounded border p-2" required minLength={3} maxLength={1000} value={comment} onChange={(event) => setComment(event.target.value)} placeholder="Например, поступление товара" /></label><div className="flex items-end"><button disabled={saving || targetQuantity === String(selected.quantity)} className="rounded bg-violet-700 px-4 py-2 text-white disabled:opacity-50">{saving ? 'Сохранение…' : 'Сохранить остаток'}</button></div></form>}
       {canAdjust && <form onSubmit={writeOff} className="grid gap-3 border-b pb-5 md:grid-cols-4"><div className="md:col-span-4"><h3 className="font-semibold">Списание товара</h3><p className="text-sm text-slate-500">Доступно для списания: {Math.max(0, selected.quantity - selected.reservedQuantity)} шт. После сохранения операция появится в истории движений.</p></div><label className="text-sm">Количество, шт.<input aria-label="Количество для списания" className="mt-1 w-full rounded border p-2" type="number" inputMode="numeric" min="1" max={Math.max(0, selected.quantity - selected.reservedQuantity)} step="1" required value={writeOffQuantity} onChange={event => setWriteOffQuantity(event.target.value)} disabled={writingOff || selected.quantity <= selected.reservedQuantity} /></label><label className="text-sm md:col-span-2">Причина списания<input aria-label="Причина списания" className="mt-1 w-full rounded border p-2" required minLength={3} maxLength={1000} value={writeOffReason} onChange={event => setWriteOffReason(event.target.value)} placeholder="Например, повреждена упаковка" disabled={writingOff || selected.quantity <= selected.reservedQuantity} /></label><div className="flex items-end"><button disabled={writingOff || !writeOffQuantity || !writeOffReason.trim() || selected.quantity <= selected.reservedQuantity} className="rounded bg-amber-700 px-4 py-2 text-white disabled:opacity-50">{writingOff ? 'Списываем…' : 'Списать товар'}</button></div></form>}
       {historyLoading ? <p>Загрузка истории…</p> : <div className="overflow-x-auto"><table className="crm-mobile-cards w-full text-left text-sm"><thead><tr><th className="p-2">Дата</th><th className="p-2">Тип</th><th className="p-2">Изменение</th><th className="p-2">Было → стало</th><th className="p-2">Причина</th></tr></thead><tbody>{movements.map((movement) => <tr key={movement.id} className="border-t"><td data-label="Дата" className="p-2">{new Date(movement.createdAt).toLocaleString('ru-RU')}</td><td data-label="Тип" className="p-2">{movement.type === 'WRITE_OFF' ? 'Списание' : movement.type}</td><td data-label="Изменение" className="p-2">{movement.quantity > 0 ? '+' : ''}{movement.quantity}</td><td data-label="Было → стало" className="p-2">{movement.previousQuantity} → {movement.newQuantity}</td><td data-label="Причина" className="p-2">{movement.comment || movement.sourceType}</td></tr>)}</tbody></table>{movements.length === 0 && <p className="p-3 text-slate-500">Движений пока нет</p>}</div>}

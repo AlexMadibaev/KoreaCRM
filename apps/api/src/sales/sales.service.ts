@@ -167,13 +167,14 @@ export class SalesService {
           const stock = await tx.stock.findUnique({ where: { storeId_productId: { storeId, productId: item.productId } } });
           if (!allowNegativeStock && (!stock || stock.quantity - stock.reservedQuantity < item.quantity)) throw new ConflictException(`Insufficient stock for ${product.sku}`);
           const batch = await tx.productBatch.findFirst({ where: { productId: item.productId, storeId }, orderBy: { receivedAt: 'desc' } });
-          if (!batch) throw new ConflictException(`Purchase cost is missing for ${product.sku}`);
+          const purchasePriceMinor = batch?.purchasePriceMinor ?? (settings?.costBasisMinor == null ? null : new Prisma.Decimal(settings.costBasisMinor));
+          if (purchasePriceMinor === null) throw new ConflictException(`Purchase cost is missing for ${product.sku}`);
           const price = new Prisma.Decimal(quotedPrice ?? settings!.priceMinor!);
           const gross = price.mul(item.quantity);
           const discount = new Prisma.Decimal(item.discountMinor);
           if (discount.gt(gross)) throw new BadRequestException('Line discount exceeds line price');
-          const cost = batch.purchasePriceMinor.mul(item.quantity);
-          lines.push({ productId: item.productId, brandId: product.brandId, categoryId: product.categoryId, quantity: item.quantity, priceMinor: price, currentPriceMinor: settings?.priceMinor ?? null, purchasePriceMinor: batch.purchasePriceMinor, discountMinor: discount, totalMinor: gross.minus(discount), profitMinor: gross.minus(discount).minus(cost), batchId: batch.id, gross, cost });
+          const cost = purchasePriceMinor.mul(item.quantity);
+          lines.push({ productId: item.productId, brandId: product.brandId, categoryId: product.categoryId, quantity: item.quantity, priceMinor: price, currentPriceMinor: settings?.priceMinor ?? null, purchasePriceMinor, discountMinor: discount, totalMinor: gross.minus(discount), profitMinor: gross.minus(discount).minus(cost), batchId: batch?.id ?? null, gross, cost });
         }
         const subtotal = sum(lines.map(line => line.gross));
         if (loyalty.mode === 'DISCOUNT') for (const line of lines) {

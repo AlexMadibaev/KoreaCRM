@@ -65,6 +65,9 @@ test('queued sale can create negative stock and records an alert while normal sa
   const alerts: string[] = [];
   let movements = 0;
   let recordedPrice = '';
+  let recordedCost = '';
+  let recordedBatchId: string | null = 'unexpected';
+  let manualCost: number | null = null;
   const quotedInput = { ...input, items: [{ ...input.items[0]!, priceMinor: '100' }] };
   const tx = {
     sale: { findUnique: async () => null, create: async () => ({ id: 'sale-1' }), findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
@@ -72,11 +75,11 @@ test('queued sale can create negative stock and records an alert while normal sa
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
     product: { findFirst: async () => ({ id: productId, sku: 'KR-1' }) },
     loyaltySettings: { findUnique: async () => null },
-    storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 200 }) },
+    storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 200, costBasisMinor: manualCost }) },
     stock: { findUnique: async () => ({ quantity: 0, reservedQuantity: 0 }) },
-    productBatch: { findFirst: async () => ({ id: 'batch-1', purchasePriceMinor: new Prisma.Decimal(40) }) },
+    productBatch: { findFirst: async () => null },
     salePaymentMethod: { findMany: async () => [{ id: paymentMethodId, kind: 'CARD', active: true }] },
-    saleItem: { create: async ({ data }: { data: { priceMinor: Prisma.Decimal } }) => { recordedPrice = data.priceMinor.toString(); return { id: 'item-1' }; } },
+    saleItem: { create: async ({ data }: { data: { priceMinor: Prisma.Decimal; purchasePriceMinor: Prisma.Decimal; batchId: string | null } }) => { recordedPrice = data.priceMinor.toString(); recordedCost = data.purchasePriceMinor.toString(); recordedBatchId = data.batchId; return { id: 'item-1' }; } },
     payment: { create: async () => ({ id: 'payment-1' }) },
     auditLog: { create: async ({ data }: { data: { action: string } }) => { alerts.push(data.action); } },
   };
@@ -85,9 +88,14 @@ test('queued sale can create negative stock and records an alert while normal sa
   const service = new SalesService(db, stock, {} as FinanceService, notifications);
   await assert.rejects(service.create(storeId, quotedInput, 'actor'), ConflictException);
   assert.equal(movements, 0);
+  await assert.rejects(service.create(storeId, quotedInput, 'actor', true), ConflictException);
+  assert.equal(movements, 0);
+  manualCost = 40;
   await service.create(storeId, quotedInput, 'actor', true);
   assert.equal(movements, 1);
   assert.equal(recordedPrice, '100');
+  assert.equal(recordedCost, '40');
+  assert.equal(recordedBatchId, null);
   assert.ok(alerts.includes('NEGATIVE_STOCK'));
   assert.ok(alerts.includes('OFFLINE_PRICE_DIFFERENCE'));
 });
