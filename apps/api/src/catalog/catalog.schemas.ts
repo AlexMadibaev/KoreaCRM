@@ -53,6 +53,8 @@ export const productQuerySchema = z.object({
   status: z.enum(['ACTIVE', 'INACTIVE']).optional(),
 });
 
+export const posProductQuerySchema = productQuerySchema.extend({ uncategorized: z.literal('true').optional() });
+
 export function parseInput<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);
   if (!result.success) {

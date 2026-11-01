@@ -15,10 +15,11 @@ test('POS catalog revision changes with store stock and scopes store data', asyn
     storeProductSettings: { aggregate: async ({ where }: { where: { storeId: string } }) => { assert.equal(where.storeId, storeId); return staticVersion; } },
     stock: { aggregate: async ({ where }: { where: { storeId: string } }) => { assert.equal(where.storeId, storeId); return { _count: 1, _max: { updatedAt: stockVersion } }; } },
     customer: { aggregate: async () => staticVersion },
+    category: { aggregate: async () => staticVersion },
   } as unknown as DatabaseService;
   const service = new CatalogService(db);
   const before = await service.posCatalogRevision(storeId);
-  assert.match(before.revision, /^images-v2\|/);
+  assert.match(before.revision, /^categories-v3\|/);
   stockVersion = new Date('2026-01-02T00:00:00Z');
   const after = await service.posCatalogRevision(storeId);
   assert.notEqual(before.revision, after.revision);
@@ -113,4 +114,20 @@ test('POS catalog returns image, store price and available stock together', asyn
   assert.equal(settingsStore, 'store-1');
   assert.equal(stockStore, 'store-1');
   assert.deepEqual(result.items[0], { id: 'product-1', name: 'Cream', sku: 'SKU-1', brandId: null, categoryId: null, status: 'ACTIVE', barcodes: [], images: [{ storageKey: 'photo.png' }], priceMinor: 129000, availableQuantity: 3, active: true });
+});
+
+test('POS catalog applies category selection including uncategorized items', async () => {
+  const where: Array<{ categoryId?: string | null }> = [];
+  const db = {
+    store: { findFirst: async () => ({ id: 'store-1' }) },
+    product: {
+      findMany: async ({ where: filter }: { where: { categoryId?: string | null } }) => { where.push(filter); return []; },
+      count: async ({ where: filter }: { where: { categoryId?: string | null } }) => { where.push(filter); return 0; },
+    },
+    $transaction: async (queries: Promise<unknown>[]) => Promise.all(queries),
+  } as unknown as DatabaseService;
+  const service = new CatalogService(db);
+  await service.posProducts('store-1', { page: 1, limit: 20, categoryId: 'category-1' });
+  await service.posProducts('store-1', { page: 1, limit: 20, uncategorized: 'true' });
+  assert.deepEqual(where.map(filter => filter.categoryId), ['category-1', 'category-1', null, null]);
 });

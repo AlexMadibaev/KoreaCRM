@@ -15,6 +15,7 @@ import { queuedSaleDetails } from './queued-sale-details';
 import { isLocalServerUrl, normalizeServerUrl } from './server-url';
 import { SalesHistory } from './sales-history';
 import { ProductImage, ProductResults, type CatalogItem, type PosCatalogProduct } from './product-results';
+import { filterCachedProducts, posCatalogPath, type PosCategory } from './catalog-filters';
 
 const CameraCodeScanner = lazy(() => import('./camera-code-scanner').then(module => ({ default: module.CameraCodeScanner })));
 type PosScreen = 'sale' | 'history' | 'shift' | 'sync';
@@ -115,6 +116,8 @@ export function App() {
   const [personalDiscountDraft, setPersonalDiscountDraft] = useState('0');
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false), [customerFirstName, setCustomerFirstName] = useState(''), [customerLastName, setCustomerLastName] = useState(''), [customerPhone, setCustomerPhone] = useState(''), [customerCreateError, setCustomerCreateError] = useState(''), [creatingCustomer, setCreatingCustomer] = useState(false);
   const [search, setSearch] = useState(''), [products, setProducts] = useState<CatalogItem[]>([]), [cart, setCart] = useState<Line[]>([]), [tenders, setTenders] = useState<Tender[]>([]);
+  const [categories, setCategories] = useState<PosCategory[]>([]), [categoryId, setCategoryId] = useState('all');
+  const [catalogPage, setCatalogPage] = useState(1), [catalogTotal, setCatalogTotal] = useState(0), [catalogLoading, setCatalogLoading] = useState(false);
   const [stockNotice, setStockNotice] = useState('');
   const [receipt, setReceipt] = useState<PosSale | null>(null), [pending, setPending] = useState<PendingSale | null>(() => { try { const saved = localStorage.getItem(pendingKey); return saved ? JSON.parse(saved) as PendingSale : null; } catch { return null; } });
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [printerHost, setPrinterHost] = useState(() => localStorage.getItem('koreacrm-pos-printer-host') ?? '');
@@ -377,20 +380,34 @@ export function App() {
     return () => { active = false; };
   }, [signedIn, offlineSignedIn, storeId, registrationRequested, registerNonce, client, deviceId, permissions, apiUrl, login, stores, loginMode]);
   useEffect(() => {
-    if (!signedIn) { setProducts([]); return; }
+    if (!signedIn || !storeId) { setCategories([]); return; }
+    let active = true;
+    const key = `koreacrm-pos-categories-v1:${client.baseUrl()}:${storeId}`;
+    try { const saved = localStorage.getItem(key); if (saved) setCategories(JSON.parse(saved) as PosCategory[]); } catch { /* Refresh from server. */ }
+    if (!offlineSignedIn && !offlineNetwork) void client.get<PosCategory[]>(`/stores/${storeId}/pos-products/categories`).then(rows => {
+      if (!active) return;
+      setCategories(rows);
+      localStorage.setItem(key, JSON.stringify(rows));
+    }).catch(() => { /* Keep locally cached categories when disconnected. */ });
+    return () => { active = false; };
+  }, [signedIn, storeId, client, offlineSignedIn, offlineNetwork, catalogRefreshToken]);
+  useEffect(() => {
+    if (!signedIn || !storeId) { setProducts([]); setCatalogTotal(0); return; }
     let active = true;
     const query = search.trim();
-    const timer = window.setTimeout(() => { (offlineSignedIn || offlineNetwork ? Promise.reject(new TypeError('Offline session')) : client.get<PosPage<PosCatalogProduct>>(`/stores/${storeId}/pos-products?limit=${query ? 20 : 8}${query ? `&search=${encodeURIComponent(query)}` : ''}`)).then(page => { if (active) { setProducts(page.items); setServerReachable(true); } }).catch(async caught => {
+    if (catalogPage === 1) { setProducts([]); setCatalogTotal(0); }
+    setCatalogLoading(true);
+    const timer = window.setTimeout(() => { (offlineSignedIn || offlineNetwork ? Promise.reject(new TypeError('Offline session')) : client.get<PosPage<PosCatalogProduct>>(posCatalogPath(storeId, query, categoryId, catalogPage))).then(page => { if (active) { setProducts(previous => catalogPage === 1 ? page.items : [...previous, ...page.items.filter(item => !previous.some(existing => existing.id === item.id))]); setCatalogTotal(page.total); setServerReachable(true); } }).catch(async caught => {
       if (!active) return;
       if (hasDesktopCache() && userId && storeId && connectionFailed(caught)) {
         try {
           const cached = await readCachedProducts(userId, storeId);
-          if (active) { setProducts(cached.filter(product => product.active && product.priceMinor !== null && product.availableQuantity > 0 && (!query || `${product.name} ${product.sku} ${product.barcodes.join(' ')}`.toLocaleLowerCase('ru').includes(query.toLocaleLowerCase('ru')))).slice(0, query ? 20 : 8)); setServerReachable(false); setQueueNotice('Нет связи. Показаны товары, сохранённые на кассе.'); }
+          if (active) { const matches = filterCachedProducts(cached, query, categoryId); setProducts(matches.slice(0, catalogPage * 24)); setCatalogTotal(matches.length); setServerReachable(false); setQueueNotice('Нет связи. Показаны товары, сохранённые на кассе.'); }
         } catch (cacheFailure) { if (active) setError(message(cacheFailure)); }
       } else setError(message(caught));
-    }); }, query ? 200 : 0);
+    }).finally(() => { if (active) setCatalogLoading(false); }); }, query ? 200 : 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [signedIn, search, client, userId, storeId, offlineSignedIn, offlineNetwork, catalogRefreshToken]);
+  }, [signedIn, search, categoryId, catalogPage, client, userId, storeId, offlineSignedIn, offlineNetwork, catalogRefreshToken]);
   useEffect(() => {
     if (!signedIn || !can('customers.view') || !customerSearch.trim()) return;
     if (offlineSignedIn || offlineNetwork) {
@@ -621,7 +638,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     </aside>
     <div className="pos-content"><header className="topbar">
     <div className="topbar-brand"><div className="brand-mark" aria-hidden="true">K<span>•</span></div><div><p className="eyebrow">KOREA CRM</p><h1>{activeScreen === 'sale' ? 'Касса продаж' : activeScreen === 'history' ? 'История чеков' : activeScreen === 'shift' ? 'Кассовая смена' : 'Отправка продаж'}</h1></div></div>
-    <label>Магазин{stores.length === 1 ? <strong className="assigned-store">{stores[0]!.name}</strong> : <select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={busy || deviceReady}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>}</label>
+    <label>Магазин{stores.length === 1 ? <strong className="assigned-store">{stores[0]!.name}</strong> : <select value={storeId} onChange={event => { setCategoryId('all'); setCatalogPage(1); setCategories([]); setStoreId(event.target.value); }} disabled={busy || deviceReady}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>}</label>
     {!deviceReady && <button disabled={busy} onClick={() => registrationRequested ? setRegisterNonce(value => value + 1) : setRegistrationRequested(true)}>{registrationRequested ? 'Повторить подключение' : 'Подключить кассу'}</button>}
     <span className={connectionOffline ? "connection-pill" : deviceReady ? "connection-pill is-ready" : "connection-pill"}><i aria-hidden="true" />{connectionOffline ? "Нет связи · локальный режим" : deviceReady ? "Касса готова" : "Подключаем кассу"}</span>
     <button className="cashier-switch" disabled={busy || Boolean(pending)} onClick={() => void signOut()}>Сменить кассира</button>
@@ -636,11 +653,15 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     {pending && <section className="panel pending"><h2>Проверка предыдущей продажи</h2><p>Не удалось получить подтверждение. Нажмите «Проверить продажу», чтобы избежать повторного списания. Магазин: {stores.find(store => store.id === pending.storeId)?.name ?? 'другой магазин'}.</p><button disabled={busy || !deviceReady || storeId !== pending.storeId} onClick={() => void retryPending()} className="primary">Проверить продажу</button></section>}
     {activeScreen === 'sale' && <div className="columns" id="workspace">
       <section className="panel catalog-panel" aria-label="Каталог товаров">
-        <div className="catalog-heading"><div><p className="eyebrow">КАТАЛОГ</p><h2>Выберите товар</h2><p>Найдите по названию или сканируйте штрихкод</p></div><span className="catalog-count">{products.length} {russianCount(products.length, 'товар', 'товара', 'товаров')}</span></div>
-        <label className="catalog-search"><span className="sr-only">Поиск или штрихкод</span><input ref={searchRef} autoFocus value={search} onChange={event => setSearch(event.target.value)} onKeyDown={event => void scan(event)} placeholder="Поиск товара или сканирование штрихкода · F2" disabled={Boolean(pending)} /></label>
-        <div className="catalog-filters"><span className="active">Все товары</span><span>Нажмите на карточку, чтобы добавить в чек</span></div>
-        {search.trim() && products.length === 0 && <div className="catalog-empty">По запросу «{search}» товары не найдены.</div>}
+        <div className="catalog-heading"><div><p className="eyebrow">КАТАЛОГ</p><h2>Выберите товар</h2><p>Найдите по названию или сканируйте штрихкод</p></div><span className="catalog-count">{catalogTotal} {russianCount(catalogTotal, 'товар', 'товара', 'товаров')}</span></div>
+        <label className="catalog-search"><span className="sr-only">Поиск или штрихкод</span><input ref={searchRef} autoFocus value={search} onChange={event => { setCatalogPage(1); setSearch(event.target.value); }} onKeyDown={event => void scan(event)} placeholder="Поиск товара или сканирование штрихкода · F2" disabled={Boolean(pending)} /></label>
+        <div className="catalog-filters" role="group" aria-label="Категории товаров">
+          <button type="button" className={categoryId === 'all' ? 'active' : ''} aria-pressed={categoryId === 'all'} onClick={() => { setCatalogPage(1); setCategoryId('all'); }}>Все товары</button>
+          {categories.map(category => <button type="button" key={category.id} className={categoryId === category.id ? 'active' : ''} aria-pressed={categoryId === category.id} onClick={() => { setCatalogPage(1); setCategoryId(category.id); }}>{category.name}</button>)}
+        </div>
+        {!catalogLoading && search.trim() && products.length === 0 && <div className="catalog-empty">По запросу «{search}» товары не найдены.</div>}
         <ProductResults products={products} apiUrl={client.baseUrl()} disabled={busy || Boolean(pending)} onAdd={product => void addProduct(product)} />
+        {products.length < catalogTotal && <button type="button" className="catalog-more" disabled={catalogLoading} onClick={() => setCatalogPage(page => page + 1)}>{catalogLoading ? 'Загрузка…' : 'Показать ещё'}</button>}
       </section>
       <section className="panel order-panel" aria-label="Текущий чек">
         <div className="order-heading"><div><p className="eyebrow">ПРОДАЖА</p><h2>Текущий чек <span>{cart.length}</span></h2></div><button type="button" className="reset-order" disabled={!cart.length || Boolean(pending)} onClick={() => { setCart([]); setStockNotice(''); }}>Очистить</button></div>

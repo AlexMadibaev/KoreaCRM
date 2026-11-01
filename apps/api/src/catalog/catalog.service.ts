@@ -2,13 +2,14 @@ import { BadRequestException, ConflictException, Injectable, NotFoundException }
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../database.service';
 import type { z } from 'zod';
-import { brandSchema, categorySchema, productQuerySchema, productSchema, productUpdateSchema, storeSettingsSchema } from './catalog.schemas';
+import { brandSchema, categorySchema, posProductQuerySchema, productQuerySchema, productSchema, productUpdateSchema, storeSettingsSchema } from './catalog.schemas';
 
 type BrandInput = z.infer<typeof brandSchema>;
 type CategoryInput = z.infer<typeof categorySchema>;
 type ProductInput = z.infer<typeof productSchema>;
 type ProductUpdate = z.infer<typeof productUpdateSchema>;
 type ProductQuery = z.infer<typeof productQuerySchema>;
+type PosProductQuery = z.infer<typeof posProductQuerySchema>;
 type StoreSettingsInput = z.infer<typeof storeSettingsSchema>;
 
 function databaseError(error: unknown): never {
@@ -152,12 +153,24 @@ export class CatalogService {
     return { items, total, page: query.page, limit: query.limit };
   }
 
-  async posProducts(storeId: string, query: ProductQuery) {
+  async posCategories(storeId: string) {
+    const store = await this.db.store.findFirst({ where: { id: storeId, deletedAt: null }, select: { id: true } });
+    if (!store) throw new NotFoundException('Store not found');
+    const activeProduct = { deletedAt: null, status: 'ACTIVE' };
+    const [categories, uncategorized] = await Promise.all([
+      this.db.category.findMany({ where: { deletedAt: null, products: { some: activeProduct } }, select: { id: true, name: true }, orderBy: { name: 'asc' } }),
+      this.db.product.count({ where: { ...activeProduct, categoryId: null } }),
+    ]);
+    return [...categories, ...(uncategorized ? [{ id: 'uncategorized', name: 'Без категории' }] : [])];
+  }
+
+  async posProducts(storeId: string, query: PosProductQuery) {
     const store = await this.db.store.findFirst({ where: { id: storeId, deletedAt: null }, select: { id: true } });
     if (!store) throw new NotFoundException('Store not found');
     const where: Prisma.ProductWhereInput = {
       deletedAt: null,
       status: 'ACTIVE',
+      categoryId: query.uncategorized ? null : query.categoryId,
       OR: query.search ? [
         { name: { contains: query.search, mode: 'insensitive' } },
         { sku: { contains: query.search, mode: 'insensitive' } },
@@ -198,13 +211,14 @@ export class CatalogService {
   async posCatalogRevision(storeId: string) {
     const store = await this.db.store.findFirst({ where: { id: storeId, deletedAt: null }, select: { id: true } });
     if (!store) throw new NotFoundException('Store not found');
-    const [products, settings, stocks, customers] = await Promise.all([
+    const [products, settings, stocks, customers, categories] = await Promise.all([
       this.db.product.aggregate({ where: { deletedAt: null, status: 'ACTIVE' }, _max: { updatedAt: true }, _count: true }),
       this.db.storeProductSettings.aggregate({ where: { storeId }, _max: { updatedAt: true }, _count: true }),
       this.db.stock.aggregate({ where: { storeId }, _max: { updatedAt: true }, _count: true }),
       this.db.customer.aggregate({ where: { deletedAt: null }, _max: { updatedAt: true }, _count: true }),
+      this.db.category.aggregate({ where: { deletedAt: null }, _max: { updatedAt: true }, _count: true }),
     ]);
-    const revision = ['images-v2', ...[products, settings, stocks, customers].map(value => `${value._count}:${value._max.updatedAt?.toISOString() ?? ''}`)].join('|');
+    const revision = ['categories-v3', ...[products, settings, stocks, customers, categories].map(value => `${value._count}:${value._max.updatedAt?.toISOString() ?? ''}`)].join('|');
     return { revision };
   }
 

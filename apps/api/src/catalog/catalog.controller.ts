@@ -4,7 +4,7 @@ import type { Request } from 'express';
 import { z } from 'zod';
 import { AccessGuard, RequirePermission, StoreScopeGuard } from '../auth/guards';
 import { CatalogService } from './catalog.service';
-import { brandSchema, categorySchema, limitSchema, pageSchema, parseInput, productQuerySchema, productSchema, productUpdateSchema, storeSettingsSchema } from './catalog.schemas';
+import { brandSchema, categorySchema, limitSchema, pageSchema, parseInput, posProductQuerySchema, productQuerySchema, productSchema, productUpdateSchema, storeSettingsSchema } from './catalog.schemas';
 
 type AuthorizedRequest = Request & { access: { userId: string } };
 const listQuerySchema = z.object({ page: pageSchema, limit: limitSchema, search: z.string().trim().max(255).optional() });
@@ -132,6 +132,12 @@ export class ProductController {
 export class PosProductsController {
   constructor(private readonly catalog: CatalogService) {}
 
+  @Get('categories')
+  @RequirePermission('products.view')
+  categories(@Param('storeId', ParseUUIDPipe) storeId: string) {
+    return this.catalog.posCategories(storeId);
+  }
+
   @Get('revision')
   @RequirePermission('products.view')
   revision(@Param('storeId', ParseUUIDPipe) storeId: string) {
@@ -141,7 +147,7 @@ export class PosProductsController {
   @Get()
   @RequirePermission('products.view')
   list(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) {
-    return this.catalog.posProducts(storeId, parseInput(productQuerySchema, query));
+    return this.catalog.posProducts(storeId, parseInput(posProductQuerySchema, query));
   }
 }
 
