@@ -15,3 +15,8 @@ export function filterCachedProducts<T extends { categoryId: string | null; name
     && (categoryId === 'all' || (categoryId === 'uncategorized' ? product.categoryId === null : product.categoryId === categoryId))
     && (!query || `${product.name} ${product.sku} ${product.barcodes.join(' ')}`.toLocaleLowerCase('ru').includes(query)));
 }
+
+export function categoryNotice(result: { rows: PosCategory[] } | { status: number }): string {
+  if ('rows' in result) return result.rows.some(row => row.id !== 'uncategorized') ? '' : 'Товарам пока не назначены категории. Их можно указать в личном кабинете.';
+  return result.status === 404 ? 'Сервер ещё не обновлён. Категории появятся после обновления сервера.' : 'Не удалось загрузить категории. Повторите подключение кассы.';
+}

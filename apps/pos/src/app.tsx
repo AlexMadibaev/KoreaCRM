@@ -15,7 +15,7 @@ import { queuedSaleDetails } from './queued-sale-details';
 import { isLocalServerUrl, normalizeServerUrl } from './server-url';
 import { SalesHistory } from './sales-history';
 import { ProductImage, ProductResults, type CatalogItem, type PosCatalogProduct } from './product-results';
-import { filterCachedProducts, posCatalogPath, type PosCategory } from './catalog-filters';
+import { categoryNotice as categoryNoticeFor, filterCachedProducts, posCatalogPath, type PosCategory } from './catalog-filters';
 
 const CameraCodeScanner = lazy(() => import('./camera-code-scanner').then(module => ({ default: module.CameraCodeScanner })));
 type PosScreen = 'sale' | 'history' | 'shift' | 'sync';
@@ -117,6 +117,7 @@ export function App() {
   const [customerCreateOpen, setCustomerCreateOpen] = useState(false), [customerFirstName, setCustomerFirstName] = useState(''), [customerLastName, setCustomerLastName] = useState(''), [customerPhone, setCustomerPhone] = useState(''), [customerCreateError, setCustomerCreateError] = useState(''), [creatingCustomer, setCreatingCustomer] = useState(false);
   const [search, setSearch] = useState(''), [products, setProducts] = useState<CatalogItem[]>([]), [cart, setCart] = useState<Line[]>([]), [tenders, setTenders] = useState<Tender[]>([]);
   const [categories, setCategories] = useState<PosCategory[]>([]), [categoryId, setCategoryId] = useState('all');
+  const [categoryNotice, setCategoryNotice] = useState('');
   const [catalogPage, setCatalogPage] = useState(1), [catalogTotal, setCatalogTotal] = useState(0), [catalogLoading, setCatalogLoading] = useState(false);
   const [stockNotice, setStockNotice] = useState('');
   const [receipt, setReceipt] = useState<PosSale | null>(null), [pending, setPending] = useState<PendingSale | null>(() => { try { const saved = localStorage.getItem(pendingKey); return saved ? JSON.parse(saved) as PendingSale : null; } catch { return null; } });
@@ -380,15 +381,18 @@ export function App() {
     return () => { active = false; };
   }, [signedIn, offlineSignedIn, storeId, registrationRequested, registerNonce, client, deviceId, permissions, apiUrl, login, stores, loginMode]);
   useEffect(() => {
-    if (!signedIn || !storeId) { setCategories([]); return; }
+    if (!signedIn || !storeId) { setCategories([]); setCategoryNotice(''); return; }
     let active = true;
     const key = `koreacrm-pos-categories-v1:${client.baseUrl()}:${storeId}`;
     try { const saved = localStorage.getItem(key); if (saved) setCategories(JSON.parse(saved) as PosCategory[]); } catch { /* Refresh from server. */ }
     if (!offlineSignedIn && !offlineNetwork) void client.get<PosCategory[]>(`/stores/${storeId}/pos-products/categories`).then(rows => {
       if (!active) return;
       setCategories(rows);
+      setCategoryNotice(categoryNoticeFor({ rows }));
       localStorage.setItem(key, JSON.stringify(rows));
-    }).catch(() => { /* Keep locally cached categories when disconnected. */ });
+    }).catch(caught => {
+      if (active && !connectionFailed(caught)) setCategoryNotice(categoryNoticeFor({ status: caught instanceof ApiError ? caught.status : 0 }));
+    });
     return () => { active = false; };
   }, [signedIn, storeId, client, offlineSignedIn, offlineNetwork, catalogRefreshToken]);
   useEffect(() => {
@@ -659,6 +663,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
           <button type="button" className={categoryId === 'all' ? 'active' : ''} aria-pressed={categoryId === 'all'} onClick={() => { setCatalogPage(1); setCategoryId('all'); }}>Все товары</button>
           {categories.map(category => <button type="button" key={category.id} className={categoryId === category.id ? 'active' : ''} aria-pressed={categoryId === category.id} onClick={() => { setCatalogPage(1); setCategoryId(category.id); }}>{category.name}</button>)}
         </div>
+        {categoryNotice && <p className="catalog-category-notice" role="status">{categoryNotice}</p>}
         {!catalogLoading && search.trim() && products.length === 0 && <div className="catalog-empty">По запросу «{search}» товары не найдены.</div>}
         <ProductResults products={products} apiUrl={client.baseUrl()} disabled={busy || Boolean(pending)} onAdd={product => void addProduct(product)} />
         {products.length < catalogTotal && <button type="button" className="catalog-more" disabled={catalogLoading} onClick={() => setCatalogPage(page => page + 1)}>{catalogLoading ? 'Загрузка…' : 'Показать ещё'}</button>}

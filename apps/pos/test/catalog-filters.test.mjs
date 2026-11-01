@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { filterCachedProducts, posCatalogPath } from '../src/catalog-filters.ts';
+import { categoryNotice, filterCachedProducts, posCatalogPath } from '../src/catalog-filters.ts';
 
 test('POS category and search filters use server paging', () => {
   assert.equal(posCatalogPath('store-a', 'Missha', 'category-a', 2), '/stores/store-a/pos-products?page=2&limit=24&search=Missha&categoryId=category-a');
@@ -12,4 +12,12 @@ test('offline category filter matches the selected category', () => {
   const products = [row('category-a', 'Cream'), row('category-b', 'Toner'), row(null, 'Mask')];
   assert.deepEqual(filterCachedProducts(products, '', 'category-a').map(product => product.name), ['Cream']);
   assert.deepEqual(filterCachedProducts(products, 'mask', 'uncategorized').map(product => product.name), ['Mask']);
+});
+
+test('category notice explains why only "all products" is shown', () => {
+  assert.equal(categoryNotice({ rows: [{ id: 'category-a', name: 'Кремы' }] }), '');
+  assert.match(categoryNotice({ rows: [] }), /не назначены/);
+  assert.match(categoryNotice({ rows: [{ id: 'uncategorized', name: 'Без категории' }] }), /не назначены/);
+  assert.match(categoryNotice({ status: 404 }), /не обновлён/);
+  assert.match(categoryNotice({ status: 400 }), /Не удалось/);
 });

@@ -110,6 +110,7 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline-color:
 .catalog-filters button:hover { border-color: #e4a0a6; background: #fff9f9; }
 .catalog-filters button:focus-visible { outline: 2px solid #b14d5b; outline-offset: 2px; }
 .catalog-filters button.active { border-color: var(--ks-color-brand); background: var(--ks-color-brand); color: var(--ks-color-ink); box-shadow: 0 3px 8px #d6737b3d; }
+.catalog-category-notice { margin: 0 0 12px; color: #8a6065; font-size: 11px; line-height: 1.45; }
 .catalog-more { display: block; width: 100%; margin: 12px 0 0; border: 1px solid #efc9cd; border-radius: 9px; background: #fff; color: #ad4956; }
 .catalog-empty { padding: 23px; border: 1px dashed #e6e4ed; border-radius: 11px; color: #7c7b84; font-size: 12px; text-align: center; }
 .results.product-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; max-height: 880px; margin: 0; padding: 0; }
