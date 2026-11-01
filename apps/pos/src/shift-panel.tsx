@@ -29,7 +29,7 @@ export function ShiftReportView({ report }: { report: PosShiftReport }) {
   return <div className="shift-report-body">
     <p className="muted">{shift.store.name} · касса {shift.deviceId} · открыл {shift.openedBy} {new Date(shift.openedAt).toLocaleString('ru-RU')}{closed && shift.closedAt ? ` · закрыл ${shift.closedBy ?? ''} ${new Date(shift.closedAt).toLocaleString('ru-RU')}` : ''}</p>
     <div className="shift-report-grid">
-      <section><h4>Продажи · {sales.count}</h4>{row('Сумма продаж', sales.totalMinor)}{row('Скидки', sales.discountMinor)}<MethodList rows={sales.byMethod} />{sales.debtMinor !== '0' && row('Выдано в долг', sales.debtMinor)}</section>
+      <section><h4>Продажи · {sales.count}</h4>{row('Сумма продаж', sales.totalMinor)}{row('Скидки', sales.discountMinor)}<MethodList rows={sales.byMethod} />{sales.debtMinor !== '0' && row('Выдано в долг', sales.debtMinor)}{sales.bySeller?.length ? <><h4>По продавцам</h4><ul className="shift-report-methods">{sales.bySeller.map(seller => <li key={seller.sellerId}><span>{seller.name} · {seller.count}</span><strong>{formatMinor(seller.totalMinor)}</strong></li>)}</ul></> : null}</section>
       <section><h4>Возвраты · {returns.count}</h4>{row('Сумма возвратов', returns.amountMinor)}{returns.receiptlessCount ? row(`в т.ч. без чека (${returns.receiptlessCount})`, returns.receiptlessMinor ?? '0') : null}<MethodList rows={returns.byMethod} /></section>
       <section><h4>Погашение долгов · {customerPayments.count}</h4>{row('Получено', customerPayments.amountMinor)}<MethodList rows={customerPayments.byMethod} /></section>
       <section><h4>Наличные в кассе</h4>
@@ -151,7 +151,7 @@ export function ShiftPanel({ client, storeId, deviceId, shift, expectedCashMinor
         <div className="shift-cash-type" role="radiogroup" aria-label="Тип операции">{(['DEPOSIT', 'WITHDRAWAL'] as const).map(type => <button type="button" role="radio" key={type} aria-checked={cashDraft.type === type} className={cashDraft.type === type ? 'selected' : ''} disabled={locked || offline} onClick={() => setCashDraft(current => current.type === type ? current : newCashDraft(type))}>{cashOperationLabels[type]}</button>)}</div>
         <label>Сумма, сомони<MoneyInput required valueMinor={cashDraft.amountMinor} onMinorChange={amountMinor => setCashDraft(current => ({ ...current, amountMinor }))} disabled={locked || offline} /></label>
         <label>Комментарий<input required maxLength={1000} value={cashDraft.comment} onChange={event => setCashDraft(current => ({ ...current, comment: event.target.value }))} placeholder={cashDraft.type === 'DEPOSIT' ? 'Например, размен' : 'Например, инкассация'} disabled={locked || offline} /></label>
-        <button className="secondary" disabled={locked || offline}>{cashDraft.type === 'DEPOSIT' ? 'Внести' : 'Изъять'}</button>
+        <button className="shift-cash-submit" disabled={locked || offline}>{cashDraft.type === 'DEPOSIT' ? 'Внести' : 'Изъять'}</button>
       </form>
       <form className="shift-form" onSubmit={closeShift}>
         <h3>Закрытие смены</h3>

@@ -9,6 +9,8 @@ export const loyaltySettingsSchema = z.object({
   tiers: z.array(z.object({ minimumMinor: minor, percent })).max(20),
   bonusEarnPercent: percent,
   consultantEarnPercent: percent,
+  // Largest manual discount a cashier may give on a receipt, on top of automatic discounts.
+  maxManualDiscountPercent: percent.default('100'),
   excludedProductIds: z.array(uuid).max(500),
   excludedBrandIds: z.array(uuid).max(200),
   excludedCategoryIds: z.array(uuid).max(200),
@@ -21,7 +23,7 @@ export const loyaltySettingsSchema = z.object({
 });
 
 export type LoyaltySettings = z.infer<typeof loyaltySettingsSchema>;
-export const defaultLoyaltySettings: LoyaltySettings = { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [] };
+export const defaultLoyaltySettings: LoyaltySettings = { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', maxManualDiscountPercent: '100', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [] };
 
 export function percentBasisPoints(value: string) {
   const [whole = '0', fraction = ''] = value.split('.');

@@ -33,6 +33,7 @@ export function shiftReportLines(report: PosShiftReport): string[] {
     `  Скидки: ${formatMinor(sales.discountMinor)}`,
     ...methodRows(sales.byMethod),
     `  В долг выдано: ${formatMinor(sales.debtMinor)}`,
+    ...(sales.bySeller ?? []).map(row => `  ${row.name}: ${row.count} на ${formatMinor(row.totalMinor)}`),
     `Возвраты: ${returns.count} на ${formatMinor(returns.amountMinor)}`,
     ...(returns.receiptlessCount ? [`  в т.ч. без чека: ${returns.receiptlessCount} на ${formatMinor(returns.receiptlessMinor ?? '0')}`] : []),
     ...methodRows(returns.byMethod),

@@ -27,6 +27,7 @@ export function buildEscPosReceipt(sale: PosSale): number[] {
     `Чек ${sale.number}`,
     new Date(sale.createdAt).toLocaleString('ru-RU'),
     `Кассир: ${sale.employee.name}`,
+    sale.seller ? `Продавец: ${sale.seller.name}` : '',
     '--------------------------------',
     ...sale.items.flatMap(item => [`${item.product.name} x ${item.quantity}`, `${formatMinor(item.priceMinor)}   ${formatMinor(item.totalMinor)}`]),
     '--------------------------------',

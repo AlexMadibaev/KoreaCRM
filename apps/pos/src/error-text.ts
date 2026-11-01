@@ -15,6 +15,8 @@ const knownErrors: Record<string, string> = {
   'Refund exceeds current product price': 'Сумма возврата больше текущей цены товара.',
   'Product has no price in this store': 'У товара нет цены в этом магазине.',
   'Product not found': 'Товар не найден.',
+  'Manual discount exceeds limit': 'Скидка больше разрешённой. Попросите менеджера провести продажу.',
+  'Seller not found': 'Продавец не найден или отключён. Выберите другого.',
   'Cash payment method is required for this refund': 'Для возврата нужен способ оплаты «Наличные». Включите его в настройках.',
 };
 

@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { z } from 'zod';
 import { DatabaseService } from '../database.service';
@@ -15,7 +15,7 @@ const maximum = new Prisma.Decimal('999999999999999999');
 const sum = (values: Prisma.Decimal[]) => values.reduce((value, part) => value.plus(part), new Prisma.Decimal(0));
 const retryable = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
 const derivedOperationId = (id: string, kind: string) => { const hex = createHash('sha256').update(`${id}:${kind}`).digest('hex'); return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`; };
-const saleInclude = { items: { include: { product: { select: { name: true, sku: true } } } }, payments: { include: { paymentMethod: true } }, customer: { select: { id: true, firstName: true, lastName: true, phone: true } }, store: { select: { name: true, code: true, address: true, phone: true } }, employee: { select: { name: true } }, returns: { include: { items: true, payments: { include: { paymentMethod: true } } }, orderBy: { createdAt: 'asc' } } } as const;
+const saleInclude = { items: { include: { product: { select: { name: true, sku: true } } } }, payments: { include: { paymentMethod: true } }, customer: { select: { id: true, firstName: true, lastName: true, phone: true } }, store: { select: { name: true, code: true, address: true, phone: true } }, employee: { select: { name: true } }, seller: { select: { id: true, name: true } }, returns: { include: { items: true, payments: { include: { paymentMethod: true } } }, orderBy: { createdAt: 'asc' } } } as const;
 
 @Injectable()
 export class SalesService {
@@ -181,7 +181,7 @@ export class SalesService {
           const reversedAfter = reward.deltaMinor.mul(previouslyReturned.plus(amount)).div(sale.totalMinor).floor();
           const reversal = reversedAfter.minus(reversedBefore);
           if (reversal.gt(0)) {
-            const employee = await tx.user.findUniqueOrThrow({ where: { id: sale.employeeId } });
+            const employee = await tx.user.findUniqueOrThrow({ where: { id: reward.employeeId } });
             const nextBalance = employee.rewardBalanceMinor.minus(reversal);
             await tx.user.update({ where: { id: employee.id }, data: { rewardBalanceMinor: nextBalance } });
             await tx.employeeRewardTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'employee-return'), employeeId: employee.id, saleId: sale.id, deltaMinor: reversal.neg(), balanceAfterMinor: nextBalance, reason: `Возврат по чеку ${sale.number}` } });
@@ -196,7 +196,11 @@ export class SalesService {
     }
     throw new ConflictException('Return could not be completed');
   }
-  async create(storeId: string, input: SaleInput, actorId: string, allowNegativeStock = false) {
+  /** Active staff who may sell in this store, for the seller picker on the till. */
+  async sellers(storeId: string) {
+    return this.db.user.findMany({ where: { active: true, deletedAt: null, role: { permissions: { some: { permission: { code: 'sales.create' } } } }, OR: [{ primaryStoreId: storeId }, { stores: { some: { storeId } } }, { role: { code: { in: ['SUPERUSER', 'OWNER', 'DIRECTOR'] } } }] }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  }
+  async create(storeId: string, input: SaleInput, actorId: string, allowNegativeStock = false, unlimitedDiscount = true) {
     if (new Set(input.items.map(item => item.productId)).size !== input.items.length) throw new BadRequestException('Duplicate products in sale');
     const requestHash = createHash('sha256').update(JSON.stringify({ storeId, ...input })).digest('hex');
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -233,11 +237,16 @@ export class SalesService {
           lines.push({ productId: item.productId, brandId: product.brandId, categoryId: product.categoryId, quantity: item.quantity, priceMinor: price, currentPriceMinor: settings?.priceMinor ?? null, purchasePriceMinor, discountMinor: discount, totalMinor: gross.minus(discount), profitMinor: gross.minus(discount).minus(cost), batchId: batch?.id ?? null, gross, cost });
         }
         const subtotal = sum(lines.map(line => line.gross));
-        if (loyalty.mode === 'DISCOUNT') for (const line of lines) {
-          const percent = automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null, BigInt(subtotal.toString()));
+        let manualDiscount = new Prisma.Decimal(0);
+        for (const line of lines) {
+          const percent = loyalty.mode === 'DISCOUNT' ? automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null, BigInt(subtotal.toString())) : '0';
           const minimumDiscount = line.gross.mul(percentBasisPoints(percent).toString()).div(10000).floor();
           if (line.discountMinor.lt(minimumDiscount)) throw new BadRequestException(`Automatic discount is missing for product ${line.productId}`);
+          manualDiscount = manualDiscount.plus(line.discountMinor.minus(minimumDiscount));
         }
+        if (!unlimitedDiscount && manualDiscount.mul(10000).gt(subtotal.mul(percentBasisPoints(loyalty.maxManualDiscountPercent).toString()))) throw new ForbiddenException('Manual discount exceeds limit');
+        const seller = input.sellerId ? await tx.user.findFirst({ where: { id: input.sellerId, active: true, deletedAt: null }, select: { id: true } }) : null;
+        if (input.sellerId && !seller) throw new NotFoundException('Seller not found');
         const discount = sum(lines.map(line => line.discountMinor));
         const total = subtotal.minus(discount);
         const cost = sum(lines.map(line => line.cost));
@@ -273,7 +282,7 @@ export class SalesService {
           if (cash.gt(0) || !allowNegativeStock) throw new ConflictException('Device has no matching open cash shift');
           cashShiftId = undefined;
         }
-        const sale = await tx.sale.create({ data: { operationId: input.operationId, requestHash, number: `S-${input.operationId}`, storeId, deviceId: input.deviceId, cashShiftId, customerId: input.customerId, employeeId: actorId, subtotalMinor: subtotal, discountMinor: discount, totalMinor: total, costMinor: cost, profitMinor: total.minus(cost), debtMinor: debt } });
+        const sale = await tx.sale.create({ data: { operationId: input.operationId, requestHash, number: `S-${input.operationId}`, storeId, deviceId: input.deviceId, cashShiftId, customerId: input.customerId, employeeId: actorId, sellerId: seller?.id ?? null, subtotalMinor: subtotal, discountMinor: discount, totalMinor: total, costMinor: cost, profitMinor: total.minus(cost), debtMinor: debt } });
         for (const line of lines) {
           const saleItem = await tx.saleItem.create({ data: { saleId: sale.id, productId: line.productId, quantity: line.quantity, priceMinor: line.priceMinor, purchasePriceMinor: line.purchasePriceMinor, discountMinor: line.discountMinor, totalMinor: line.totalMinor, profitMinor: line.profitMinor, batchId: line.batchId } });
           if (allowNegativeStock && line.currentPriceMinor !== null && !line.priceMinor.eq(line.currentPriceMinor)) await tx.auditLog.create({ data: { userId: actorId, action: 'OFFLINE_PRICE_DIFFERENCE', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, quotedPriceMinor: line.priceMinor.toString(), currentPriceMinor: String(line.currentPriceMinor) } } });
@@ -310,11 +319,13 @@ export class SalesService {
         }
         const rewardEarned = total.minus(debt).minus(bonus).mul(percentBasisPoints(loyalty.consultantEarnPercent).toString()).div(10000).floor();
         if (rewardEarned.gt(0)) {
-          const employee = await tx.user.findUniqueOrThrow({ where: { id: actorId } });
+          // The consultant reward goes to the seller named on the receipt, or to the cashier.
+          const rewardedId = seller?.id ?? actorId;
+          const employee = await tx.user.findUniqueOrThrow({ where: { id: rewardedId } });
           const nextBalance = employee.rewardBalanceMinor.plus(rewardEarned);
           if (nextBalance.gt(maximum)) throw new ConflictException('Employee reward balance exceeds database range');
-          await tx.user.update({ where: { id: actorId }, data: { rewardBalanceMinor: nextBalance } });
-          await tx.employeeRewardTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'employee-earn'), employeeId: actorId, saleId: sale.id, deltaMinor: rewardEarned, balanceAfterMinor: nextBalance, reason: `Продажа ${sale.number}` } });
+          await tx.user.update({ where: { id: rewardedId }, data: { rewardBalanceMinor: nextBalance } });
+          await tx.employeeRewardTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'employee-earn'), employeeId: rewardedId, saleId: sale.id, deltaMinor: rewardEarned, balanceAfterMinor: nextBalance, reason: `Продажа ${sale.number}` } });
         }
         await tx.auditLog.create({ data: { userId: actorId, action: 'SALE_COMPLETED', entityType: 'Sale', entityId: sale.id, newValue: { storeId, totalMinor: total.toString(), debtMinor: debt.toString(), itemCount: lines.length } } });
         await tx.posDevice.update({ where: { deviceId: input.deviceId }, data: { lastActivityAt: new Date() } });

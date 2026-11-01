@@ -41,7 +41,8 @@ model User {
   cashShiftsClosed CashShift[] @relation("CashShiftCloser")
   cashOperations CashOperation[]
   supplierPayments SupplierPayment[]
-  sales Sale[]
+  sales Sale[] @relation("SaleEmployee")
+  soldSales Sale[] @relation("SaleSeller")
   customerPayments CustomerPayment[]
   customerComments CustomerComment[]
   bonusTransactions BonusTransaction[]
@@ -653,7 +654,9 @@ model Sale {
   customerId     String?       @db.Uuid
   customer       Customer?     @relation(fields: [customerId], references: [id])
   employeeId     String        @db.Uuid
-  employee       User          @relation(fields: [employeeId], references: [id])
+  employee       User          @relation("SaleEmployee", fields: [employeeId], references: [id])
+  sellerId       String?       @db.Uuid
+  seller         User?         @relation("SaleSeller", fields: [sellerId], references: [id])
   subtotalMinor  Decimal       @db.Decimal(18, 0)
   discountMinor  Decimal       @db.Decimal(18, 0)
   totalMinor     Decimal       @db.Decimal(18, 0)
@@ -671,6 +674,7 @@ model Sale {
   @@unique([storeId, number])
   @@index([storeId, createdAt])
   @@index([customerId, createdAt])
+  @@index([sellerId, createdAt])
 }
 
 model SaleReturn {

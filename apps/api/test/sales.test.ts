@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { DatabaseService } from '../src/database.service';
 import type { FinanceService } from '../src/finance/finance.service';
@@ -297,4 +297,31 @@ test('return without receipt is capped by the current price and refunds cash wit
   assert.equal(created, 1);
   assert.deepEqual(movements.map(movement => [movement.delta, movement.sourceType]), [[2, 'RECEIPTLESS_RETURN']]);
   assert.deepEqual(cash, ['-1000']);
+});
+
+test('manual discount above the configured limit needs the unlimited discount permission', async () => {
+  let created = 0;
+  const tx = {
+    sale: { findUnique: async () => null, create: async () => { created++; return { id: 'sale-1' }; }, findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
+    store: { findFirst: async () => ({ id: storeId }) },
+    posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
+    product: { findFirst: async () => ({ id: productId, sku: 'KR-1' }) },
+    loyaltySettings: { findUnique: async () => ({ rules: { ...defaultLoyaltySettings, tiers: [], maxManualDiscountPercent: '10' } }) },
+    storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 1000, costBasisMinor: 400 }) },
+    stock: { findUnique: async () => ({ quantity: 5, reservedQuantity: 0 }) },
+    productBatch: { findFirst: async () => null },
+    user: { findFirst: async () => ({ id: 'seller-1' }) },
+    salePaymentMethod: { findMany: async () => [{ id: paymentMethodId, kind: 'CARD', active: true }] },
+    saleItem: { create: async () => ({ id: 'item-1' }) },
+    payment: { create: async () => ({ id: 'payment-1' }) },
+    auditLog: { create: async () => ({}) },
+  };
+  const db = { $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
+  const service = new SalesService(db, { applyMovementInTransaction: async () => ({ newQuantity: 4 }) } as unknown as StockService, {} as FinanceService, notifications);
+  const sale = (discountMinor: string, amountMinor: string) => ({ ...input, items: [{ productId, quantity: 1, discountMinor }], payments: [{ paymentMethodId, amountMinor }] });
+  await assert.rejects(service.create(storeId, sale('150', '850'), 'actor', false, false), ForbiddenException);
+  assert.equal(created, 0);
+  await service.create(storeId, sale('100', '900'), 'actor', false, false);
+  await service.create(storeId, { ...sale('150', '850'), operationId: '55555555-5555-4555-8555-555555555555' }, 'actor', false, true);
+  assert.equal(created, 2);
 });

@@ -3,6 +3,7 @@ export type LoyaltySettings = {
   tiers: { minimumMinor: string; percent: string }[];
   bonusEarnPercent: string;
   consultantEarnPercent: string;
+  maxManualDiscountPercent?: string;
   excludedProductIds: string[];
   excludedBrandIds: string[];
   excludedCategoryIds: string[];

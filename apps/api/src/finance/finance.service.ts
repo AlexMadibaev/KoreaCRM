@@ -160,7 +160,7 @@ export class FinanceService {
     const shift = await this.db.cashShift.findFirst({ where: { id, storeId }, include: { store: { select: { name: true, address: true } }, openedBy: { select: { name: true } }, closedBy: { select: { name: true } } } });
     if (!shift) throw new NotFoundException('Cash shift not found');
     const zero = new Prisma.Decimal(0);
-    const [sales, salePayments, returns, refunds, customerPayments, operations, methods, receiptless] = await Promise.all([
+    const [sales, salePayments, returns, refunds, customerPayments, operations, methods, receiptless, bySeller] = await Promise.all([
       this.db.sale.aggregate({ where: { cashShiftId: id, status: 'COMPLETED' }, _count: { id: true }, _sum: { subtotalMinor: true, discountMinor: true, totalMinor: true, debtMinor: true } }),
       this.db.payment.groupBy({ by: ['paymentMethodId'], where: { sale: { cashShiftId: id, status: 'COMPLETED' } }, _sum: { amountMinor: true } }),
       this.db.saleReturn.findMany({ where: { cashShiftId: id }, select: { amountMinor: true, payments: { select: { id: true } } } }),
@@ -169,7 +169,9 @@ export class FinanceService {
       this.db.cashOperation.findMany({ where: { cashShiftId: id }, orderBy: { createdAt: 'asc' }, select: { id: true, type: true, amountMinor: true, sourceType: true, comment: true, createdAt: true, employee: { select: { name: true } } } }),
       this.db.salePaymentMethod.findMany({ select: { id: true, name: true, kind: true }, orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] }),
       this.db.receiptlessReturn.aggregate({ where: { cashShiftId: id }, _count: { id: true }, _sum: { amountMinor: true } }),
+      this.db.sale.groupBy({ by: ['sellerId'], where: { cashShiftId: id, status: 'COMPLETED', sellerId: { not: null } }, _count: { _all: true }, _sum: { totalMinor: true } }),
     ]);
+    const sellerNames = new Map((await this.db.user.findMany({ where: { id: { in: bySeller.map(row => row.sellerId!) } }, select: { id: true, name: true } })).map(user => [user.id, user.name]));
     const cashMethod = methods.find(method => method.kind === 'CASH');
     const byMethod = (rows: { paymentMethodId: string; _sum: { amountMinor: Prisma.Decimal | null } }[], extraCash = zero) => {
       const amounts = new Map(rows.map(row => [row.paymentMethodId, row._sum.amountMinor ?? zero]));
@@ -185,7 +187,7 @@ export class FinanceService {
     const closingVariance = operations.find(operation => operation.sourceType === 'SHIFT_CLOSE_VARIANCE')?.amountMinor ?? zero;
     return {
       shift: { id: shift.id, deviceId: shift.deviceId, status: shift.status, openedAt: shift.openedAt, closedAt: shift.closedAt, openedBy: shift.openedBy.name, closedBy: shift.closedBy?.name ?? null, store: shift.store, openingCashMinor: shift.openingCashMinor.toString(), openingVarianceMinor: shift.openingVarianceMinor.toString(), openingComment: shift.openingComment, expectedCashMinor: shift.expectedCashMinor.toString(), actualCashMinor: shift.actualCashMinor?.toString() ?? null, closingVarianceMinor: closingVariance.toString(), closingComment: shift.closingComment },
-      sales: { count: sales._count.id, subtotalMinor: toString(sales._sum.subtotalMinor), discountMinor: toString(sales._sum.discountMinor), totalMinor: toString(sales._sum.totalMinor), debtMinor: toString(sales._sum.debtMinor), byMethod: byMethod(salePayments) },
+      sales: { count: sales._count.id, subtotalMinor: toString(sales._sum.subtotalMinor), discountMinor: toString(sales._sum.discountMinor), totalMinor: toString(sales._sum.totalMinor), debtMinor: toString(sales._sum.debtMinor), byMethod: byMethod(salePayments), bySeller: bySeller.map(row => ({ sellerId: row.sellerId!, name: sellerNames.get(row.sellerId!) ?? 'Сотрудник', count: row._count._all, totalMinor: toString(row._sum.totalMinor) })) },
       returns: { count: returns.length + receiptless._count.id, amountMinor: returns.reduce((total, record) => total.plus(record.amountMinor), receiptlessAmount).toString(), byMethod: byMethod(refunds, legacyCashRefunds.plus(receiptlessAmount)), receiptlessCount: receiptless._count.id, receiptlessMinor: receiptlessAmount.toString() },
       customerPayments: { count: customerPayments.reduce((total, row) => total + row._count._all, 0), amountMinor: customerPayments.reduce((total, row) => total.plus(row._sum.amountMinor ?? zero), zero).toString(), byMethod: byMethod(customerPayments) },
       cash: { openingMinor: shift.openingCashMinor.toString(), salesMinor: sumOps(operation => operation.type === 'SALE'), customerPaymentsMinor: sumOps(operation => operation.type === 'CUSTOMER_PAYMENT'), refundsMinor: sumOps(operation => refundSource(operation.sourceType)), depositsMinor: sumOps(operation => operation.type === 'DEPOSIT'), withdrawalsMinor: sumOps(operation => operation.type === 'WITHDRAWAL' && !refundSource(operation.sourceType)), expensesMinor: sumOps(operation => operation.type === 'EXPENSE'), correctionsMinor: sumOps(operation => operation.type === 'CORRECTION'), expectedMinor: shift.expectedCashMinor.toString() },

@@ -3,13 +3,14 @@ export type LoyaltySettings = {
   tiers: { minimumMinor: string; percent: string }[];
   bonusEarnPercent: string;
   consultantEarnPercent: string;
+  maxManualDiscountPercent?: string;
   excludedProductIds: string[];
   excludedBrandIds: string[];
   excludedCategoryIds: string[];
   promotions: { id: string; targetType: 'PRODUCT' | 'BRAND' | 'CATEGORY'; targetId: string; percent: string; daysOfWeek: number[]; startDate: string | null; endDate: string | null; active: boolean }[];
 };
 
-export const defaultLoyaltySettings: LoyaltySettings = { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [] };
+export const defaultLoyaltySettings: LoyaltySettings = { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', maxManualDiscountPercent: '100', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [] };
 
 export function loyaltyPercent(settings: LoyaltySettings, line: { productId: string; brandId?: string | null; categoryId?: string | null }, personalPercent: string | null, subtotal: bigint, now = new Date()): string {
   if (settings.mode !== 'DISCOUNT') return '0';
