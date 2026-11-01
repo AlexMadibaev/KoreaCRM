@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { drainQueue } from '../src/queue-drain.ts';
+import { drainQueue, readyForRetry } from '../src/queue-drain.ts';
+
+test('automatic retries wait for the stored deadline while manual retry bypasses it', () => {
+  const entries = [{ nextAttemptAt: null }, { nextAttemptAt: '2026-11-01T10:00:00.000Z' }, { nextAttemptAt: '2026-11-01T10:01:00.000Z' }];
+  assert.equal(readyForRetry(entries, '2026-11-01T10:00:00.000Z').length, 2);
+  assert.equal(readyForRetry(entries, '2026-11-01T10:00:00.000Z', true).length, 3);
+});
 
 test('queue retries the same operation IDs after a network failure', async () => {
   const entries = Array.from({ length: 20 }, (_, index) => ({ operationId: `sale-${index}`, payloadJson: '{}', status: 'PENDING' }));

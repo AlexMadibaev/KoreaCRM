@@ -1,5 +1,9 @@
 export type DrainEntry = { operationId: string; payloadJson: string; status: string };
 
+export function readyForRetry<T extends { nextAttemptAt?: string | null }>(entries: T[], now: string, force = false): T[] {
+  return entries.filter(entry => force || !entry.nextAttemptAt || entry.nextAttemptAt <= now);
+}
+
 export async function drainQueue(
   entries: DrainEntry[],
   send: (entry: DrainEntry) => Promise<void>,

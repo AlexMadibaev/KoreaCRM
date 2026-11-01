@@ -8,7 +8,7 @@ import { loyaltyPercent, type LoyaltySettings } from './loyalty';
 import { buildEscPosReceipt } from './escpos';
 import { hasDesktopCache, readCachedCustomers, readCachedProducts, readCatalogCacheStatus, readCatalogRevision, readDatabaseHealth, refreshCatalogCache, type CacheStatus, type DatabaseHealth } from './local-cache';
 import { enqueueSale, listSyncQueue, retryConflictSale, setSyncStatus, syncQueueSummary, type QueueEntry, type QueueSummary } from './sync-queue';
-import { drainQueue } from './queue-drain';
+import { drainQueue, readyForRetry } from './queue-drain';
 import { markOfflineSessionReady, matchOfflineCode, passwordVerifier, readOfflineCodeSessions, readOfflineSession, sameVerifier, saveOfflineCodeSession, saveOfflineSession, type OfflineSession } from './offline-session';
 import { projectShiftCash } from './shift-projection';
 import { queuedSaleDetails } from './queued-sale-details';
@@ -236,11 +236,11 @@ export function App() {
     setQueueSummary(summary); setQueueEntries(entries);
   }, [userId, storeId]);
   useEffect(() => { if (signedIn && userId && storeId) void refreshQueueSummary().catch(caught => setQueueNotice(`Не удалось проверить сохранённые продажи: ${message(caught)}`)); }, [signedIn, userId, storeId, refreshQueueSummary]);
-  const syncQueuedSales = useCallback(async () => {
+  const syncQueuedSales = useCallback(async (force = false) => {
     if (!hasDesktopCache() || !signedIn || offlineSignedIn || offlineNetwork || !deviceReady || !userId || !storeId || syncBusyRef.current) return;
     syncBusyRef.current = true;
     try {
-      const entries = await listSyncQueue(userId, storeId);
+      const entries = readyForRetry(await listSyncQueue(userId, storeId), new Date().toISOString(), force);
       const outcome = await drainQueue(entries,
         async entry => {
           const request = JSON.parse(entry.payloadJson) as SaleRequest;
@@ -303,9 +303,9 @@ export function App() {
   }, [signedIn, offlineSignedIn, offlineNetwork, client, login, userId]);
   useEffect(() => {
     if (!signedIn || !deviceReady || !userId || !storeId || !hasDesktopCache()) return;
-    void syncQueuedSales();
+    void syncQueuedSales(true);
     const timer = window.setInterval(() => void syncQueuedSales(), 5000);
-    const online = () => void syncQueuedSales();
+    const online = () => void syncQueuedSales(true);
     window.addEventListener('online', online);
     return () => { window.clearInterval(timer); window.removeEventListener('online', online); };
   }, [signedIn, deviceReady, userId, storeId, offlineNetwork, syncQueuedSales]);
@@ -630,7 +630,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     {activeScreen === 'sync' && cacheError && <p role="status" className="cache-warning">Не удалось обновить товары: {cacheError}. Продажи при наличии связи доступны.</p>}
     {activeScreen === 'sale' && stockNotice && <p role="status" className="stock-notice">{stockNotice}</p>}
     {queueNotice && <p role="status" className="stock-notice">{queueNotice}</p>}
-    {activeScreen === 'sync' && hasDesktopCache() && <section id="sync" className="panel sync-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Отправка продаж</h2><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{offlineNetwork || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : (queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? `Ожидают повторной отправки: ${(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0)} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales()} disabled={!deviceReady || offlineNetwork || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div><details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>}
+    {activeScreen === 'sync' && hasDesktopCache() && <section id="sync" className="panel sync-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Отправка продаж</h2><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{offlineNetwork || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : (queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? `Ожидают повторной отправки: ${(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0)} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales(true)} disabled={!deviceReady || offlineNetwork || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div><details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>}
     {activeScreen === 'sync' && databaseHealth && <p role="status" className={databaseHealth.integrity === 'ok' ? 'stock-notice' : 'error'}>Локальная база: {databaseHealth.integrity === 'ok' ? 'исправна' : 'обнаружена ошибка, требуется восстановление из копии'} · режим записи: {databaseHealth.journalMode.toUpperCase()}</p>}
     {activeScreen === 'sync' && cacheStatus?.lastSyncedAt && <p role="status" className="stock-notice">Товары и клиенты обновлены: {new Date(cacheStatus.lastSyncedAt).toLocaleString('ru-RU')} · клиентов: {cacheStatus.customerCount}</p>}
     {pending && <section className="panel pending"><h2>Проверка предыдущей продажи</h2><p>Не удалось получить подтверждение. Нажмите «Проверить продажу», чтобы избежать повторного списания. Магазин: {stores.find(store => store.id === pending.storeId)?.name ?? 'другой магазин'}.</p><button disabled={busy || !deviceReady || storeId !== pending.storeId} onClick={() => void retryPending()} className="primary">Проверить продажу</button></section>}

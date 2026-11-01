@@ -136,7 +136,8 @@ pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
            attempts INTEGER NOT NULL DEFAULT 0,
            status TEXT NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','SYNCING','SYNCED','ERROR','CONFLICT')),
            error TEXT,
-           synced_at TEXT
+           synced_at TEXT,
+           next_attempt_at TEXT
          );
          CREATE INDEX IF NOT EXISTS sync_queue_scope_status ON sync_queue(scope_key,status,created_at);",
     )?;
@@ -151,6 +152,9 @@ pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
     let session_columns = connection.prepare("PRAGMA table_info(offline_sessions)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !session_columns.iter().any(|column| column == "code_salt") { connection.execute("ALTER TABLE offline_sessions ADD COLUMN code_salt TEXT", [])?; }
     if !session_columns.iter().any(|column| column == "code_verifier") { connection.execute("ALTER TABLE offline_sessions ADD COLUMN code_verifier TEXT", [])?; }
+    let queue_columns = connection.prepare("PRAGMA table_info(sync_queue)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !queue_columns.iter().any(|column| column == "next_attempt_at") { connection.execute("ALTER TABLE sync_queue ADD COLUMN next_attempt_at TEXT", [])?; }
+    connection.execute("CREATE INDEX IF NOT EXISTS sync_queue_retry ON sync_queue(scope_key,status,next_attempt_at)", [])?;
     Ok(())
 }
 
@@ -288,6 +292,15 @@ mod tests {
         let current = status(&db, "user-a", "store-a").unwrap();
         assert_eq!(current.last_synced_at.as_deref(), Some("2026-01-01T00:00:00Z"));
         assert_eq!(current.revision, None);
+    }
+
+    #[test]
+    fn existing_sale_queue_gains_retry_column_without_losing_sale() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE sync_queue (operation_id TEXT PRIMARY KEY,scope_key TEXT NOT NULL,entity_type TEXT NOT NULL,entity_id TEXT NOT NULL,payload_json TEXT NOT NULL,created_at TEXT NOT NULL,attempts INTEGER NOT NULL,status TEXT NOT NULL,error TEXT,synced_at TEXT); INSERT INTO sync_queue VALUES ('sale-a','user-a:store-a','SALE','sale-a','{\"operationId\":\"sale-a\"}','2026-01-01T00:00:00Z',0,'PENDING',NULL,NULL);").unwrap();
+        initialize(&db).unwrap();
+        let payload: String = db.query_row("SELECT payload_json FROM sync_queue WHERE operation_id='sale-a' AND next_attempt_at IS NULL", [], |row| row.get(0)).unwrap();
+        assert!(payload.contains("sale-a"));
     }
 
     #[test]

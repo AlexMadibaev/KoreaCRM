@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
 export type QueueStatus = 'PENDING' | 'SYNCING' | 'SYNCED' | 'ERROR' | 'CONFLICT';
-export type QueueEntry = { operationId: string; storeId: string; entityType: 'SALE'; entityId: string; payloadJson: string; createdAt: string; attempts: number; status: QueueStatus; error: string | null };
+export type QueueEntry = { operationId: string; storeId: string; entityType: 'SALE'; entityId: string; payloadJson: string; createdAt: string; attempts: number; status: QueueStatus; error: string | null; nextAttemptAt: string | null };
 export type QueueSummary = { pending: number; syncing: number; synced: number; errors: number; conflicts: number; lastSyncedAt: string | null };
 
 export function enqueueSale(userId: string, storeId: string, operationId: string, payload: unknown) {

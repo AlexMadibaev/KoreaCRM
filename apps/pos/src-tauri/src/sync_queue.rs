@@ -14,6 +14,7 @@ pub struct QueueEntry {
     attempts: i64,
     status: String,
     error: Option<String>,
+    next_attempt_at: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -50,8 +51,8 @@ fn enqueue(connection: &Connection, user_id: &str, store_id: &str, operation_id:
 
 fn list(connection: &Connection, user_id: &str, store_id: &str) -> Result<Vec<QueueEntry>, String> {
     let scope_key = scope(user_id, store_id)?;
-    let mut statement = connection.prepare("SELECT operation_id,entity_type,entity_id,payload_json,created_at,attempts,status,error FROM sync_queue WHERE scope_key=?1 AND status IN ('PENDING','SYNCING','ERROR','CONFLICT') ORDER BY created_at,operation_id").map_err(|error| error.to_string())?;
-    let rows = statement.query_map([scope_key], |row| Ok(QueueEntry { operation_id: row.get(0)?, store_id: store_id.into(), entity_type: row.get(1)?, entity_id: row.get(2)?, payload_json: row.get(3)?, created_at: row.get(4)?, attempts: row.get(5)?, status: row.get(6)?, error: row.get(7)? })).map_err(|error| error.to_string())?;
+    let mut statement = connection.prepare("SELECT operation_id,entity_type,entity_id,payload_json,created_at,attempts,status,error,next_attempt_at FROM sync_queue WHERE scope_key=?1 AND status IN ('PENDING','SYNCING','ERROR','CONFLICT') ORDER BY created_at,operation_id").map_err(|error| error.to_string())?;
+    let rows = statement.query_map([scope_key], |row| Ok(QueueEntry { operation_id: row.get(0)?, store_id: store_id.into(), entity_type: row.get(1)?, entity_id: row.get(2)?, payload_json: row.get(3)?, created_at: row.get(4)?, attempts: row.get(5)?, status: row.get(6)?, error: row.get(7)?, next_attempt_at: row.get(8)? })).map_err(|error| error.to_string())?;
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(|error| error.to_string())
 }
 
@@ -67,7 +68,7 @@ fn update_status(connection: &Connection, user_id: &str, store_id: &str, operati
         return Err("Invalid queue status".into());
     }
     let scope_key = scope(user_id, store_id)?;
-    let changed = connection.execute("UPDATE sync_queue SET status=?1,error=?2,attempts=attempts+CASE WHEN ?1='SYNCING' THEN 1 ELSE 0 END,synced_at=CASE WHEN ?1='SYNCED' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE synced_at END WHERE operation_id=?3 AND scope_key=?4 AND status<>'SYNCED'", params![status, error, operation_id, scope_key]).map_err(|error| error.to_string())?;
+    let changed = connection.execute("UPDATE sync_queue SET status=?1,error=?2,attempts=attempts+CASE WHEN ?1='SYNCING' THEN 1 ELSE 0 END,synced_at=CASE WHEN ?1='SYNCED' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now') ELSE synced_at END,next_attempt_at=CASE WHEN ?1='ERROR' THEN strftime('%Y-%m-%dT%H:%M:%fZ','now','+' || MIN(300,5*(1 << MIN(MAX(attempts-1,0),6))) || ' seconds') ELSE NULL END WHERE operation_id=?3 AND scope_key=?4 AND status<>'SYNCED'", params![status, error, operation_id, scope_key]).map_err(|error| error.to_string())?;
     if changed == 0 {
         let existing = connection.query_row("SELECT status FROM sync_queue WHERE operation_id=?1 AND scope_key=?2", params![operation_id, scope_key], |row| row.get::<_, String>(0)).optional().map_err(|error| error.to_string())?;
         if existing.as_deref() != Some("SYNCED") || status != "SYNCED" { return Err("Queue operation not found or already synced".into()); }
@@ -77,7 +78,7 @@ fn update_status(connection: &Connection, user_id: &str, store_id: &str, operati
 
 fn retry_conflict(connection: &Connection, user_id: &str, store_id: &str, operation_id: &str) -> Result<(), String> {
     let scope_key = scope(user_id, store_id)?;
-    let changed = connection.execute("UPDATE sync_queue SET status='PENDING',error=NULL WHERE operation_id=?1 AND scope_key=?2 AND status='CONFLICT'", params![operation_id, scope_key]).map_err(|error| error.to_string())?;
+    let changed = connection.execute("UPDATE sync_queue SET status='PENDING',error=NULL,next_attempt_at=NULL WHERE operation_id=?1 AND scope_key=?2 AND status='CONFLICT'", params![operation_id, scope_key]).map_err(|error| error.to_string())?;
     if changed != 1 { return Err("Conflict sale was not found for this user and store".into()); }
     Ok(())
 }
@@ -164,5 +165,22 @@ mod tests {
         assert!(retry_conflict(&db, "user-a", "store-a", "operation-1").is_err());
         update_status(&db, "user-a", "store-a", "operation-1", "SYNCED", None).unwrap();
         assert!(retry_conflict(&db, "user-a", "store-a", "operation-1").is_err());
+    }
+
+    #[test]
+    fn failed_sale_gets_persistent_exponential_retry_time() {
+        let db = Connection::open_in_memory().unwrap();
+        initialize(&db).unwrap();
+        enqueue(&db, "user-a", "store-a", "operation-2", r#"{"operationId":"operation-2","items":[]}"#).unwrap();
+        update_status(&db, "user-a", "store-a", "operation-2", "SYNCING", None).unwrap();
+        update_status(&db, "user-a", "store-a", "operation-2", "ERROR", Some("network")).unwrap();
+        let first = list(&db, "user-a", "store-a").unwrap();
+        assert!(first[0].next_attempt_at.is_some());
+        let first_delay: f64 = db.query_row("SELECT (julianday(next_attempt_at)-julianday('now'))*86400 FROM sync_queue WHERE operation_id='operation-2'", [], |row| row.get(0)).unwrap();
+        assert!((3.0..=6.0).contains(&first_delay));
+        update_status(&db, "user-a", "store-a", "operation-2", "SYNCING", None).unwrap();
+        update_status(&db, "user-a", "store-a", "operation-2", "ERROR", Some("network")).unwrap();
+        let second_delay: f64 = db.query_row("SELECT (julianday(next_attempt_at)-julianday('now'))*86400 FROM sync_queue WHERE operation_id='operation-2'", [], |row| row.get(0)).unwrap();
+        assert!((8.0..=11.0).contains(&second_delay));
     }
 }
