@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import type { PosCustomer, PosPage } from '@koreacrm/types';
 import { createApiClient } from '@koreacrm/api-client';
 import type { PosCatalogProduct } from './product-results';
+import { fetchStableCatalog } from './stable-catalog';
 
 type Client = ReturnType<typeof createApiClient>;
 export type CacheStatus = { storeId: string; productCount: number; customerCount: number; lastSyncedAt: string | null; revision: string | null };
@@ -45,11 +46,12 @@ async function allPages<T>(client: Client, path: string): Promise<T[]> {
 
 export async function refreshCatalogCache(client: Client, userId: string, storeId: string, permissions: string[], progress: (value: string) => void): Promise<CacheStatus> {
   progress('Загружаем товары и остатки…');
-  const [revision, products, customers] = await Promise.all([
-    readCatalogRevision(client, storeId),
-    allPages<PosCatalogProduct>(client, `/stores/${storeId}/pos-products`),
-    permissions.includes('customers.view') ? allPages<PosCustomer>(client, '/customers') : Promise.resolve([]),
-  ]);
+  const { revision, products, customers } = await fetchStableCatalog(
+    () => readCatalogRevision(client, storeId),
+    () => allPages<PosCatalogProduct>(client, `/stores/${storeId}/pos-products`),
+    () => permissions.includes('customers.view') ? allPages<PosCustomer>(client, '/customers') : Promise.resolve([]),
+    () => progress('Данные изменились во время загрузки. Повторяем…'),
+  );
   const cachedProducts = products.map(product => ({
     id: product.id,
     name: product.name,
