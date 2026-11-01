@@ -239,5 +239,5 @@ body { background: var(--ks-color-canvas); }
 .pos .checkout-seller { display: flex; align-items: center; gap: 10px; margin: 6px 0; font-size: 13px; }
 .pos .checkout-seller span { color: #777075; white-space: nowrap; }
 .pos .checkout-seller select { flex: 1; min-height: 36px; margin: 0; }
-.pos .card-details { display: grid; grid-template-columns: 1fr 120px; gap: 8px; }
+.pos .card-details { display: grid; grid-template-columns: 1fr 150px; gap: 8px; }
 .pos .card-details input { margin: 0; }
