@@ -2,7 +2,7 @@ import type { PosProduct } from '@koreacrm/types';
 import type { CachedProduct } from './local-cache';
 import { formatMinor } from './calculations';
 import { useEffect, useState } from 'react';
-import { productImageUrls } from './product-image-url';
+import { fetchProductImage } from './product-image-url';
 
 export type PosCatalogProduct = PosProduct & {
   images: { storageKey: string }[];
@@ -13,19 +13,32 @@ export type PosCatalogProduct = PosProduct & {
 export type CatalogItem = PosCatalogProduct | CachedProduct;
 
 export function ProductImage({ storageKey, apiUrl }: { storageKey?: string | null; apiUrl: string }) {
-  const [attempt, setAttempt] = useState(0);
-  const sources = storageKey ? productImageUrls(apiUrl, storageKey) : [];
-  const lastAttempt = sources.length - 1;
+  const [image, setImage] = useState<{ key: string; url: string } | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const imageKey = `${apiUrl}:${storageKey ?? ''}`;
   useEffect(() => {
-    if (!storageKey || attempt <= lastAttempt) return;
-    const retry = () => setAttempt(0);
-    window.addEventListener('online', retry);
-    const timer = window.setTimeout(retry, 30_000);
-    return () => { window.removeEventListener('online', retry); window.clearTimeout(timer); };
-  }, [attempt, lastAttempt, storageKey]);
+    if (!storageKey) return;
+    const controller = new AbortController();
+    let objectUrl: string | null = null;
+    void fetchProductImage(apiUrl, storageKey, fetch, controller.signal).then(blob => {
+      if (controller.signal.aborted) return;
+      objectUrl = URL.createObjectURL(blob);
+      setImage({ key: imageKey, url: objectUrl });
+      setFailed(false);
+    }).catch(() => { if (!controller.signal.aborted) { setImage(null); setFailed(true); } });
+    return () => { controller.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [apiUrl, storageKey, imageKey, retry]);
+  useEffect(() => {
+    if (!failed) return;
+    const retryImage = () => setRetry(value => value + 1);
+    window.addEventListener('online', retryImage);
+    const timer = window.setTimeout(retryImage, 30_000);
+    return () => { window.removeEventListener('online', retryImage); window.clearTimeout(timer); };
+  }, [failed]);
   if (!storageKey) return <span aria-hidden="true">✦</span>;
-  if (attempt > lastAttempt) return <span aria-hidden="true">✦</span>;
-  return <img src={sources[attempt]} alt="" loading="lazy" onError={() => setAttempt(value => value + 1)} />;
+  if (image?.key === imageKey) return <img src={image.url} alt="" loading="lazy" onError={() => { setImage(null); setFailed(true); }} />;
+  return <span aria-hidden="true">✦</span>;
 }
 
 export function ProductResults({ products, apiUrl, disabled, onAdd }: { products: CatalogItem[]; apiUrl: string; disabled: boolean; onAdd: (product: CatalogItem) => void }) {
