@@ -7,14 +7,15 @@ import { FinanceService } from '../finance/finance.service';
 import { StockService } from '../stock/stock.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { automaticPercent, defaultLoyaltySettings, loyaltySettingsSchema, percentBasisPoints } from '../loyalty/loyalty.rules';
-import { paymentMethodPatchSchema, paymentMethodSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
+import { allocateRefund } from './return-refunds';
+import { paymentMethodPatchSchema, paymentMethodSchema, receiptlessReturnSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
 
 type SaleInput = z.infer<typeof saleSchema>;
 const maximum = new Prisma.Decimal('999999999999999999');
 const sum = (values: Prisma.Decimal[]) => values.reduce((value, part) => value.plus(part), new Prisma.Decimal(0));
 const retryable = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
 const derivedOperationId = (id: string, kind: string) => { const hex = createHash('sha256').update(`${id}:${kind}`).digest('hex'); return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`; };
-const saleInclude = { items: { include: { product: { select: { name: true, sku: true } } } }, payments: { include: { paymentMethod: true } }, customer: { select: { id: true, firstName: true, lastName: true, phone: true } }, store: { select: { name: true, code: true, address: true, phone: true } }, employee: { select: { name: true } }, returns: { include: { items: true }, orderBy: { createdAt: 'asc' } } } as const;
+const saleInclude = { items: { include: { product: { select: { name: true, sku: true } } } }, payments: { include: { paymentMethod: true } }, customer: { select: { id: true, firstName: true, lastName: true, phone: true } }, store: { select: { name: true, code: true, address: true, phone: true } }, employee: { select: { name: true } }, returns: { include: { items: true, payments: { include: { paymentMethod: true } } }, orderBy: { createdAt: 'asc' } } } as const;
 
 @Injectable()
 export class SalesService {
@@ -59,6 +60,34 @@ export class SalesService {
     if (!sale) throw new NotFoundException('Sale not found');
     return sale;
   }
+  async returnWithoutReceipt(storeId: string, input: z.infer<typeof receiptlessReturnSchema>, actorId: string) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try { return await this.db.$transaction(async tx => {
+        const existing = await tx.receiptlessReturn.findUnique({ where: { operationId: input.operationId }, include: { product: { select: { name: true, sku: true } } } });
+        if (existing) {
+          if (existing.storeId !== storeId || existing.deviceId !== input.deviceId || existing.cashShiftId !== input.cashShiftId || existing.productId !== input.productId || existing.quantity !== input.quantity || !existing.amountMinor.eq(input.amountMinor) || existing.reason !== input.reason) throw new ConflictException('Operation ID was used for another return');
+          return existing;
+        }
+        const device = await tx.posDevice.findUnique({ where: { deviceId: input.deviceId } });
+        if (!device || device.storeId !== storeId || device.status !== 'ACTIVE') throw new ConflictException('POS device is not active in this store');
+        if (!await tx.cashShift.findFirst({ where: { id: input.cashShiftId, storeId, deviceId: input.deviceId, status: 'OPEN' } })) throw new ConflictException('Device has no matching open cash shift');
+        if (!await tx.product.findFirst({ where: { id: input.productId, deletedAt: null }, select: { id: true } })) throw new NotFoundException('Product not found');
+        const amount = new Prisma.Decimal(input.amountMinor);
+        // Without a receipt the refund cannot exceed what the goods cost today.
+        const settings = await tx.storeProductSettings.findUnique({ where: { storeId_productId: { storeId, productId: input.productId } } });
+        if (settings?.priceMinor === null || settings?.priceMinor === undefined) throw new ConflictException('Product has no price in this store');
+        if (amount.gt(new Prisma.Decimal(settings.priceMinor).mul(input.quantity))) throw new ConflictException('Refund exceeds current product price');
+        const record = await tx.receiptlessReturn.create({ data: { operationId: input.operationId, storeId, deviceId: input.deviceId, cashShiftId: input.cashShiftId, employeeId: actorId, productId: input.productId, quantity: input.quantity, amountMinor: amount, reason: input.reason }, include: { product: { select: { name: true, sku: true } } } });
+        await this.stock.applyMovementInTransaction(tx, { storeId, productId: input.productId, type: 'RETURN', delta: input.quantity, sourceType: 'RECEIPTLESS_RETURN', sourceId: record.id, actorId, comment: input.reason });
+        await this.finance.postCashInTransaction(tx, { storeId, shiftId: input.cashShiftId, actorId, type: 'WITHDRAWAL', amount: amount.neg(), sourceType: 'RECEIPTLESS_RETURN', sourceId: record.id, comment: input.reason });
+        await tx.auditLog.create({ data: { userId: actorId, action: 'RECEIPTLESS_RETURN_CREATED', entityType: 'ReceiptlessReturn', entityId: record.id, newValue: { productId: input.productId, quantity: input.quantity, amountMinor: input.amountMinor, reason: input.reason, cashShiftId: input.cashShiftId } } });
+        await tx.posDevice.update({ where: { deviceId: input.deviceId }, data: { lastActivityAt: new Date() } });
+        return record;
+      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }); }
+      catch (error) { if (retryable(error) && attempt < 2) continue; if (retryable(error)) throw new ConflictException('Concurrent return'); throw error; }
+    }
+    throw new ConflictException('Return could not be completed');
+  }
   async returnSale(storeId: string, id: string, input: z.infer<typeof returnSaleSchema>, actorId: string) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try { return await this.db.$transaction(async tx => {
@@ -71,7 +100,7 @@ export class SalesService {
         const sale = await tx.sale.findFirst({ where: { id, storeId }, include: saleInclude });
         if (!sale) throw new NotFoundException('Sale not found');
         if (sale.status !== 'COMPLETED') throw new ConflictException('Only completed sales can be returned');
-        if (!sale.cashShiftId || sale.debtMinor.gt(0) || sale.payments.length === 0 || sale.payments.some(payment => payment.paymentMethod.kind !== 'CASH')) throw new ConflictException('Only fully cash-paid sales can be returned');
+        if (sale.payments.length === 0) throw new ConflictException('Sale has no payments to refund');
         if (input.items && new Set(input.items.map(item => item.saleItemId)).size !== input.items.length) throw new BadRequestException('Duplicate sale items in return');
         const returnedByItem = new Map<string, number>();
         for (const record of sale.returns) for (const line of record.items) returnedByItem.set(line.saleItemId, (returnedByItem.get(line.saleItemId) ?? 0) + line.quantity);
@@ -93,12 +122,37 @@ export class SalesService {
         if (!device || device.storeId !== storeId || device.status !== 'ACTIVE') throw new ConflictException('POS device is not active in this store');
         const shift = await tx.cashShift.findFirst({ where: { id: input.cashShiftId, storeId, deviceId: input.deviceId, status: 'OPEN' } });
         if (!shift) throw new ConflictException('Device has no matching open cash shift');
+        const buyer = sale.customerId ? await tx.customer.findUniqueOrThrow({ where: { id: sale.customerId } }) : null;
+        const refunds = amount.gt(0) ? allocateRefund(sale.payments, sale.returns, amount, buyer?.debtBalanceMinor ?? new Prisma.Decimal(0)) : [];
         const record = await tx.saleReturn.create({ data: { operationId: input.operationId, saleId: id, storeId, deviceId: input.deviceId, cashShiftId: input.cashShiftId, employeeId: actorId, amountMinor: amount, costMinor: cost, profitMinor: amount.minus(cost), reason: input.reason } });
         for (const line of lines) {
           const returnItem = await tx.saleReturnItem.create({ data: { saleReturnId: record.id, saleItemId: line.item.id, quantity: line.quantity, amountMinor: line.amount, costMinor: line.cost, profitMinor: line.profit } });
           await this.stock.applyMovementInTransaction(tx, { storeId, productId: line.item.productId, type: 'RETURN', delta: line.quantity, sourceType: 'SALE_RETURN_ITEM', sourceId: returnItem.id, actorId, comment: input.reason });
         }
-        if (amount.gt(0)) await this.finance.postCashInTransaction(tx, { storeId, shiftId: input.cashShiftId, actorId, type: 'WITHDRAWAL', amount: amount.neg(), sourceType: 'SALE_RETURN', sourceId: record.id, comment: input.reason });
+        let cashMethodId: string | undefined;
+        for (const part of refunds) {
+          if (!part.paymentMethodId) {
+            cashMethodId ??= (await tx.salePaymentMethod.findFirst({ where: { kind: 'CASH' }, orderBy: [{ active: 'desc' }, { sortOrder: 'asc' }] }))?.id;
+            if (!cashMethodId) throw new ConflictException('Cash payment method is required for this refund');
+          }
+          await tx.saleReturnPayment.create({ data: { saleReturnId: record.id, paymentId: part.paymentId, paymentMethodId: part.paymentMethodId ?? cashMethodId!, amountMinor: part.amount } });
+        }
+        const refundOf = (kind: string) => sum(refunds.filter(part => part.kind === kind).map(part => part.amount));
+        const cashRefund = refundOf('CASH');
+        if (cashRefund.gt(0)) await this.finance.postCashInTransaction(tx, { storeId, shiftId: input.cashShiftId, actorId, type: 'WITHDRAWAL', amount: cashRefund.neg(), sourceType: 'SALE_RETURN', sourceId: record.id, comment: input.reason });
+        const debtRefund = refundOf('DEBT');
+        if (debtRefund.gt(0) && buyer) {
+          const balance = buyer.debtBalanceMinor.minus(debtRefund);
+          await tx.customer.update({ where: { id: buyer.id }, data: { debtBalanceMinor: balance } });
+          await tx.customerDebtEntry.create({ data: { customerId: buyer.id, saleId: sale.id, type: 'RETURN', amountMinor: debtRefund.neg(), balanceAfterMinor: balance } });
+        }
+        const bonusRefund = refundOf('BONUS');
+        if (bonusRefund.gt(0) && buyer) {
+          const current = await tx.customer.findUniqueOrThrow({ where: { id: buyer.id } });
+          const nextBalance = current.bonusBalanceMinor.plus(bonusRefund);
+          await tx.customer.update({ where: { id: buyer.id }, data: { bonusBalanceMinor: nextBalance } });
+          await tx.bonusTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'return-spent'), customerId: buyer.id, actorId, type: 'CORRECTION', deltaMinor: bonusRefund, balanceAfterMinor: nextBalance, reason: `Возврат оплаты бонусами по чеку ${sale.number}` } });
+        }
         if (sale.customerId) {
           const customer = await tx.customer.findUniqueOrThrow({ where: { id: sale.customerId } });
           const spent = customer.totalSpentMinor.minus(amount);
@@ -212,12 +266,14 @@ export class SalesService {
           if (bonus.gt(customer.bonusBalanceMinor)) throw new ConflictException('Customer bonus balance is insufficient');
           if (await tx.bonusTransaction.findUnique({ where: { operationId: input.operationId } })) throw new ConflictException('Operation ID was used for another bonus transaction');
         }
-        if (cash.gt(0) !== Boolean(input.cashShiftId)) throw new BadRequestException('Cash shift is required only for cash sales');
-        if (input.cashShiftId) {
-          const shift = await tx.cashShift.findFirst({ where: { id: input.cashShiftId, storeId, deviceId: input.deviceId, status: 'OPEN' } });
-          if (!shift) throw new ConflictException('Device has no matching open cash shift');
+        if (cash.gt(0) && !input.cashShiftId) throw new BadRequestException('Cash shift is required for cash sales');
+        let cashShiftId = input.cashShiftId;
+        if (cashShiftId && !await tx.cashShift.findFirst({ where: { id: cashShiftId, storeId, deviceId: input.deviceId, status: 'OPEN' } })) {
+          // A queued non-cash sale may arrive after its shift was closed; it then stays outside any shift.
+          if (cash.gt(0) || !allowNegativeStock) throw new ConflictException('Device has no matching open cash shift');
+          cashShiftId = undefined;
         }
-        const sale = await tx.sale.create({ data: { operationId: input.operationId, requestHash, number: `S-${input.operationId}`, storeId, deviceId: input.deviceId, cashShiftId: input.cashShiftId, customerId: input.customerId, employeeId: actorId, subtotalMinor: subtotal, discountMinor: discount, totalMinor: total, costMinor: cost, profitMinor: total.minus(cost), debtMinor: debt } });
+        const sale = await tx.sale.create({ data: { operationId: input.operationId, requestHash, number: `S-${input.operationId}`, storeId, deviceId: input.deviceId, cashShiftId, customerId: input.customerId, employeeId: actorId, subtotalMinor: subtotal, discountMinor: discount, totalMinor: total, costMinor: cost, profitMinor: total.minus(cost), debtMinor: debt } });
         for (const line of lines) {
           const saleItem = await tx.saleItem.create({ data: { saleId: sale.id, productId: line.productId, quantity: line.quantity, priceMinor: line.priceMinor, purchasePriceMinor: line.purchasePriceMinor, discountMinor: line.discountMinor, totalMinor: line.totalMinor, profitMinor: line.profitMinor, batchId: line.batchId } });
           if (allowNegativeStock && line.currentPriceMinor !== null && !line.priceMinor.eq(line.currentPriceMinor)) await tx.auditLog.create({ data: { userId: actorId, action: 'OFFLINE_PRICE_DIFFERENCE', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, quotedPriceMinor: line.priceMinor.toString(), currentPriceMinor: String(line.currentPriceMinor) } } });

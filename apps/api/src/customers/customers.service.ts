@@ -45,8 +45,9 @@ export class CustomersService {
       const groups = await this.db.sale.groupBy({ by: ['customerId'], where: { customerId: { not: null }, status: 'COMPLETED', createdAt: { gte: frequent } }, _count: { _all: true } });
       conditions.push({ id: { in: groups.filter(group => group.customerId && group._count._all >= settings.FREQUENT.minOrders).map(group => group.customerId!) }, ordersCount: { gte: settings.FREQUENT.minOrders } });
     }
+    if (query.debtors) conditions.push({ debtBalanceMinor: { gt: 0 } });
     const where: Prisma.CustomerWhereInput = { deletedAt: null, OR: matches.length ? matches : undefined, AND: conditions.length ? conditions : undefined };
-    const [items, total] = await this.db.$transaction([this.db.customer.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }), this.db.customer.count({ where })]);
+    const [items, total] = await this.db.$transaction([this.db.customer.findMany({ where, orderBy: query.debtors ? [{ debtBalanceMinor: 'desc' }, { createdAt: 'desc' }] : { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }), this.db.customer.count({ where })]);
     return { items, total, page: query.page, limit: query.limit };
   }
   async get(id: string) {
@@ -225,11 +226,13 @@ export class CustomersService {
         if (!await tx.store.findFirst({ where: { id: storeId, deletedAt: null } })) throw new NotFoundException('Store not found');
         const method = await tx.salePaymentMethod.findFirst({ where: { id: input.paymentMethodId, active: true } });
         if (!method || ['BONUS', 'DEBT'].includes(method.kind)) throw new BadRequestException('Payment method is unavailable for debt repayment');
-        if (Boolean(input.cashShiftId) !== (method.kind === 'CASH')) throw new BadRequestException('Cash shift is required only for cash payments');
+        if (method.kind === 'CASH' && !input.cashShiftId) throw new BadRequestException('Cash shift is required for cash payments');
+        // Non-cash repayments may name the till's shift so they appear in its report.
+        if (method.kind !== 'CASH' && input.cashShiftId && !await tx.cashShift.findFirst({ where: { id: input.cashShiftId, storeId, status: 'OPEN' }, select: { id: true } })) throw new ConflictException('Cash shift is not open');
         const amount = new Prisma.Decimal(input.amountMinor);
         if (amount.gt(customer.debtBalanceMinor)) throw new ConflictException('Payment exceeds customer debt');
         const payment = await tx.customerPayment.create({ data: { operationId: input.operationId, customerId, storeId, paymentMethodId: method.id, cashShiftId: input.cashShiftId, amountMinor: amount, employeeId: actorId } });
-        if (input.cashShiftId) await this.finance.postCashInTransaction(tx, { storeId, shiftId: input.cashShiftId, actorId, type: 'CUSTOMER_PAYMENT', amount, sourceType: 'CUSTOMER_PAYMENT', sourceId: payment.id });
+        if (method.kind === 'CASH') await this.finance.postCashInTransaction(tx, { storeId, shiftId: input.cashShiftId!, actorId, type: 'CUSTOMER_PAYMENT', amount, sourceType: 'CUSTOMER_PAYMENT', sourceId: payment.id });
         const balance = customer.debtBalanceMinor.minus(amount);
         await tx.customer.update({ where: { id: customerId }, data: { debtBalanceMinor: balance } });
         await tx.customerDebtEntry.create({ data: { customerId, customerPaymentId: payment.id, type: 'PAYMENT', amountMinor: amount.neg(), balanceAfterMinor: balance } });

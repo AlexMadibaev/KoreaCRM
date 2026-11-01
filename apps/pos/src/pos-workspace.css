@@ -182,3 +182,50 @@ body { background: var(--ks-color-canvas); }
 /* The top bar already names the screen. */
 .pos .screen-heading .eyebrow, .pos .screen-heading h2, .pos #history .section-heading .eyebrow, .pos #history .section-heading h2 { display: none; }
 .pos #history .section-number { display: none; }
+/* Parked receipts */
+.pos .order-heading-actions { display: flex; align-items: center; gap: 2px; }
+.pos .park-order, .pos .parked-toggle { min-height: 30px; padding: 0 10px; border: 0; background: transparent; color: var(--ks-color-brand-strong); font-size: 12px; font-weight: 650; }
+.pos .parked-list { display: grid; gap: 6px; margin: 0 0 10px; padding: 8px; list-style: none; border: 1px solid #e4e3ea; border-radius: 10px; background: #fafafc; }
+.pos .parked-list li { display: flex; align-items: center; gap: 8px; }
+.pos .parked-list li > div { display: grid; flex: 1; min-width: 0; }
+.pos .parked-list li span { color: #777075; font-size: 12px; }
+.pos .parked-list button { min-height: 30px; padding: 0 10px; font-size: 12px; }
+.pos .parked-list .parked-delete { border: 0; background: transparent; color: #c0505c; }
+/* Shift and debts screens */
+.pos .shift-screen, .pos .debts-screen { overflow-y: auto; }
+.pos .debts-screen { padding: 26px 30px; }
+.pos .shift-actions { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px; max-width: 900px; }
+.pos .shift-form h3 { margin: 0; font-size: 15px; }
+.pos .shift-form textarea { display: block; width: 100%; min-height: 64px; margin-top: 5px; padding: 9px; border: 1px solid #cbd5e1; border-radius: 7px; font: inherit; resize: vertical; }
+.pos .shift-cash-type { display: flex; flex-wrap: wrap; gap: 6px; }
+.pos .shift-cash-type button { flex: 1 1 auto; min-height: 38px; border: 1.5px solid #e4e3ea; border-radius: 10px; background: #fff; font-size: 13px; font-weight: 650; }
+.pos .shift-cash-type button.selected { border-color: var(--ks-color-brand-strong); background: var(--ks-color-brand-soft); color: var(--ks-color-brand-strong); }
+.pos .shift-variance { margin: 0; color: #2f6f50; font-size: 13px; font-weight: 650; }
+.pos .shift-variance.is-off { color: #b5482f; }
+.pos .shift-notice { padding: 10px 12px; border-radius: 10px; background: #effaf4; color: #2f6f50; font-size: 13px; }
+.pos .shift-report { max-width: 900px; margin-top: 28px; padding-top: 18px; border-top: 1px solid #ece9ee; }
+.pos .shift-report-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pos .shift-report-heading h3 { margin: 0; }
+.pos .shift-report-heading div { display: flex; gap: 8px; }
+.pos .shift-report-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 12px 0; }
+.pos .shift-report-grid section { padding: 12px 14px; border: 1px solid #ece9ee; border-radius: 12px; background: #fff; }
+.pos .shift-report h4 { margin: 0 0 8px; font-size: 13px; }
+.pos .shift-report-row, .pos .shift-report-methods li, .pos .shift-report-operations li, .pos .sales-refund-plan li { display: flex; justify-content: space-between; gap: 10px; padding: 3px 0; font-size: 13px; }
+.pos .shift-report-row.is-total { margin-top: 6px; padding-top: 8px; border-top: 1px solid #ece9ee; font-weight: 700; }
+.pos .shift-report-methods, .pos .shift-report-operations, .pos .sales-refund-plan { margin: 0; padding: 0 0 0 10px; list-style: none; color: #5d5962; }
+.pos .sales-refund-plan { padding: 8px 10px; border-radius: 10px; background: #fafafc; }
+.pos .debts-layout { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(300px, 1fr); gap: 20px; margin-top: 14px; }
+.pos .debts-list { display: grid; gap: 6px; max-height: 60vh; margin: 0; padding: 0; overflow-y: auto; list-style: none; }
+.pos .debts-list button { display: flex; align-items: center; justify-content: space-between; width: 100%; gap: 10px; text-align: left; border-radius: 10px; }
+.pos .debts-list button span { display: grid; }
+.pos .debts-list small { color: #777075; }
+.pos .debts-list li.selected button { border-color: var(--ks-color-brand-strong); background: var(--ks-color-brand-soft); }
+.pos .debt-amount { color: #b5482f; white-space: nowrap; }
+@media (max-width: 900px) { .pos .debts-layout { grid-template-columns: 1fr; } }
+@media print {
+  .pos .shift-screen > :not(.shift-report), .pos .shift-report-heading div { display: none !important; }
+  .pos .shift-screen { padding: 0; }
+}
+.pos .receiptless-toggle { justify-self: start; margin: 4px 0 10px; }
+.pos .receiptless-lookup { display: flex; align-items: end; gap: 8px; }
+.pos .receiptless-lookup label { flex: 1; }

@@ -192,6 +192,7 @@ model Product {
   inventoryItems InventoryItem[]
   transferItems TransferItem[]
   saleItems SaleItem[]
+  receiptlessReturns ReceiptlessReturn[]
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
   deletedAt   DateTime?
@@ -492,11 +493,15 @@ model CashShift {
   expectedCashMinor Decimal         @db.Decimal(18, 0)
   actualCashMinor   Decimal?        @db.Decimal(18, 0)
   closingCashMinor  Decimal?        @db.Decimal(18, 0)
+  openingVarianceMinor Decimal      @default(0) @db.Decimal(18, 0)
+  openingComment    String?
+  closingComment    String?
   openedAt          DateTime        @default(now())
   closedAt          DateTime?
   operations        CashOperation[]
   sales             Sale[]
   saleReturns       SaleReturn[]
+  receiptlessReturns ReceiptlessReturn[]
 
   @@index([storeId, status, openedAt])
 }
@@ -624,6 +629,7 @@ model SalePaymentMethod {
   system           Boolean          @default(false)
   sortOrder        Int              @default(0)
   payments         Payment[]
+  refunds          SaleReturnPayment[]
   customerPayments CustomerPayment[]
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
@@ -682,6 +688,7 @@ model SaleReturn {
   profitMinor    Decimal   @db.Decimal(18, 0)
   reason         String
   items          SaleReturnItem[]
+  payments       SaleReturnPayment[]
   createdAt      DateTime  @default(now())
 
   @@index([storeId, createdAt])
@@ -701,6 +708,41 @@ model SaleReturnItem {
 
   @@unique([saleReturnId, saleItemId])
   @@index([saleItemId])
+}
+
+// A return accepted without the original receipt; always refunded in cash from the till's open shift.
+model ReceiptlessReturn {
+  id          String    @id @default(uuid()) @db.Uuid
+  operationId String    @unique @db.Uuid
+  storeId     String    @db.Uuid
+  deviceId    String
+  cashShiftId String    @db.Uuid
+  cashShift   CashShift @relation(fields: [cashShiftId], references: [id])
+  employeeId  String    @db.Uuid
+  productId   String    @db.Uuid
+  product     Product   @relation(fields: [productId], references: [id])
+  quantity    Int
+  amountMinor Decimal   @db.Decimal(18, 0)
+  reason      String
+  createdAt   DateTime  @default(now())
+
+  @@index([storeId, createdAt])
+  @@index([cashShiftId])
+}
+
+model SaleReturnPayment {
+  id              String            @id @default(uuid()) @db.Uuid
+  saleReturnId    String            @db.Uuid
+  saleReturn      SaleReturn        @relation(fields: [saleReturnId], references: [id])
+  paymentId       String?           @db.Uuid
+  payment         Payment?          @relation(fields: [paymentId], references: [id])
+  paymentMethodId String            @db.Uuid
+  paymentMethod   SalePaymentMethod @relation(fields: [paymentMethodId], references: [id])
+  amountMinor     Decimal           @db.Decimal(18, 0)
+  createdAt       DateTime          @default(now())
+
+  @@index([saleReturnId])
+  @@index([paymentId])
 }
 
 model SaleItem {
@@ -731,6 +773,7 @@ model Payment {
   paymentMethod   SalePaymentMethod @relation(fields: [paymentMethodId], references: [id])
   amountMinor     Decimal           @db.Decimal(18, 0)
   reference       String?
+  refunds         SaleReturnPayment[]
   createdAt       DateTime          @default(now())
 
   @@index([saleId])
@@ -739,6 +782,7 @@ model Payment {
 enum CustomerDebtEntryType {
   SALE
   PAYMENT
+  RETURN
 }
 
 model CustomerDebtEntry {

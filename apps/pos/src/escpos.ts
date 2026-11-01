@@ -1,5 +1,6 @@
-import type { PosSale } from '@koreacrm/types';
+import type { PosSale, PosShiftReport } from '@koreacrm/types';
 import { formatMinor } from './calculations.ts';
+import { shiftReportLines } from './shift-report.ts';
 
 export function encodeCp866(value: string): number[] {
   const result: number[] = [];
@@ -33,7 +34,16 @@ export function buildEscPosReceipt(sale: PosSale): number[] {
     `ИТОГО: ${formatMinor(sale.totalMinor)}`,
     ...sale.payments.map(payment => `${payment.paymentMethod.name}: ${formatMinor(payment.amountMinor)}`),
     sale.customer ? `Клиент: ${sale.customer.firstName} ${sale.customer.phone}` : '',
+    ...(sale.returns ?? []).flatMap(record => [`ВОЗВРАТ ${formatMinor(record.amountMinor)}`, ...(record.payments ?? []).map(part => `  ${part.paymentMethod.name}: ${formatMinor(part.amountMinor)}`)]),
     'Спасибо за покупку!',
   ];
+  return printable(rows);
+}
+
+export function buildEscPosShiftReport(report: PosShiftReport): number[] {
+  return printable(['KOREA CRM', ...shiftReportLines(report)]);
+}
+
+function printable(rows: string[]): number[] {
   return [0x1b, 0x40, 0x1b, 0x74, 0x11, ...encodeCp866(rows.filter(Boolean).join('\n') + '\n\n\n'), 0x1d, 0x56, 0x00];
 }

@@ -4,7 +4,7 @@ import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { MoneyInput } from '@koreacrm/ui';
 import { CatalogShell } from '../../components/catalog-shell';
 import { SalesLedger, type Sale } from '../../components/sales-ledger';
-import { api, queryString, type Page } from '../../lib/api';
+import { api, queryString, withDiscrepancyComment, type Page } from '../../lib/api';
 import { calculateSaleTotals, type ReceiptDiscount } from '../../lib/sale-calculations';
 import { loyaltyPercent, type LoyaltySettings } from '../../lib/loyalty';
 
@@ -104,7 +104,7 @@ export default function SalesPage() {
   }
   async function openShift(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
-    try { const shift = await api<Shift>(`/stores/${storeId}/finance/cash-shifts`, { method: 'POST', body: JSON.stringify({ deviceId, openingCashMinor: openingCash }) }); setShifts(current => [...current, shift]); setCashShiftId(shift.id); }
+    try { const shift = await withDiscrepancyComment(comment => api<Shift>(`/stores/${storeId}/finance/cash-shifts`, { method: 'POST', body: JSON.stringify({ deviceId, openingCashMinor: openingCash, comment }) })); setShifts(current => [...current, shift]); setCashShiftId(shift.id); }
     catch (caught) { setError(errorMessage(caught)); }
     finally { setBusy(false); }
   }
@@ -126,7 +126,7 @@ export default function SalesPage() {
     if (cashTender && !cashShiftId) { setError('Для наличной оплаты откройте кассовую смену'); return; }
     setBusy(true);
     try {
-      const sale = await api<Sale>(`/stores/${storeId}/sales`, { method: 'POST', body: JSON.stringify({ operationId, deviceId, ...(cashTender ? { cashShiftId } : {}), ...(customerId ? { customerId } : {}), items: lines.map((line, index) => ({ productId: line.productId, quantity: line.quantity, discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: tenders.map(tender => ({ paymentMethodId: tender.paymentMethodId, amountMinor: tender.amountMinor, ...(tender.reference ? { reference: tender.reference } : {}) })) }) });
+      const sale = await api<Sale>(`/stores/${storeId}/sales`, { method: 'POST', body: JSON.stringify({ operationId, deviceId, ...(cashShiftId ? { cashShiftId } : {}), ...(customerId ? { customerId } : {}), items: lines.map((line, index) => ({ productId: line.productId, quantity: line.quantity, discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: tenders.map(tender => ({ paymentMethodId: tender.paymentMethodId, amountMinor: tender.amountMinor, ...(tender.reference ? { reference: tender.reference } : {}) })) }) });
       setReceipt(sale); setLines([]); setReceiptDiscountValue('0'); setStockNotice(''); setTenders(current => current.slice(0, 1).map(tender => ({ ...tender, key: crypto.randomUUID(), amountMinor: '0', reference: '' }))); setCustomerId(''); setOperationId(crypto.randomUUID()); setSalesRevision(value => value + 1); await load();
     } catch (caught) { setError(errorMessage(caught)); }
     finally { setBusy(false); }

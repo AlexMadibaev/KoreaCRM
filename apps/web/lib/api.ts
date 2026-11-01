@@ -64,3 +64,14 @@ export function queryString(values: Record<string, string | number | undefined>)
   for (const [key, value] of Object.entries(values)) if (value !== undefined && value !== '') params.set(key, String(value));
   return params.toString();
 }
+
+/** Opens or closes a cash shift; when the count differs from the expected cash, asks for the reason and retries once. */
+export async function withDiscrepancyComment<T>(send: (comment?: string) => Promise<T>): Promise<T> {
+  try { return await send(); }
+  catch (caught) {
+    if (!(caught instanceof Error) || !caught.message.startsWith('Comment is required for')) throw caught;
+    const comment = window.prompt('Сумма в кассе не совпадает с ожидаемой. Укажите причину расхождения:')?.trim();
+    if (!comment) throw new Error('Без причины расхождения смену нельзя провести.');
+    return send(comment);
+  }
+}

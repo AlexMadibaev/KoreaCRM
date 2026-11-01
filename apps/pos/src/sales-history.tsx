@@ -2,7 +2,9 @@ import { useEffect, useState, type FormEvent } from 'react';
 import type { createApiClient } from '@koreacrm/api-client';
 import type { PosPage, PosSale, PosShift } from '@koreacrm/types';
 import { formatMinor } from './calculations';
-import { fullyReturned, returnAmount, returnedQuantity } from './return-calculations';
+import { ReceiptlessReturn } from './receiptless-return';
+import { translateError } from './error-text';
+import { fullyReturned, refundInstruction, refundPreview, returnAmount, returnedQuantity } from './return-calculations';
 
 type Client = ReturnType<typeof createApiClient>;
 type ReturnItem = { saleItemId: string; quantity: number };
@@ -12,7 +14,7 @@ const readPending = (): PendingReturn | null => { try { const raw = localStorage
 const defaultQuantities = (sale: PosSale) => Object.fromEntries(sale.items.map(item => [item.id, item.quantity - returnedQuantity(sale, item.id)]));
 const saleStatus = (sale: PosSale) => sale.status === 'VOIDED' ? 'Аннулирована' : fullyReturned(sale) && sale.returns?.length ? 'Возвращена полностью' : sale.returns?.length ? 'Частичный возврат' : 'Завершена';
 
-export function SalesHistory({ client, storeId, enabled, revision, onPrint, canReturn, shift, deviceId, onReturned }: { client: Client; storeId: string; enabled: boolean; revision: number; onPrint: (sale: PosSale) => void; canReturn: boolean; shift: PosShift | null; deviceId: string; onReturned: (sale: PosSale) => void }) {
+export function SalesHistory({ client, storeId, enabled, revision, onPrint, canReturn, canReturnWithoutReceipt, shift, deviceId, onReturned, onReceiptlessReturned }: { client: Client; storeId: string; enabled: boolean; revision: number; onPrint: (sale: PosSale) => void; canReturn: boolean; canReturnWithoutReceipt: boolean; shift: PosShift | null; deviceId: string; onReturned: (sale: PosSale) => void; onReceiptlessReturned: () => void }) {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<PosPage<PosSale> | null>(null);
@@ -65,20 +67,25 @@ export function SalesHistory({ client, storeId, enabled, revision, onPrint, canR
     try {
       const returned = await client.post<PosSale>(`/stores/${storeId}/sales/${selected.id}/return`, { operationId: request.operationId, deviceId: request.deviceId, cashShiftId: request.cashShiftId, reason: request.reason, items: request.items });
       localStorage.removeItem(pendingReturnKey); setPending(null); setSelected(returned); setQuantities(defaultQuantities(returned)); setReason('');
-      setNotice('Возврат оформлен. Товар вернулся на остаток, деньги списаны из кассы.'); onReturned(returned);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось оформить возврат'); }
+      const saved = returned.returns?.find(record => record.operationId === request.operationId);
+      const parts = saved?.payments?.map(part => `${formatMinor(part.amountMinor)} — ${refundInstruction(part.paymentMethod.kind)}`) ?? [];
+      setNotice(`Возврат оформлен, товар вернулся на остаток.${parts.length ? ` ${parts.join('; ')}.` : ''}`); onReturned(returned);
+    } catch (caught) { setError(caught instanceof Error ? translateError(caught.message) : 'Не удалось оформить возврат'); }
     finally { setReturnBusy(false); }
   }
 
-  const cashSale = selected && selected.payments.length > 0 && selected.payments.every(payment => payment.paymentMethod.kind === 'CASH');
-  const canSubmit = selected && canReturn && cashSale && selected.status !== 'VOIDED' && !fullyReturned(selected) && shift?.status === 'OPEN';
+  const returnable = selected && selected.payments.length > 0 && selected.status !== 'VOIDED' && !fullyReturned(selected);
+  const canSubmit = returnable && canReturn && shift?.status === 'OPEN';
   let preview = 0n;
   try { if (selected) preview = returnAmount(selected, quantities); } catch { /* Invalid draft is shown by the quantity fields. */ }
+  const refundParts = selected && preview > 0n ? refundPreview(selected, preview) : [];
+  const cashRefund = refundParts.filter(part => part.kind === 'CASH').reduce((total, part) => total + part.amountMinor, 0n);
 
   return <section className="panel sales-history" aria-label="История чеков">
     <div className="section-heading"><div><p className="eyebrow">ПРОДАЖИ</p><h2>История чеков</h2><span className="muted">Найдите продажу по номеру чека или телефону клиента</span></div><span className="section-number">03</span></div>
     {enabled ? <>
       <label>Номер чека или телефон<input value={search} onChange={event => { setSearch(event.target.value); setPage(1); setSelected(null); setNotice(''); }} placeholder="Например, DEMO-0001" /></label>
+      {canReturnWithoutReceipt && <ReceiptlessReturn client={client} storeId={storeId} deviceId={deviceId} shift={shift} errorText={caught => caught instanceof Error ? translateError(caught.message) : 'Не удалось оформить возврат'} onReturned={onReceiptlessReturned} />}
       {error && <p role="alert" className="error">{error}</p>}
       {notice && <p role="status" className="sales-return-notice">{notice}</p>}
       {pending && pending.storeId === storeId && <p className="muted">Незавершённый запрос возврата сохранён. Откройте его чек и повторите отправку после восстановления связи.</p>}
@@ -94,15 +101,17 @@ export function SalesHistory({ client, storeId, enabled, revision, onPrint, canR
         <ul>{selected.items.map(item => <li key={item.id}><span>{item.product.name} · {item.product.sku} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul>
         <p>Скидка: {formatMinor(selected.discountMinor)}</p><p>Оплата: {selected.payments.map(payment => `${payment.paymentMethod.name} ${formatMinor(payment.amountMinor)}`).join(' · ')}</p>
         <p className="sales-history-total">Итого: <strong>{formatMinor(selected.totalMinor)}</strong></p>
-        {(selected.returns ?? []).map(record => <div className="sales-return-status" key={record.id}><strong>Возврат {formatMinor(record.amountMinor)}</strong><span>{new Date(record.createdAt).toLocaleString('ru-RU')} · {record.reason}</span><span>{record.items.map(line => `${selected.items.find(item => item.id === line.saleItemId)?.product.name ?? 'Товар'} × ${line.quantity}`).join(' · ')}</span></div>)}
+        {(selected.returns ?? []).map(record => <div className="sales-return-status" key={record.id}><strong>Возврат {formatMinor(record.amountMinor)}</strong><span>{new Date(record.createdAt).toLocaleString('ru-RU')} · {record.reason}</span>{record.payments?.length ? <span>{record.payments.map(part => `${part.paymentMethod.name} ${formatMinor(part.amountMinor)}`).join(' · ')}</span> : null}<span>{record.items.map(line => `${selected.items.find(item => item.id === line.saleItemId)?.product.name ?? 'Товар'} × ${line.quantity}`).join(' · ')}</span></div>)}
         {canSubmit ? <form className="sales-return-form" onSubmit={submitReturn}>
           <h4>Возврат товаров</h4><p className="muted">Укажите количество для каждой позиции. Ноль означает, что товар останется у покупателя.</p>
           {selected.items.map(item => { const remaining = item.quantity - returnedQuantity(selected, item.id); return remaining > 0 && <label key={item.id}>{item.product.name} · доступно к возврату {remaining}<input aria-label={`Вернуть ${item.product.name}`} type="number" min="0" max={remaining} step="1" value={quantities[item.id] ?? 0} disabled={returnBusy || Boolean(pending?.saleId === selected.id)} onChange={event => { const parsed = Number(event.target.value); setQuantities(current => ({ ...current, [item.id]: Number.isFinite(parsed) ? Math.max(0, Math.min(remaining, Math.trunc(parsed))) : 0 })); }} /></label>; })}
           <label>Причина возврата<input value={pending?.saleId === selected.id ? pending.reason : reason} onChange={event => setReason(event.target.value)} placeholder="Например, товар не подошёл" disabled={Boolean(pending?.saleId === selected.id) || returnBusy} required minLength={5} maxLength={500} /></label>
           <p className="sales-history-total">К возврату: <strong>{formatMinor(preview)}</strong></p>
-          <button type="submit" disabled={returnBusy || Boolean(pending && pending.saleId !== selected.id) || !Object.values(quantities).some(quantity => quantity > 0) || BigInt(shift.expectedCashMinor) < preview}>{returnBusy ? 'Оформляем…' : pending?.saleId === selected.id ? 'Повторить возврат' : 'Оформить возврат'}</button>
-          {BigInt(shift.expectedCashMinor) < preview && <p role="alert" className="error">В кассе недостаточно наличных для возврата.</p>}
-        </form> : canReturn && !cashSale && selected.status !== 'VOIDED' ? <p className="muted">Сейчас доступен возврат только для продажи, оплаченной наличными.</p> : canReturn && cashSale && !shift ? <p className="muted">Для возврата откройте кассовую смену.</p> : null}
+          {refundParts.length > 0 && <ul className="sales-refund-plan">{refundParts.map(part => <li key={part.methodId}><span>{part.name} — {refundInstruction(part.kind)}</span><strong>{formatMinor(part.amountMinor)}</strong></li>)}</ul>}
+          {refundParts.some(part => part.kind === 'DEBT') && <p className="muted">Если клиент уже погасил долг, эта часть будет выдана наличными.</p>}
+          <button type="submit" disabled={returnBusy || Boolean(pending && pending.saleId !== selected.id) || !Object.values(quantities).some(quantity => quantity > 0) || BigInt(shift.expectedCashMinor) < cashRefund}>{returnBusy ? 'Оформляем…' : pending?.saleId === selected.id ? 'Повторить возврат' : `Оформить возврат на ${formatMinor(preview)}`}</button>
+          {BigInt(shift.expectedCashMinor) < cashRefund && <p role="alert" className="error">В кассе недостаточно наличных для возврата.</p>}
+        </form> : canReturn && returnable && !shift ? <p className="muted">Для возврата откройте кассовую смену.</p> : null}
       </div>}
     </> : <p className="muted">История чеков появится после подключения кассы к серверу.</p>}
   </section>;

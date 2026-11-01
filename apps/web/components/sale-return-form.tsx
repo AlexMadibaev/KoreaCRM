@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { MoneyInput } from '@koreacrm/ui';
-import { api } from '../lib/api';
+import { api, withDiscrepancyComment } from '../lib/api';
 import type { Sale } from './sales-ledger';
 
 const money = (minor: bigint) => `${new Intl.NumberFormat('ru-RU').format(minor / 100n)},${String(minor % 100n).padStart(2, '0')}`;
@@ -19,7 +19,7 @@ export function SaleReturnForm({ sale, storeId, deviceId, deviceReady, cashShift
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const cashSale = sale.status === 'COMPLETED' && sale.payments.length > 0 && sale.payments.every(payment => payment.paymentMethod.kind === 'CASH');
+  const returnable = sale.status === 'COMPLETED' && sale.payments.length > 0;
   const remaining = sale.items.map(item => {
     const returned = (sale.returns ?? []).reduce((sum, record) => sum + record.items.filter(line => line.saleItemId === item.id).reduce((count, line) => count + line.quantity, 0), 0);
     const available = item.quantity - returned;
@@ -29,7 +29,7 @@ export function SaleReturnForm({ sale, storeId, deviceId, deviceReady, cashShift
       : 0n;
     return { item, returned, available, selected, amount };
   });
-  if (!cashSale || !remaining.some(line => line.available > 0)) return null;
+  if (!returnable || !remaining.some(line => line.available > 0)) return null;
   const amount = remaining.reduce((sum, line) => sum + line.amount, 0n);
   const validSelection = remaining.some(line => line.selected > 0) && remaining.every(line => Number.isInteger(line.selected) && line.selected >= 0 && line.selected <= line.available);
 
@@ -37,7 +37,7 @@ export function SaleReturnForm({ sale, storeId, deviceId, deviceReady, cashShift
     event.preventDefault();
     setError(''); setBusy(true);
     try {
-      const shift = await api<{ id: string; deviceId: string; status: string; expectedCashMinor: string }>(`/stores/${storeId}/finance/cash-shifts`, { method: 'POST', body: JSON.stringify({ deviceId, openingCashMinor: openingCash }) });
+      const shift = await withDiscrepancyComment(comment => api<{ id: string; deviceId: string; status: string; expectedCashMinor: string }>(`/stores/${storeId}/finance/cash-shifts`, { method: 'POST', body: JSON.stringify({ deviceId, openingCashMinor: openingCash, comment }) }));
       onShiftOpened(shift);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось открыть смену'); }
     finally { setBusy(false); }
@@ -58,7 +58,7 @@ export function SaleReturnForm({ sale, storeId, deviceId, deviceReady, cashShift
 
   return <div className="mt-4 rounded-lg border border-violet-100 bg-white p-4" aria-label={`Возврат по чеку ${sale.number}`}>
     <h4 className="font-semibold text-slate-800">Оформить возврат</h4>
-    <p className="mt-1 text-xs text-slate-500">Выберите количество из ещё не возвращённых товаров. Возврат будет выдан наличными.</p>
+    <p className="mt-1 text-xs text-slate-500">Выберите количество из ещё не возвращённых товаров. Деньги вернутся тем же способом, которым платил покупатель: сначала спишется долг, наличные выдаются в последнюю очередь.</p>
     {!cashShiftId && <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
       <p>Для возврата откройте кассовую смену этого устройства.</p>
       {canOpenShift && <form onSubmit={openShift} className="mt-3 flex flex-wrap items-end gap-2"><label>Начальный остаток, сомони<MoneyInput required className="mt-1 block w-40 rounded border border-amber-200 bg-white p-2" valueMinor={openingCash} onMinorChange={setOpeningCash} /></label><button type="submit" disabled={busy || !deviceReady} className="rounded-lg bg-white px-3 py-2 font-semibold text-amber-900 disabled:opacity-40">Открыть смену</button></form>}

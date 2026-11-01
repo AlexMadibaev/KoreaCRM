@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { CatalogShell } from '../../components/catalog-shell';
-import { api, queryString, type Page } from '../../lib/api';
+import { api, queryString, withDiscrepancyComment, type Page } from '../../lib/api';
 import { formatCurrencyMinor as money, MoneyInput } from '@koreacrm/ui';
 
 type Store = { id: string; name: string };
@@ -56,8 +56,8 @@ export default function FinancePage() {
   async function mutate(task: () => Promise<unknown>) { setBusy(true); setError(''); try { await task(); await load(); } catch (caught) { setError(errorText(caught)); } finally { setBusy(false); } }
   async function addCategory(event: FormEvent) { event.preventDefault(); await mutate(async () => { await api('/expense-categories', { method: 'POST', body: JSON.stringify({ name: categoryName }) }); setCategoryName(''); }); }
   async function addExpense(event: FormEvent) { event.preventDefault(); await mutate(async () => { await api(`/stores/${storeId}/finance/expenses`, { method: 'POST', body: JSON.stringify({ operationId: expenseOperationId, categoryId: expenseCategoryId, amountMinor: expenseAmount, paymentMethod: expenseMethod, cashShiftId: expenseMethod === 'CASH' ? expenseShiftId : undefined, description: expenseDescription, date: expenseDate }) }); setExpenseOperationId(crypto.randomUUID()); setExpenseAmount(''); setExpenseDescription(''); }); }
-  async function openShift(event: FormEvent) { event.preventDefault(); await mutate(async () => { await api(`/stores/${storeId}/finance/cash-shifts`, { method: 'POST', body: JSON.stringify({ deviceId, openingCashMinor: openingCash }) }); }); }
-  async function closeShift(id: string) { await mutate(() => api(`/stores/${storeId}/finance/cash-shifts/${id}/close`, { method: 'POST', body: JSON.stringify({ actualCashMinor: closeActual[id] }) })); }
+  async function openShift(event: FormEvent) { event.preventDefault(); await mutate(async () => { await withDiscrepancyComment(comment => api(`/stores/${storeId}/finance/cash-shifts`, { method: 'POST', body: JSON.stringify({ deviceId, openingCashMinor: openingCash, comment }) })); }); }
+  async function closeShift(id: string) { await mutate(() => withDiscrepancyComment(comment => api(`/stores/${storeId}/finance/cash-shifts/${id}/close`, { method: 'POST', body: JSON.stringify({ actualCashMinor: closeActual[id], comment }) }))); }
   async function addOperation(event: FormEvent) { event.preventDefault(); await mutate(async () => { await api(`/stores/${storeId}/finance/cash-shifts/${operationShiftId}/operations`, { method: 'POST', body: JSON.stringify({ operationId, type: operationType, amountMinor: operationAmount, comment: operationComment }) }); setOperationId(crypto.randomUUID()); setOperationAmount(''); setOperationComment(''); }); }
   async function paySupplier(event: FormEvent) { event.preventDefault(); await mutate(async () => { await api(`/stores/${storeId}/finance/supplier-payments`, { method: 'POST', body: JSON.stringify({ operationId: paymentOperationId, purchaseId: paymentPurchaseId, amountMinor: paymentAmount, paymentMethod, cashShiftId: paymentMethod === 'CASH' ? paymentShiftId : undefined }) }); setPaymentOperationId(crypto.randomUUID()); setPaymentAmount(''); }); }
   const openShifts = shifts.filter((shift) => shift.status === 'OPEN');

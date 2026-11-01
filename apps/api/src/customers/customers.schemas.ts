@@ -5,7 +5,7 @@ import { segmentCodes } from './customer-segments';
 const uuid = z.string().uuid();
 const nullableText = z.string().trim().nullable().optional();
 const discount = z.string().regex(/^\d{1,3}(?:\.\d{1,2})?$/).refine((value) => Number(value) <= 100, 'Discount cannot exceed 100%');
-export const listSchema = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20), search: z.string().trim().max(100).optional(), segment: z.enum(segmentCodes).optional() });
+export const listSchema = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(100).default(20), search: z.string().trim().max(100).optional(), segment: z.enum(segmentCodes).optional(), debtors: z.enum(['1', 'true']).optional() });
 export const historySchema = z.object({ kind: z.enum(['sales', 'returns', 'debts']), page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(50).default(10) });
 export const commentListSchema = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(50).default(10) });
 export const activitySchema = z.object({ page: z.coerce.number().int().positive().default(1), limit: z.coerce.number().int().min(1).max(50).default(10) });

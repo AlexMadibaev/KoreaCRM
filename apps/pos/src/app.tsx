@@ -15,11 +15,15 @@ import { changeDue, quickCashAmounts } from './cash-change';
 import { queuedSaleDetails } from './queued-sale-details';
 import { isLocalServerUrl, normalizeServerUrl } from './server-url';
 import { SalesHistory } from './sales-history';
+import { ShiftPanel } from './shift-panel';
+import { translateError } from './error-text';
+import { DebtsPanel } from './debts-panel';
+import { defaultParkedLabel, parkReceipt, readParked, writeParked, type ParkedReceipt } from './parked-receipts';
 import { ProductImage, ProductResults, type CatalogItem, type PosCatalogProduct } from './product-results';
 import { categoryNotice as categoryNoticeFor, filterCachedProducts, posCatalogPath, type PosCategory } from './catalog-filters';
 
 const CameraCodeScanner = lazy(() => import('./camera-code-scanner').then(module => ({ default: module.CameraCodeScanner })));
-type PosScreen = 'sale' | 'history' | 'shift' | 'sync';
+type PosScreen = 'sale' | 'history' | 'shift' | 'debts' | 'sync';
 
 type Line = { product: Pick<PosProduct, 'id' | 'name' | 'sku' | 'brandId' | 'categoryId'>; imageKey?: string; quantity: number; available: number; priceMinor: number; discountMinor: string };
 type Tender = { id: string; methodId: string; amountMinor: string; reference: string };
@@ -39,7 +43,7 @@ const message = (caught: unknown) => {
     if (caught.status >= 500) return 'Сервис временно недоступен. Попробуйте ещё раз позже.';
     if (/^(Forbidden|Unauthorized|Not Found|Internal Server Error|API returned \d+)$/i.test(caught.message)) return 'Не удалось выполнить действие. Попробуйте ещё раз.';
   }
-  return caught instanceof Error ? caught.message : 'Не удалось выполнить действие.';
+  return caught instanceof Error ? translateError(caught.message) : 'Не удалось выполнить действие.';
 };
 const connectionFailed = (caught: unknown) => caught instanceof TypeError || caught instanceof DOMException && ['TimeoutError', 'AbortError'].includes(caught.name) || (caught instanceof ApiError && caught.status >= 500);
 const loginError = (caught: unknown, codeLogin = false) => {
@@ -122,7 +126,7 @@ export function App() {
   const offlineCredentialModeRef = useRef<'password' | 'scan'>('password');
   const reconnectingRef = useRef(false);
   const syncBusyRef = useRef(false);
-  const [stores, setStores] = useState<PosStore[]>([]), [storeId, setStoreId] = useState(''), [deviceReady, setDeviceReady] = useState(false), [shift, setShift] = useState<PosShift | null>(null), [openingCash, setOpeningCash] = useState('0'), [closingCash, setClosingCash] = useState('0');
+  const [stores, setStores] = useState<PosStore[]>([]), [storeId, setStoreId] = useState(''), [deviceReady, setDeviceReady] = useState(false), [shift, setShift] = useState<PosShift | null>(null);
   const [methods, setMethods] = useState<PosPaymentMethod[]>([]), [customers, setCustomers] = useState<PosCustomer[]>([]), [customerSearch, setCustomerSearch] = useState(''), [customerId, setCustomerId] = useState('');
   const [loyalty, setLoyalty] = useState<LoyaltySettings | null>(null);
   const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
@@ -168,10 +172,30 @@ export function App() {
   useEffect(() => { setTenders(current => current.length === 1 && current[0]!.amountMinor !== totalMinor ? [{ ...current[0]!, amountMinor: totalMinor }] : current); }, [totalMinor, tenders.length]);
   const [cashReceived, setCashReceived] = useState(''), [discountLines, setDiscountLines] = useState<string[]>([]);
   const [receiptChange, setReceiptChange] = useState<bigint | null>(null);
+  const [parked, setParked] = useState<ParkedReceipt<Line, PosCustomer>[]>([]), [parkedOpen, setParkedOpen] = useState(false);
+  useEffect(() => { setParked(storeId && deviceId ? readParked<Line, PosCustomer>(localStorage, storeId, deviceId) : []); }, [storeId, deviceId]);
+  const saveParked = (next: ParkedReceipt<Line, PosCustomer>[]) => { setParked(next); writeParked(localStorage, storeId, deviceId, next); };
+  function parkCurrent() {
+    if (!cart.length || pending) return;
+    const customer = customers.find(value => value.id === customerId) ?? null;
+    try { saveParked(parkReceipt(parked, { label: defaultParkedLabel(parked.length, customer ? `${customer.firstName} ${customer.lastName ?? ''}`.trim() : null), lines: cart, customer })); }
+    catch (caught) { setError(message(caught)); return; }
+    setCart([]); setCustomerId(''); setStockNotice(''); setQueueNotice('Чек отложен. Откройте его из списка «Отложенные».');
+    window.setTimeout(() => searchRef.current?.focus(), 0);
+  }
+  function restoreParked(receipt: ParkedReceipt<Line, PosCustomer>) {
+    if (cart.length) { setError('В чеке есть товары. Оформите или отложите текущий чек, потом откройте отложенный.'); return; }
+    if (receipt.customer) setCustomers(current => current.some(value => value.id === receipt.customer!.id) ? current : [receipt.customer!, ...current]);
+    setCart(receipt.lines); setCustomerId(receipt.customer?.id ?? ''); setParkedOpen(false);
+    saveParked(parked.filter(value => value.id !== receipt.id));
+    setQueueNotice('Отложенный чек открыт. Проверьте цены и остатки перед оплатой.');
+  }
   const closeReceipt = () => { setReceipt(null); window.setTimeout(() => searchRef.current?.focus(), 0); };
   useEffect(() => { if (!cart.length) { setCashReceived(''); setDiscountLines([]); } }, [cart.length]);
   const singleMethod = tenders.length === 1 ? methods.find(method => method.id === tenders[0]!.methodId) : undefined;
-  const cashChange = singleMethod?.kind === 'CASH' && cartTotal ? changeDue(cashReceived, cartTotal.total) : null;
+  // Change is due only on the cash part of the receipt, also when the payment is split.
+  const cashDue = cartTotal ? paymentRows.reduce((total, row) => total + (row.kind === 'CASH' && validMinor(row.amountMinor) ? BigInt(row.amountMinor) : 0n), 0n) : 0n;
+  const cashChange = cashDue > 0n ? changeDue(cashReceived, cashDue) : null;
   const cartUnits = cart.reduce((sum, line) => sum + line.quantity, 0);
   const cartQuantities = Object.fromEntries(cart.map(line => [line.product.id, line.quantity]));
   const projectedShift = shift ? projectShiftCash(shift.expectedCashMinor, shift.id, methods.filter(method => method.kind === 'CASH').map(method => method.id), queueEntries) : null;
@@ -213,7 +237,7 @@ export function App() {
     offlineCredentialRef.current = credential;
     offlineCredentialModeRef.current = mode;
     localStorage.setItem(apiUrlKey, normalizedApiUrl); setApiUrl(normalizedApiUrl);
-    setLogin(saved.login); setLoginMode(mode); setCashierName(saved.login); setUserId(saved.userId); setStoreId(saved.storeId); setStores([store]); setMethods(active); setPermissions(permissions); setShift(shift); setCustomers(customers); setDeviceReady(true); setCacheStatus(status); setClosingCash(shift?.expectedCashMinor ?? '0');
+    setLogin(saved.login); setLoginMode(mode); setCashierName(saved.login); setUserId(saved.userId); setStoreId(saved.storeId); setStores([store]); setMethods(active); setPermissions(permissions); setShift(shift); setCustomers(customers); setDeviceReady(true); setCacheStatus(status);
     setTenders([{ id: crypto.randomUUID(), methodId: active.find(method => method.kind === 'CASH')?.id ?? active[0]!.id, amountMinor: '0', reference: '' }]); setPassword(''); setScanCode(''); setServerReachable(false); setOfflineSignedIn(true); setSignedIn(true); setQueueNotice('Вы работаете без связи. Продажи сохранятся на кассе и отправятся позже.');
   }
   async function signIn(event: FormEvent) {
@@ -289,7 +313,7 @@ export function App() {
         try {
           const page = await client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts?limit=100`);
           const refreshed = page.items.find(value => value.id === shift.id && value.status === 'OPEN') ?? null;
-          setShift(refreshed); setClosingCash(refreshed?.expectedCashMinor ?? '0');
+          setShift(refreshed);
           const store = stores.find(value => value.id === storeId);
           if (store && hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, store, refreshed);
         } catch (caught) { setCacheError(`Данные смены после синхронизации не обновлены: ${message(caught)}`); }
@@ -400,7 +424,7 @@ export function App() {
         const [shiftPage, customerPage] = await Promise.all(tasks);
         if (!active) return;
         const opened = (shiftPage as PosPage<PosShift>).items.find(value => value.deviceId === deviceId && value.status === 'OPEN') ?? null;
-        setShift(opened); setClosingCash(opened?.expectedCashMinor ?? '0'); setCustomers((customerPage as PosPage<PosCustomer> | undefined)?.items ?? []); setDeviceReady(true); localStorage.setItem(`${savedStoreKey}:${userId}`, storeId);
+        setShift(opened); setCustomers((customerPage as PosPage<PosCustomer> | undefined)?.items ?? []); setDeviceReady(true); localStorage.setItem(`${savedStoreKey}:${userId}`, storeId);
         if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Локальный вход не готов: ${message(caught)}`));
       } catch (caught) { if (active) setDeviceError(deviceRegistrationError(caught)); }
     })();
@@ -451,11 +475,14 @@ export function App() {
     const timer = window.setTimeout(() => { client.get<PosPage<PosCustomer>>(`/customers?search=${encodeURIComponent(customerSearch.trim())}&limit=100`).then(page => { if (active) setCustomers(previous => { const selected = previous.find(customer => customer.id === customerId); return selected && !page.items.some(customer => customer.id === selected.id) ? [selected, ...page.items] : page.items; }); }).catch(async caught => { if (!active) return; if (hasDesktopCache() && connectionFailed(caught)) { try { const rows = await readCachedCustomers(userId, storeId); const query = customerSearch.trim().toLocaleLowerCase('ru'); if (active) setCustomers(previous => { const matches = rows.filter(customer => `${customer.firstName} ${customer.lastName ?? ''} ${customer.phone}`.toLocaleLowerCase('ru').includes(query)); const selected = previous.find(customer => customer.id === customerId); return selected && !matches.some(customer => customer.id === selected.id) ? [selected, ...matches] : matches; }); } catch (cacheFailure) { if (active) setError(message(cacheFailure)); } } else setError(message(caught)); }); }, 200);
     return () => { active = false; window.clearTimeout(timer); };
   }, [signedIn, customerSearch, customerId, client, permissions, offlineSignedIn, offlineNetwork, userId, storeId]);
+  const parkShortcutRef = useRef<() => void>(() => undefined);
+  useEffect(() => { parkShortcutRef.current = () => { if (activeScreen === 'sale') parkCurrent(); }; });
   useEffect(() => {
     if (!signedIn) return;
     const handler = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'F2') { event.preventDefault(); setActiveScreen('sale'); window.setTimeout(() => searchRef.current?.focus(), 0); }
       if (event.key === 'F3') { event.preventDefault(); setActiveScreen('sale'); setCustomerPickerOpen(true); window.setTimeout(() => customerRef.current?.focus(), 0); }
+      if (event.key === 'F8') { event.preventDefault(); parkShortcutRef.current(); }
       if (event.key === 'F5') { event.preventDefault(); setActiveScreen('sale'); window.setTimeout(() => paymentRef.current?.focus(), 0); }
       if (event.key === 'Escape' && activeScreen === 'sale') { setSearch(''); setProducts([]); setCustomerPickerOpen(false); }
     };
@@ -536,18 +563,14 @@ export function App() {
       setCustomerCreateError(caught instanceof ApiError && caught.status === 409 ? 'Клиент с таким телефоном уже есть. Найдите его через поиск.' : message(caught));
     } finally { setCreatingCustomer(false); }
   }
-  async function openShift(event: FormEvent) {
-    event.preventDefault(); setBusy(true); setError('');
-    try { const opened = await client.post<PosShift>(`/stores/${storeId}/finance/cash-shifts`, { deviceId, openingCashMinor: openingCash }); setShift(opened); setClosingCash(opened.expectedCashMinor); if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
-    catch (caught) { setError(message(caught)); }
-    finally { setBusy(false); }
+  async function persistShift(value: PosShift | null) {
+    const currentStore = stores.find(store => store.id === storeId);
+    if (currentStore && hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, currentStore, value).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`));
   }
-  async function closeShift(event: FormEvent) {
-    event.preventDefault(); if (!shift) return;
-    setBusy(true); setError('');
-    try { await client.post(`/stores/${storeId}/finance/cash-shifts/${shift.id}/close`, { actualCashMinor: closingCash }); setShift(null); if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, null).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`)); }
-    catch (caught) { setError(message(caught)); }
-    finally { setBusy(false); }
+  async function refreshShift() {
+    const page = await client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts?limit=100`);
+    const updated = page.items.find(value => value.deviceId === deviceId && value.status === 'OPEN') ?? null;
+    setShift(updated); await persistShift(updated);
   }
   async function sendSale(payload: PendingSale) {
     const sale = await client.post<PosSale>(`/stores/${payload.storeId}/sales`, payload.request);
@@ -561,7 +584,7 @@ export function App() {
     if (shift && payload.request.cashShiftId) {
       try {
         const result = await client.get<PosPage<PosShift>>(`/stores/${payload.storeId}/finance/cash-shifts?limit=100`);
-        const updated = result.items.find(value => value.id === shift.id) ?? null; setShift(updated); setClosingCash(updated?.expectedCashMinor ?? '0');
+        const updated = result.items.find(value => value.id === shift.id) ?? null; setShift(updated);
         if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, updated).catch(caught => setCacheError(`Данные смены не сохранены локально: ${message(caught)}`));
       } catch (caught) {
         setQueueNotice(`Чек принят, но данные смены не обновились: ${message(caught)}`);
@@ -576,7 +599,7 @@ export function App() {
     try {
       const totals = calculateCartWithDiscount(cartLines, cartPercents);
       validatePayments(paymentRows, totals.total, customerId || null, cashPayment ? shift?.id ?? null : null, selectedCustomer?.bonusBalanceMinor ?? '0');
-      const request: SaleRequest = { operationId: crypto.randomUUID(), deviceId, ...(cashPayment && shift ? { cashShiftId: shift.id } : {}), ...(customerId ? { customerId } : {}), items: cart.map((line, index) => ({ productId: line.product.id, quantity: line.quantity, priceMinor: String(line.priceMinor), discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: tenders.map(tender => ({ paymentMethodId: tender.methodId, amountMinor: tender.amountMinor, ...(tender.reference ? { reference: tender.reference } : {}) })) };
+      const request: SaleRequest = { operationId: crypto.randomUUID(), deviceId, ...(shift ? { cashShiftId: shift.id } : {}), ...(customerId ? { customerId } : {}), items: cart.map((line, index) => ({ productId: line.product.id, quantity: line.quantity, priceMinor: String(line.priceMinor), discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: tenders.map(tender => ({ paymentMethodId: tender.methodId, amountMinor: tender.amountMinor, ...(tender.reference ? { reference: tender.reference } : {}) })) };
       if (hasDesktopCache()) {
         setBusy(true); setError(''); setQueueNotice('');
         await enqueueSale(userId, storeId, request.operationId, request);
@@ -654,7 +677,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     <button className="login-signup-button" type="button" onClick={() => { setCameraOpen(false); setShowSignup(true); setError(''); }}>Sign up <span>Подключить магазин ↗</span></button>
   </form>}
 </div></main>;
-  const screenTitle = activeScreen === 'sale' ? 'Продажа' : activeScreen === 'history' ? 'История чеков' : activeScreen === 'shift' ? 'Кассовая смена' : 'Отправка продаж';
+  const screenTitle = activeScreen === 'sale' ? 'Продажа' : activeScreen === 'history' ? 'История чеков' : activeScreen === 'shift' ? 'Кассовая смена' : activeScreen === 'debts' ? 'Возврат долга' : 'Отправка продаж';
   const navItem = (screen: PosScreen, label: string, icon: string) => <button type="button" className={activeScreen === screen ? 'active' : ''} aria-current={activeScreen === screen ? 'page' : undefined} onClick={() => setActiveScreen(screen)}><NavIcon path={icon} /><small>{label}</small></button>;
   return <main className="pos">
     <aside className="pos-sidebar" aria-label="Навигация кассы">
@@ -663,6 +686,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
         {navItem('sale', 'Касса', 'M4 5h2l2.2 10.2a1 1 0 0 0 1 .8h8.6a1 1 0 0 0 1-.8L20 8H7M10 20h.01M17 20h.01')}
         {navItem('history', 'Чеки', 'M7 3h10v18l-2.5-1.5L12 21l-2.5-1.5L7 21zM10 8h4M10 12h4')}
         {navItem('shift', 'Смена', 'M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z')}
+        {can('customers.view') && navItem('debts', 'Долги', 'M3 7h18v10H3zM3 10h18M7 14h3')}
         {hasDesktopCache() && navItem('sync', 'Отправка', 'M20 11a8 8 0 0 0-14.7-4.4L4 8M4 4v4h4M4 13a8 8 0 0 0 14.7 4.4L20 16M20 20v-4h-4')}
       </nav>
       <span className="sidebar-avatar" title={cashierName || login}>{(cashierName || login).slice(0, 1).toUpperCase()}</span>
@@ -702,7 +726,8 @@ if (!signedIn) return <main className="login"><div className="login-shell">
         </div>
       </section>
       <section className="panel order-panel" aria-label="Текущий чек">
-        <div className="order-heading"><h2>Чек {cartUnits > 0 && <span>{cartUnits} {russianCount(cartUnits, 'товар', 'товара', 'товаров')}</span>}</h2><button type="button" className="reset-order" disabled={!cart.length || Boolean(pending)} onClick={() => { setCart([]); setStockNotice(''); }}>Очистить</button></div>
+        <div className="order-heading"><h2>Чек {cartUnits > 0 && <span>{cartUnits} {russianCount(cartUnits, 'товар', 'товара', 'товаров')}</span>}</h2><div className="order-heading-actions"><button type="button" className="park-order" disabled={!cart.length || Boolean(pending)} onClick={parkCurrent} title="Отложить чек · F8">Отложить</button><button type="button" className="parked-toggle" aria-expanded={parkedOpen} disabled={!parked.length} onClick={() => setParkedOpen(value => !value)}>Отложенные{parked.length ? ` (${parked.length})` : ''}</button><button type="button" className="reset-order" disabled={!cart.length || Boolean(pending)} onClick={() => { setCart([]); setStockNotice(''); }}>Очистить</button></div></div>
+        {parkedOpen && parked.length > 0 && <ul className="parked-list" aria-label="Отложенные чеки">{parked.map(receipt => <li key={receipt.id}><div><strong>{receipt.label}</strong><span>{new Date(receipt.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} · {receipt.lines.reduce((total, line) => total + line.quantity, 0)} шт. · {formatMinor(receipt.lines.reduce((total, line) => total + BigInt(line.priceMinor) * BigInt(line.quantity) - BigInt(line.discountMinor), 0n))}</span></div><button type="button" onClick={() => restoreParked(receipt)}>Выбрать</button><button type="button" className="parked-delete" aria-label={`Удалить ${receipt.label}`} onClick={() => { if (window.confirm(`Удалить «${receipt.label}»?`)) saveParked(parked.filter(value => value.id !== receipt.id)); }}>Удалить</button></li>)}</ul>}
         <div className="order-items">
           {!cart.length && <div className="empty-cart"><NavIcon path="M4 5h2l2.2 10.2a1 1 0 0 0 1 .8h8.6a1 1 0 0 0 1-.8L20 8H7M10 20h.01M17 20h.01" /><strong>Чек пуст</strong><p>Нажмите на товар или отсканируйте штрихкод.</p></div>}
           <ul className="cart">{cart.map((line, index) => <li key={line.product.id}>
@@ -739,7 +764,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
             {tenders.length <= 1 ? <div className="payment-methods" role="radiogroup" aria-label="Способ оплаты · F5">{methods.map((method, index) => <button type="button" role="radio" key={method.id} ref={tenders[0]?.methodId === method.id || (!tenders[0] && index === 0) ? paymentRef : undefined} aria-checked={tenders[0]?.methodId === method.id} className={tenders[0]?.methodId === method.id ? 'selected' : ''} disabled={Boolean(pending)} onClick={() => setTenders(current => [{ ...(current[0] ?? { id: crypto.randomUUID(), reference: '' }), methodId: method.id, amountMinor: totalMinor }])}>{method.name}</button>)}</div>
               : <div className="payment-split">{tenders.map((tender, index) => <div className="payment" key={tender.id}><select aria-label={`Способ оплаты ${index + 1}`} value={tender.methodId} onChange={event => setTenders(current => current.map(part => part.id === tender.id ? { ...part, methodId: event.target.value } : part))} disabled={Boolean(pending)}>{methods.map(method => <option key={method.id} value={method.id}>{method.name}</option>)}</select><MoneyInput required aria-label={`Сумма оплаты ${index + 1}`} valueMinor={tender.amountMinor} onMinorChange={minor => setTenders(current => current.map(part => part.id === tender.id ? { ...part, amountMinor: minor } : part))} disabled={Boolean(pending)} /><button type="button" className="payment-remove" aria-label="Убрать способ оплаты" onClick={() => setTenders(current => current.filter(part => part.id !== tender.id))} disabled={Boolean(pending)}>×</button></div>)}
                 <p className={cartTotal && paid !== cartTotal.total ? 'payment-balance is-off' : 'payment-balance'}>Внесено {formatMinor(paid)} из {formatMinor(cartTotal?.total ?? 0n)}{cartTotal && paid < cartTotal.total ? ` · осталось ${formatMinor(cartTotal.total - paid)}` : ''}</p></div>}
-            {singleMethod?.kind === 'CASH' && cartTotal && cartTotal.total > 0n && <div className="cash-received"><label>Получено<MoneyInput aria-label="Получено наличными" valueMinor={cashReceived || '0'} onMinorChange={setCashReceived} disabled={Boolean(pending)} /></label><div className="cash-quick">{quickCashAmounts(cartTotal.total).map(amount => <button type="button" key={amount.toString()} className={cashReceived === amount.toString() ? 'selected' : ''} onClick={() => setCashReceived(amount.toString())}>{formatMinor(amount)}</button>)}</div>{cashChange !== null && <p className="cash-change">Сдача <strong>{formatMinor(cashChange)}</strong></p>}</div>}
+            {cashDue > 0n && <div className="cash-received"><label>{tenders.length > 1 ? `Получено наличными (к оплате ${formatMinor(cashDue)})` : 'Получено'}<MoneyInput aria-label="Получено наличными" valueMinor={cashReceived || '0'} onMinorChange={setCashReceived} disabled={Boolean(pending)} /></label><div className="cash-quick">{quickCashAmounts(cashDue).map(amount => <button type="button" key={amount.toString()} className={cashReceived === amount.toString() ? 'selected' : ''} onClick={() => setCashReceived(amount.toString())}>{formatMinor(amount)}</button>)}</div>{cashChange !== null && <p className="cash-change">Сдача <strong>{formatMinor(cashChange)}</strong></p>}</div>}
             {singleMethod && singleMethod.kind !== 'CASH' && <input className="payment-reference" aria-label="Номер операции" placeholder="Номер операции (необязательно)" value={tenders[0]!.reference} onChange={event => setTenders(current => current.map((part, index) => index === 0 ? { ...part, reference: event.target.value } : part))} disabled={Boolean(pending)} />}
             <button type="button" className="payment-split-toggle" disabled={Boolean(pending) || !methods.length} onClick={() => setTenders(current => current.length > 1 ? current.slice(0, 1) : [...current, { id: crypto.randomUUID(), methodId: methods.find(method => method.id !== current[0]?.methodId)?.id ?? methods[0]!.id, amountMinor: '0', reference: '' }])}>{tenders.length > 1 ? 'Оплатить одним способом' : 'Разделить оплату'}</button>
           </div>
@@ -755,9 +780,10 @@ if (!signedIn) return <main className="login"><div className="login-shell">
         </section></div>}
       </section>
     </div>}
-    {activeScreen === 'history' && <div id="history"><SalesHistory client={client} storeId={storeId} enabled={deviceReady && !offlineSignedIn && can('sales.view')} revision={salesRevision} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} shift={shift} deviceId={deviceId} onReturned={sale => { setSalesRevision(value => value + 1); if (receipt?.id === sale.id) setReceipt(sale); void client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts`).then(async result => { const updated = result.items.find(value => value.id === shift?.id) ?? null; setShift(updated); setClosingCash(updated?.expectedCashMinor ?? '0'); const currentStore = stores.find(store => store.id === storeId); if (currentStore && hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, currentStore, updated); }).catch(caught => setError(message(caught))); }} onPrint={sale => { setReceipt(sale); setReceiptScreen('history'); window.requestAnimationFrame(() => document.getElementById('receipt')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }} /></div>}
-    {activeScreen === 'shift' && <section id="shift" className="panel shift-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Кассовая смена</h2><p>Открывайте смену и проверяйте сумму наличных в кассе.</p></div><div className="shift-state"><span>Статус смены</span><strong>{shift ? 'Открыта' : 'Не открыта'}</strong></div><p className="shift-cash">{projectedShift ? `Ожидаемая наличность: ${formatMinor(projectedShift.expectedCashMinor)} сомони${projectedShift.queuedCashMinor > 0n ? ` · ещё не отправлено: ${formatMinor(projectedShift.queuedCashMinor)} сомони` : ''}` : 'На этой кассе нет открытой смены.'}</p>{!shift && can('finance.cash') && <form className="shift-form" onSubmit={openShift}><label>Начальный остаток, сомони<MoneyInput required valueMinor={openingCash} onMinorChange={setOpeningCash} /></label><button className="primary" disabled={busy || !deviceReady || Boolean(pending) || offlineSignedIn}>Открыть смену</button></form>}{shift && can('finance.cash') && <form className="shift-form" onSubmit={closeShift}><label>Фактическая наличность, сомони<MoneyInput required valueMinor={closingCash} onMinorChange={setClosingCash} /></label><button className="primary" disabled={busy || Boolean(pending) || offlineSignedIn || Boolean(projectedShift?.queuedCashMinor)}>Закрыть смену</button></form>}{!can('finance.cash') && <p className="muted">У вас нет права открывать или закрывать кассовую смену.</p>}{offlineSignedIn && <p className="muted">Для управления сменой нужна связь.</p>}</section>}
-    {receipt && activeScreen === receiptScreen && <div className="receipt-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) closeReceipt(); }}><section id="receipt" className="panel receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title" onKeyDown={event => { if (event.key === 'Escape') closeReceipt(); }}><div className="receipt-heading"><div><h2 id="receipt-title">Чек {receipt.number}</h2><small>Не является фискальным чеком</small></div><div><button className="quiet" onClick={() => window.print()}>Печать</button><button disabled={busy || !printerHost.trim() || Boolean(receipt.returns?.length)} onClick={() => void printEscPos()}>На чековый принтер</button></div></div>{(receipt.returns?.length ?? 0) > 0 && <p className="receipt-returned">Возврат по этому чеку · возвращено {formatMinor(receipt.returns.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</p>}<p>{receipt.store.name} · {receipt.store.address ?? ''} · {receipt.store.phone ?? ''}</p><p>{new Date(receipt.createdAt).toLocaleString('ru-RU')} · кассир {receipt.employee.name}</p>{receipt.customer && <p>{receipt.customer.firstName} {receipt.customer.phone}</p>}<ul>{receipt.items.map(item => <li key={item.id}><span>{item.product.name} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul><p>Скидка: {formatMinor(receipt.discountMinor)}</p><p className="total">Итого <strong>{formatMinor(receipt.totalMinor)}</strong></p>{receipt.payments.map(part => <p key={part.id}>{part.paymentMethod.name}: {formatMinor(part.amountMinor)}</p>)}{receiptScreen === 'sale' && receiptChange !== null && receiptChange > 0n && <p className="receipt-change">Сдача <strong>{formatMinor(receiptChange)}</strong></p>}<details className="printer-setting"><summary>Настроить чековый принтер</summary><label>Адрес принтера<input value={printerHost} onChange={event => { setPrinterHost(event.target.value); localStorage.setItem('koreacrm-pos-printer-host', event.target.value); }} placeholder="Например, 192.168.1.50" /></label></details><button type="button" className="primary receipt-close" autoFocus onClick={() => closeReceipt()}>{receiptScreen === 'sale' ? 'Новая продажа' : 'Закрыть'}</button></section></div>}
+    {activeScreen === 'history' && <div id="history"><SalesHistory client={client} storeId={storeId} enabled={deviceReady && !offlineSignedIn && can('sales.view')} revision={salesRevision} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} canReturnWithoutReceipt={can('sales.return_no_receipt') && !pending && !projectedShift?.queuedCashMinor} onReceiptlessReturned={() => void refreshShift().catch(caught => setError(message(caught)))} shift={shift} deviceId={deviceId} onReturned={sale => { setSalesRevision(value => value + 1); if (receipt?.id === sale.id) setReceipt(sale); void client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts`).then(async result => { const updated = result.items.find(value => value.id === shift?.id) ?? null; setShift(updated); const currentStore = stores.find(store => store.id === storeId); if (currentStore && hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, currentStore, updated); }).catch(caught => setError(message(caught))); }} onPrint={sale => { setReceipt(sale); setReceiptScreen('history'); window.requestAnimationFrame(() => document.getElementById('receipt')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }} /></div>}
+    {activeScreen === 'debts' && <DebtsPanel client={client} storeId={storeId} shift={shift} methods={methods} canPay={can('finance.customer_pay')} enabled={deviceReady && !offlineSignedIn && serverReachable && can('customers.view')} errorText={message} onPaid={cash => cash ? refreshShift().catch(caught => setError(message(caught))) : undefined} />}
+    {activeScreen === 'shift' && <ShiftPanel client={client} storeId={storeId} deviceId={deviceId} shift={shift} expectedCashMinor={projectedShift ? projectedShift.expectedCashMinor.toString() : null} queuedCashMinor={projectedShift?.queuedCashMinor ?? 0n} canManage={can('finance.cash')} canView={can('finance.cash_view')} disabled={busy || !deviceReady || Boolean(pending)} offline={offlineSignedIn} printerHost={printerHost} errorText={message} onOpened={async opened => { setShift(opened); await persistShift(opened); }} onClosed={async () => { setShift(null); await persistShift(null); }} onCashChanged={() => refreshShift().catch(caught => setError(message(caught)))} />}
+    {receipt && activeScreen === receiptScreen && <div className="receipt-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) closeReceipt(); }}><section id="receipt" className="panel receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title" onKeyDown={event => { if (event.key === 'Escape') closeReceipt(); }}><div className="receipt-heading"><div><h2 id="receipt-title">Чек {receipt.number}</h2><small>Не является фискальным чеком</small></div><div><button className="quiet" onClick={() => window.print()}>Печать</button><button disabled={busy || !printerHost.trim()} onClick={() => void printEscPos()}>На чековый принтер</button></div></div>{(receipt.returns?.length ?? 0) > 0 && <p className="receipt-returned">Возврат по этому чеку · возвращено {formatMinor(receipt.returns.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</p>}<p>{receipt.store.name} · {receipt.store.address ?? ''} · {receipt.store.phone ?? ''}</p><p>{new Date(receipt.createdAt).toLocaleString('ru-RU')} · кассир {receipt.employee.name}</p>{receipt.customer && <p>{receipt.customer.firstName} {receipt.customer.phone}</p>}<ul>{receipt.items.map(item => <li key={item.id}><span>{item.product.name} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul><p>Скидка: {formatMinor(receipt.discountMinor)}</p><p className="total">Итого <strong>{formatMinor(receipt.totalMinor)}</strong></p>{receipt.payments.map(part => <p key={part.id}>{part.paymentMethod.name}: {formatMinor(part.amountMinor)}</p>)}{receiptScreen === 'sale' && receiptChange !== null && receiptChange > 0n && <p className="receipt-change">Сдача <strong>{formatMinor(receiptChange)}</strong></p>}<details className="printer-setting"><summary>Настроить чековый принтер</summary><label>Адрес принтера<input value={printerHost} onChange={event => { setPrinterHost(event.target.value); localStorage.setItem('koreacrm-pos-printer-host', event.target.value); }} placeholder="Например, 192.168.1.50" /></label></details><button type="button" className="primary receipt-close" autoFocus onClick={() => closeReceipt()}>{receiptScreen === 'sale' ? 'Новая продажа' : 'Закрыть'}</button></section></div>}
     </div>
   </main>;
 }

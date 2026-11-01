@@ -4,7 +4,7 @@ import type { Request } from 'express';
 import { AccessGuard, RequireAnyPermission, RequirePermission, StoreScopeGuard } from '../auth/guards';
 import type { AccessContext } from '../auth/policy';
 import { FinanceService } from './finance.service';
-import { cashOperationSchema, categorySchema, closeShiftSchema, expenseSchema, openShiftSchema, pageSchema, parseInput, reportScopeSchema, summarySchema, supplierPaymentSchema } from './finance.schemas';
+import { cashOperationSchema, categorySchema, closeShiftSchema, expenseSchema, lastClosedShiftSchema, openShiftSchema, pageSchema, parseInput, reportScopeSchema, summarySchema, supplierPaymentSchema } from './finance.schemas';
 
 type AuthorizedRequest = Request & { access: AccessContext };
 
@@ -32,6 +32,8 @@ export class StoreFinanceController {
   @Get('expenses') @RequirePermission('finance.view') expenses(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.expenses(storeId, parseInput(pageSchema, query)); }
   @Post('expenses') @RequirePermission('finance.edit') expense(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.createExpense(storeId, parseInput(expenseSchema, body), req.access.userId); }
   @Get('cash-shifts') @RequirePermission('finance.cash_view') shifts(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.shifts(storeId, parseInput(pageSchema, query)); }
+  @Get('cash-shifts/last-closed') @RequirePermission('finance.cash_view') lastClosed(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.lastClosedShift(storeId, parseInput(lastClosedShiftSchema, query).deviceId); }
+  @Get('cash-shifts/:id/report') @RequirePermission('finance.cash_view') report(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string) { return this.service.shiftReport(storeId, id); }
   @Post('cash-shifts') @RequirePermission('finance.cash') openShift(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.openShift(storeId, parseInput(openShiftSchema, body), req.access.userId); }
   @Post('cash-shifts/:id/close') @RequirePermission('finance.cash') closeShift(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.closeShift(storeId, id, parseInput(closeShiftSchema, body), req.access.userId); }
   @Get('cash-shifts/:id/operations') @RequirePermission('finance.cash_view') operations(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string, @Query() query: unknown) { return this.service.operations(storeId, id, parseInput(pageSchema, query)); }

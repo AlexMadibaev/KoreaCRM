@@ -159,14 +159,33 @@ test('bonus payment debits the selected customer once and rejects an insufficien
   assert.equal(movements, 1);
 });
 
-test('return refuses a card sale before changing stock or cash', async () => {
-  let writes = 0;
-  const sale = { id: 'sale-1', status: 'COMPLETED', returnRecord: null, cashShiftId: null, debtMinor: new Prisma.Decimal(0), payments: [{ paymentMethod: { kind: 'CARD' } }] };
-  const tx = { saleReturn: { findUnique: async () => null, create: async () => { writes++; } }, sale: { findFirst: async () => sale } };
+test('card and debt sale return writes off debt first and records the card refund without cash', async () => {
+  const cash: string[] = [];
+  const refunds: { paymentId: string | null; paymentMethodId: string; amountMinor: Prisma.Decimal }[] = [];
+  const debtEntries: { type: string; amountMinor: Prisma.Decimal }[] = [];
+  const customer = { id: 'customer-1', debtBalanceMinor: new Prisma.Decimal(60), bonusBalanceMinor: new Prisma.Decimal(0), totalSpentMinor: new Prisma.Decimal(200), ordersCount: 1 };
+  const sale = { id: 'sale-1', number: 'S-1', operationId, status: 'COMPLETED', returns: [] as unknown[], cashShiftId: null, debtMinor: new Prisma.Decimal(60), totalMinor: new Prisma.Decimal(200), customerId: customer.id, items: [{ id: 'item-1', productId, quantity: 2, totalMinor: new Prisma.Decimal(200), purchasePriceMinor: new Prisma.Decimal(50) }], payments: [{ id: 'pay-card', paymentMethodId: 'card', amountMinor: new Prisma.Decimal(140), paymentMethod: { kind: 'CARD' } }, { id: 'pay-debt', paymentMethodId: 'debt', amountMinor: new Prisma.Decimal(60), paymentMethod: { kind: 'DEBT' } }] };
+  const tx = {
+    saleReturn: { findUnique: async () => null, create: async ({ data }: { data: object }) => ({ ...data, id: 'return-1' }) },
+    saleReturnItem: { create: async () => ({ id: 'return-item-1' }) },
+    saleReturnPayment: { create: async ({ data }: { data: (typeof refunds)[number] }) => { refunds.push(data); return data; } },
+    sale: { findFirst: async () => sale, findUniqueOrThrow: async () => sale },
+    customer: { findUniqueOrThrow: async () => customer, update: async ({ data }: { data: Partial<typeof customer> }) => Object.assign(customer, data) },
+    customerDebtEntry: { create: async ({ data }: { data: (typeof debtEntries)[number] }) => { debtEntries.push(data); return data; } },
+    bonusTransaction: { findUnique: async () => null },
+    employeeRewardTransaction: { findUnique: async () => null },
+    posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
+    cashShift: { findFirst: async () => ({ status: 'OPEN' }) },
+    auditLog: { create: async () => ({}) },
+  };
   const db = { $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
-  const service = new SalesService(db, { applyMovementInTransaction: async () => { writes++; } } as unknown as StockService, { postCashInTransaction: async () => { writes++; } } as unknown as FinanceService, notifications);
-  await assert.rejects(service.returnSale(storeId, 'sale-1', { operationId, deviceId: 'POS-1', cashShiftId: operationId, reason: 'Не подошёл' }, 'actor'), ConflictException);
-  assert.equal(writes, 0);
+  const finance = { postCashInTransaction: async (_tx: unknown, input: { amount: Prisma.Decimal }) => { cash.push(input.amount.toString()); } } as unknown as FinanceService;
+  const service = new SalesService(db, { applyMovementInTransaction: async () => ({}) } as unknown as StockService, finance, notifications);
+  await service.returnSale(storeId, sale.id, { operationId, deviceId: 'POS-1', cashShiftId: operationId, reason: 'Не подошёл', items: [{ saleItemId: 'item-1', quantity: 1 }] }, 'actor');
+  assert.deepEqual(refunds.map(part => [part.paymentId, part.paymentMethodId, part.amountMinor.toString()]), [['pay-debt', 'debt', '60'], ['pay-card', 'card', '40']]);
+  assert.deepEqual(cash, []);
+  assert.equal(customer.debtBalanceMinor.toString(), '0');
+  assert.deepEqual(debtEntries.map(entry => [entry.type, entry.amountMinor.toString()]), [['RETURN', '-60']]);
 });
 
 test('cash return restores stock and withdraws cash once; replay is read only', async () => {
@@ -175,10 +194,11 @@ test('cash return restores stock and withdraws cash once; replay is read only', 
   let cashAmount = '';
   let audit = '';
   let notices = 0;
-  const sale = { id: 'sale-1', status: 'COMPLETED', returns: [] as { items: { saleItemId: string; quantity: number }[] }[], cashShiftId: 'original-shift', debtMinor: new Prisma.Decimal(0), totalMinor: new Prisma.Decimal(200), costMinor: new Prisma.Decimal(100), profitMinor: new Prisma.Decimal(100), customerId: null, items: [{ id: 'item-1', productId, quantity: 2, totalMinor: new Prisma.Decimal(200), purchasePriceMinor: new Prisma.Decimal(50) }], payments: [{ paymentMethod: { kind: 'CASH' } }] };
+  const sale = { id: 'sale-1', status: 'COMPLETED', returns: [] as { items: { saleItemId: string; quantity: number }[] }[], cashShiftId: 'original-shift', debtMinor: new Prisma.Decimal(0), totalMinor: new Prisma.Decimal(200), costMinor: new Prisma.Decimal(100), profitMinor: new Prisma.Decimal(100), customerId: null, items: [{ id: 'item-1', productId, quantity: 2, totalMinor: new Prisma.Decimal(200), purchasePriceMinor: new Prisma.Decimal(50) }], payments: [{ id: 'pay-cash', paymentMethodId: 'cash', amountMinor: new Prisma.Decimal(200), paymentMethod: { kind: 'CASH' } }] };
   const tx = {
     saleReturn: { findUnique: async () => record, create: async ({ data }: { data: Omit<NonNullable<typeof record>, 'id' | 'items'> }) => { record = { ...data, id: 'return-1', items: [] }; sale.returns.push(record); return record; } },
     saleReturnItem: { create: async ({ data }: { data: { saleItemId: string; quantity: number } }) => { record!.items.push(data); return { id: 'return-item-1' }; } },
+    saleReturnPayment: { create: async () => ({}) },
     sale: { findFirst: async () => sale, findUniqueOrThrow: async () => sale },
     employeeRewardTransaction: { findUnique: async () => null },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
@@ -202,10 +222,11 @@ test('partial cash returns allocate discounted amount exactly and reject excess 
   let nextRecord = 0;
   const records: { id: string; operationId: string; saleId: string; storeId: string; deviceId: string; cashShiftId: string; reason: string; items: { saleItemId: string; quantity: number }[] }[] = [];
   const cash: string[] = [];
-  const sale = { id: 'sale-1', status: 'COMPLETED', returns: records, cashShiftId: 'shift-old', debtMinor: new Prisma.Decimal(0), totalMinor: new Prisma.Decimal(100), customerId: null, items: [{ id: 'item-1', productId, quantity: 3, totalMinor: new Prisma.Decimal(100), purchasePriceMinor: new Prisma.Decimal(20) }], payments: [{ paymentMethod: { kind: 'CASH' } }] };
+  const sale = { id: 'sale-1', status: 'COMPLETED', returns: records, cashShiftId: 'shift-old', debtMinor: new Prisma.Decimal(0), totalMinor: new Prisma.Decimal(100), customerId: null, items: [{ id: 'item-1', productId, quantity: 3, totalMinor: new Prisma.Decimal(100), purchasePriceMinor: new Prisma.Decimal(20) }], payments: [{ id: 'pay-cash', paymentMethodId: 'cash', amountMinor: new Prisma.Decimal(100), paymentMethod: { kind: 'CASH' } }] };
   const tx = {
     saleReturn: { findUnique: async ({ where }: { where: { operationId: string } }) => records.find(record => record.operationId === where.operationId) ?? null, create: async ({ data }: { data: Omit<(typeof records)[number], 'id' | 'items'> }) => { const record = { ...data, id: `return-${++nextRecord}`, items: [] }; records.push(record); return record; } },
     saleReturnItem: { create: async ({ data }: { data: { saleReturnId: string; saleItemId: string; quantity: number } }) => { records.find(record => record.id === data.saleReturnId)!.items.push(data); return { id: `return-item-${nextRecord}` }; } },
+    saleReturnPayment: { create: async () => ({}) },
     sale: { findFirst: async () => sale, findUniqueOrThrow: async () => sale },
     employeeRewardTransaction: { findUnique: async () => null },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
@@ -252,4 +273,28 @@ test('new payment method gets a generated code and goes to the end of the list',
   await new SalesService(db, {} as StockService, {} as FinanceService, notifications).createMethod({ name: 'Алиф', kind: 'CUSTOM' }, 'actor');
   assert.match(created!.code, /^CUSTOM_[0-9A-F]{12}$/);
   assert.equal(created!.sortOrder, 70);
+});
+
+test('return without receipt is capped by the current price and refunds cash with a stock movement', async () => {
+  const movements: { delta: number; sourceType: string }[] = [];
+  const cash: string[] = [];
+  let created = 0;
+  const tx = {
+    receiptlessReturn: { findUnique: async () => null, create: async ({ data }: { data: object }) => { created++; return { ...data, id: 'receiptless-1' }; } },
+    posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
+    cashShift: { findFirst: async () => ({ id: operationId, status: 'OPEN' }) },
+    product: { findFirst: async () => ({ id: productId }) },
+    storeProductSettings: { findUnique: async () => ({ priceMinor: 500 }) },
+    auditLog: { create: async () => ({}) },
+  };
+  const db = { $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
+  const stock = { applyMovementInTransaction: async (_tx: unknown, movement: (typeof movements)[number]) => { movements.push(movement); } } as unknown as StockService;
+  const finance = { postCashInTransaction: async (_tx: unknown, input: { amount: Prisma.Decimal }) => { cash.push(input.amount.toString()); } } as unknown as FinanceService;
+  const service = new SalesService(db, stock, finance, notifications);
+  const request = { operationId, deviceId: 'POS-1', cashShiftId: operationId, productId, quantity: 2, reason: 'Покупатель без чека' };
+  await assert.rejects(service.returnWithoutReceipt(storeId, { ...request, amountMinor: '1001' }, 'actor'), ConflictException);
+  await service.returnWithoutReceipt(storeId, { ...request, amountMinor: '1000' }, 'actor');
+  assert.equal(created, 1);
+  assert.deepEqual(movements.map(movement => [movement.delta, movement.sourceType]), [[2, 'RECEIPTLESS_RETURN']]);
+  assert.deepEqual(cash, ['-1000']);
 });

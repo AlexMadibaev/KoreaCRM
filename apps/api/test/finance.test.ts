@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FinanceService } from '../src/finance/finance.service';
 import type { DatabaseService } from '../src/database.service';
@@ -165,4 +165,37 @@ test('top products does not query data outside the employee scope', async () => 
   assert.deepEqual(empty.items, []);
   assert.equal(queried, false);
   await assert.rejects(service.topProducts({ from: '2026-10-01', to: '2026-10-03', storeId }, access), ForbiddenException);
+});
+
+test('opening with a different count than the last closing requires a comment and stores the gap', async () => {
+  let created: { openingVarianceMinor: Prisma.Decimal; openingComment: string | null } | null = null;
+  const tx = {
+    cashShift: { findFirst: async ({ where }: { where: { status: string } }) => where.status === 'OPEN' ? null : { closingCashMinor: new Prisma.Decimal(1000) }, create: async ({ data }: { data: NonNullable<typeof created> }) => { created = data; return { id: shiftId, ...data }; } },
+    auditLog: { create: async () => ({}) },
+  };
+  const db = { store: { findFirst: async () => ({ id: storeId }) }, $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
+  const service = new FinanceService(db);
+  await assert.rejects(service.openShift(storeId, { deviceId: 'POS-1', openingCashMinor: '990' }, 'user-1'), BadRequestException);
+  await service.openShift(storeId, { deviceId: 'POS-1', openingCashMinor: '990', comment: 'Не хватает 10' }, 'user-1');
+  assert.equal(created!.openingVarianceMinor.toString(), '-10');
+  assert.equal(created!.openingComment, 'Не хватает 10');
+});
+
+test('closing books the shortage inside the same shift before closing it', async () => {
+  const shift = { id: shiftId, storeId, status: 'OPEN', expectedCashMinor: new Prisma.Decimal(500) };
+  const operations: { type: string; amountMinor: Prisma.Decimal; sourceType: string }[] = [];
+  let closed: { status: string; closingComment: string | null } | null = null;
+  const tx = {
+    cashShift: { findFirst: async () => shift, update: async ({ data }: { data: Record<string, unknown> }) => { if (data.status) closed = data as never; else Object.assign(shift, data); return { ...shift, ...data }; } },
+    cashOperation: { findUnique: async () => null, create: async ({ data }: { data: (typeof operations)[number] }) => { operations.push(data); return { id: 'operation-1', ...data }; } },
+    auditLog: { create: async () => ({}) },
+  };
+  const db = { $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
+  const service = new FinanceService(db);
+  await assert.rejects(service.closeShift(storeId, shiftId, { actualCashMinor: '480' }, 'user-1'), BadRequestException);
+  await service.closeShift(storeId, shiftId, { actualCashMinor: '480', comment: 'Ошибка сдачи' }, 'user-1');
+  assert.deepEqual(operations.map(operation => [operation.type, operation.amountMinor.toString(), operation.sourceType]), [['CORRECTION', '-20', 'SHIFT_CLOSE_VARIANCE']]);
+  assert.equal(shift.expectedCashMinor.toString(), '480');
+  assert.equal(closed!.status, 'CLOSED');
+  assert.equal(closed!.closingComment, 'Ошибка сдачи');
 });

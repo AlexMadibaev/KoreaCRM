@@ -122,12 +122,22 @@ export class FinanceService {
     const [items, total] = await this.db.$transaction([this.db.cashShift.findMany({ where, orderBy: { openedAt: 'desc' }, skip: (page.page - 1) * page.limit, take: page.limit }), this.db.cashShift.count({ where })]);
     return { items, total, ...page };
   }
+  async lastClosedShift(storeId: string, deviceId: string) {
+    await this.requireStore(storeId);
+    const shift = await this.db.cashShift.findFirst({ where: { storeId, deviceId, status: 'CLOSED' }, orderBy: { closedAt: 'desc' }, select: { id: true, closedAt: true, closingCashMinor: true } });
+    return shift ? { id: shift.id, closedAt: shift.closedAt, closingCashMinor: toString(shift.closingCashMinor) } : null;
+  }
   async openShift(storeId: string, input: z.infer<typeof openShiftSchema>, actorId: string) {
     await this.requireStore(storeId);
     return this.serializable(async (tx) => {
       if (await tx.cashShift.findFirst({ where: { storeId, deviceId: input.deviceId, status: 'OPEN' } })) throw new ConflictException('Device already has an open cash shift');
-      const shift = await tx.cashShift.create({ data: { storeId, deviceId: input.deviceId, openedById: actorId, openingCashMinor: money(input.openingCashMinor), expectedCashMinor: money(input.openingCashMinor) } });
-      await tx.auditLog.create({ data: { userId: actorId, action: 'CASH_SHIFT_OPENED', entityType: 'CashShift', entityId: shift.id, newValue: { openingCashMinor: input.openingCashMinor, deviceId: input.deviceId } } });
+      // The drawer is recounted at opening; a gap against the previous closing count needs an explanation.
+      const previous = await tx.cashShift.findFirst({ where: { storeId, deviceId: input.deviceId, status: 'CLOSED' }, orderBy: { closedAt: 'desc' }, select: { closingCashMinor: true } });
+      const opening = money(input.openingCashMinor);
+      const variance = previous?.closingCashMinor ? opening.minus(previous.closingCashMinor) : new Prisma.Decimal(0);
+      if (!variance.isZero() && !input.comment) throw new BadRequestException('Comment is required for opening cash discrepancy');
+      const shift = await tx.cashShift.create({ data: { storeId, deviceId: input.deviceId, openedById: actorId, openingCashMinor: opening, expectedCashMinor: opening, openingVarianceMinor: variance, openingComment: input.comment || null } });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'CASH_SHIFT_OPENED', entityType: 'CashShift', entityId: shift.id, newValue: { openingCashMinor: input.openingCashMinor, deviceId: input.deviceId, varianceMinor: variance.toString(), comment: input.comment ?? null } } });
       return shift;
     });
   }
@@ -137,10 +147,50 @@ export class FinanceService {
       if (!shift) throw new NotFoundException('Cash shift not found');
       if (shift.status !== 'OPEN') throw new ConflictException('Cash shift is already closed');
       const actual = money(input.actualCashMinor);
-      const updated = await tx.cashShift.update({ where: { id }, data: { status: 'CLOSED', actualCashMinor: actual, closingCashMinor: actual, closedById: actorId, closedAt: new Date() } });
-      await tx.auditLog.create({ data: { userId: actorId, action: 'CASH_SHIFT_CLOSED', entityType: 'CashShift', entityId: id, newValue: { expectedCashMinor: shift.expectedCashMinor.toString(), actualCashMinor: actual.toString(), varianceMinor: actual.minus(shift.expectedCashMinor).toString() } } });
+      const variance = actual.minus(shift.expectedCashMinor);
+      if (!variance.isZero() && !input.comment) throw new BadRequestException('Comment is required for closing cash discrepancy');
+      // The shortage or surplus is booked inside the shift being closed, so the next shift starts clean.
+      if (!variance.isZero()) await this.postCashInTransaction(tx, { storeId, shiftId: id, actorId, type: 'CORRECTION', amount: variance, sourceType: 'SHIFT_CLOSE_VARIANCE', sourceId: id, comment: input.comment });
+      const updated = await tx.cashShift.update({ where: { id }, data: { status: 'CLOSED', actualCashMinor: actual, closingCashMinor: actual, closingComment: input.comment || null, closedById: actorId, closedAt: new Date() } });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'CASH_SHIFT_CLOSED', entityType: 'CashShift', entityId: id, newValue: { expectedCashMinor: shift.expectedCashMinor.toString(), actualCashMinor: actual.toString(), varianceMinor: variance.toString(), comment: input.comment ?? null } } });
       return updated;
     });
+  }
+  async shiftReport(storeId: string, id: string) {
+    const shift = await this.db.cashShift.findFirst({ where: { id, storeId }, include: { store: { select: { name: true, address: true } }, openedBy: { select: { name: true } }, closedBy: { select: { name: true } } } });
+    if (!shift) throw new NotFoundException('Cash shift not found');
+    const zero = new Prisma.Decimal(0);
+    const [sales, salePayments, returns, refunds, customerPayments, operations, methods, receiptless] = await Promise.all([
+      this.db.sale.aggregate({ where: { cashShiftId: id, status: 'COMPLETED' }, _count: { id: true }, _sum: { subtotalMinor: true, discountMinor: true, totalMinor: true, debtMinor: true } }),
+      this.db.payment.groupBy({ by: ['paymentMethodId'], where: { sale: { cashShiftId: id, status: 'COMPLETED' } }, _sum: { amountMinor: true } }),
+      this.db.saleReturn.findMany({ where: { cashShiftId: id }, select: { amountMinor: true, payments: { select: { id: true } } } }),
+      this.db.saleReturnPayment.groupBy({ by: ['paymentMethodId'], where: { saleReturn: { cashShiftId: id } }, _sum: { amountMinor: true } }),
+      this.db.customerPayment.groupBy({ by: ['paymentMethodId'], where: { cashShiftId: id }, _count: { _all: true }, _sum: { amountMinor: true } }),
+      this.db.cashOperation.findMany({ where: { cashShiftId: id }, orderBy: { createdAt: 'asc' }, select: { id: true, type: true, amountMinor: true, sourceType: true, comment: true, createdAt: true, employee: { select: { name: true } } } }),
+      this.db.salePaymentMethod.findMany({ select: { id: true, name: true, kind: true }, orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] }),
+      this.db.receiptlessReturn.aggregate({ where: { cashShiftId: id }, _count: { id: true }, _sum: { amountMinor: true } }),
+    ]);
+    const cashMethod = methods.find(method => method.kind === 'CASH');
+    const byMethod = (rows: { paymentMethodId: string; _sum: { amountMinor: Prisma.Decimal | null } }[], extraCash = zero) => {
+      const amounts = new Map(rows.map(row => [row.paymentMethodId, row._sum.amountMinor ?? zero]));
+      if (cashMethod && !extraCash.isZero()) amounts.set(cashMethod.id, (amounts.get(cashMethod.id) ?? zero).plus(extraCash));
+      return methods.filter(method => amounts.has(method.id)).map(method => ({ paymentMethodId: method.id, name: method.name, kind: method.kind, amountMinor: amounts.get(method.id)!.toString() }));
+    };
+    // Returns made before refunds were itemized by payment method were cash-only.
+    const receiptlessAmount = receiptless._sum.amountMinor ?? zero;
+    const legacyCashRefunds = returns.filter(record => !record.payments.length).reduce((total, record) => total.plus(record.amountMinor), zero);
+    const refundSource = (sourceType: string) => sourceType === 'SALE_RETURN' || sourceType === 'RECEIPTLESS_RETURN';
+    const sumOps = (predicate: (operation: (typeof operations)[number]) => boolean) => operations.filter(predicate).reduce((total, operation) => total.plus(operation.amountMinor), zero).toString();
+    const manual = (operation: (typeof operations)[number]) => ['DEPOSIT', 'WITHDRAWAL', 'EXPENSE', 'CORRECTION'].includes(operation.type) && !refundSource(operation.sourceType);
+    const closingVariance = operations.find(operation => operation.sourceType === 'SHIFT_CLOSE_VARIANCE')?.amountMinor ?? zero;
+    return {
+      shift: { id: shift.id, deviceId: shift.deviceId, status: shift.status, openedAt: shift.openedAt, closedAt: shift.closedAt, openedBy: shift.openedBy.name, closedBy: shift.closedBy?.name ?? null, store: shift.store, openingCashMinor: shift.openingCashMinor.toString(), openingVarianceMinor: shift.openingVarianceMinor.toString(), openingComment: shift.openingComment, expectedCashMinor: shift.expectedCashMinor.toString(), actualCashMinor: shift.actualCashMinor?.toString() ?? null, closingVarianceMinor: closingVariance.toString(), closingComment: shift.closingComment },
+      sales: { count: sales._count.id, subtotalMinor: toString(sales._sum.subtotalMinor), discountMinor: toString(sales._sum.discountMinor), totalMinor: toString(sales._sum.totalMinor), debtMinor: toString(sales._sum.debtMinor), byMethod: byMethod(salePayments) },
+      returns: { count: returns.length + receiptless._count.id, amountMinor: returns.reduce((total, record) => total.plus(record.amountMinor), receiptlessAmount).toString(), byMethod: byMethod(refunds, legacyCashRefunds.plus(receiptlessAmount)), receiptlessCount: receiptless._count.id, receiptlessMinor: receiptlessAmount.toString() },
+      customerPayments: { count: customerPayments.reduce((total, row) => total + row._count._all, 0), amountMinor: customerPayments.reduce((total, row) => total.plus(row._sum.amountMinor ?? zero), zero).toString(), byMethod: byMethod(customerPayments) },
+      cash: { openingMinor: shift.openingCashMinor.toString(), salesMinor: sumOps(operation => operation.type === 'SALE'), customerPaymentsMinor: sumOps(operation => operation.type === 'CUSTOMER_PAYMENT'), refundsMinor: sumOps(operation => refundSource(operation.sourceType)), depositsMinor: sumOps(operation => operation.type === 'DEPOSIT'), withdrawalsMinor: sumOps(operation => operation.type === 'WITHDRAWAL' && !refundSource(operation.sourceType)), expensesMinor: sumOps(operation => operation.type === 'EXPENSE'), correctionsMinor: sumOps(operation => operation.type === 'CORRECTION'), expectedMinor: shift.expectedCashMinor.toString() },
+      operations: operations.filter(manual).map(operation => ({ id: operation.id, type: operation.type, amountMinor: operation.amountMinor.toString(), sourceType: operation.sourceType, comment: operation.comment, createdAt: operation.createdAt, employee: operation.employee.name })),
+    };
   }
   async operations(storeId: string, shiftId: string, page: Page) {
     if (!await this.db.cashShift.findFirst({ where: { id: shiftId, storeId }, select: { id: true } })) throw new NotFoundException('Cash shift not found');
