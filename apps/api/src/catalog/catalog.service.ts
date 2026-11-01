@@ -204,7 +204,7 @@ export class CatalogService {
       this.db.stock.aggregate({ where: { storeId }, _max: { updatedAt: true }, _count: true }),
       this.db.customer.aggregate({ where: { deletedAt: null }, _max: { updatedAt: true }, _count: true }),
     ]);
-    const revision = [products, settings, stocks, customers].map(value => `${value._count}:${value._max.updatedAt?.toISOString() ?? ''}`).join('|');
+    const revision = ['images-v2', ...[products, settings, stocks, customers].map(value => `${value._count}:${value._max.updatedAt?.toISOString() ?? ''}`)].join('|');
     return { revision };
   }
 

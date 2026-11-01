@@ -34,3 +34,17 @@ test('normalizes a landscape product photo to a compact 360px square WebP', asyn
 test('rejects a corrupt file with a valid image signature', async () => {
   await assert.rejects(normalizeProductImage(Buffer.from([255, 216, 255, 0, 0, 0])), BadRequestException);
 });
+
+test('removing a photo advances the product revision used by POS', async () => {
+  let touched = false;
+  const db = {
+    productImage: { findFirst: async () => ({ storageKey: '00000000-0000-0000-0000-000000000000.webp' }) },
+    $transaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({
+      productImage: { delete: async () => undefined },
+      product: { update: async ({ data }: { data: { updatedAt: Date } }) => { touched = data.updatedAt instanceof Date; } },
+      auditLog: { create: async () => undefined },
+    }),
+  } as unknown as DatabaseService;
+  await new ProductImagesService(db).remove('product-id', 'image-id', 'user-id');
+  assert.equal(touched, true);
+});

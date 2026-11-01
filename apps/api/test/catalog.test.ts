@@ -18,6 +18,7 @@ test('POS catalog revision changes with store stock and scopes store data', asyn
   } as unknown as DatabaseService;
   const service = new CatalogService(db);
   const before = await service.posCatalogRevision(storeId);
+  assert.match(before.revision, /^images-v2\|/);
   stockVersion = new Date('2026-01-02T00:00:00Z');
   const after = await service.posCatalogRevision(storeId);
   assert.notEqual(before.revision, after.revision);

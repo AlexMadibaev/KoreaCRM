@@ -6,11 +6,13 @@ test('POS accepts a cabinet login link and uses its API', () => {
   assert.equal(normalizeServerUrl('https://shop.example/login'), 'https://shop.example/api');
   assert.equal(normalizeServerUrl(' https://shop.example/login/?next=%2Fsales '), 'https://shop.example/api');
   assert.equal(normalizeServerUrl('https://shop.example/login'), normalizeServerUrl('https://shop.example/api'));
+  assert.equal(normalizeServerUrl('https://shop.example'), 'https://shop.example/api');
 });
 
 test('POS keeps explicit and direct API addresses', () => {
   assert.equal(normalizeServerUrl('https://shop.example/api/'), 'https://shop.example/api');
   assert.equal(normalizeServerUrl('http://127.0.0.1:3011'), 'http://127.0.0.1:3011');
+  assert.equal(normalizeServerUrl('http://192.168.1.20:3011'), 'http://192.168.1.20:3011');
   assert.throws(() => normalizeServerUrl('shop.example/login'), /Укажите адрес магазина/);
 });
 

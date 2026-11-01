@@ -418,7 +418,7 @@ export function App() {
 
   async function addProduct(product: CatalogItem | PosProduct) {
     const existing = cart.find(line => line.product.id === product.id);
-    if (existing) { if (existing.quantity >= existing.available) { setStockNotice(`Для «${product.name}» доступно только ${existing.available} шт. Количество оставлено без изменений.`); return; } setStockNotice(''); setCart(current => current.map(line => line.product.id === product.id ? { ...line, quantity: line.quantity + 1 } : line)); setSearch(''); return; }
+    if (existing) { if (existing.quantity >= existing.available) { setStockNotice(`Для «${product.name}» доступно только ${existing.available} шт. Количество оставлено без изменений.`); return; } setStockNotice(''); setCart(current => current.map(line => line.product.id === product.id ? { ...line, quantity: line.quantity + 1 } : line)); searchRef.current?.focus(); return; }
     setBusy(true); setError('');
     try {
       let available: number, priceMinor: number;
@@ -436,7 +436,7 @@ export function App() {
         available = cached.availableQuantity; priceMinor = cached.priceMinor; setServerReachable(false);
         setQueueNotice('Нет связи. Цена и остаток взяты из сохранённых данных.');
       }
-      setStockNotice(''); setCart(current => [...current, { product, imageKey: 'images' in product ? product.images[0]?.storageKey : 'imageKey' in product ? product.imageKey ?? undefined : undefined, quantity: 1, available, priceMinor, discountMinor: '0' }]); setSearch(''); setProducts([]); searchRef.current?.focus();
+      setStockNotice(''); setCart(current => [...current, { product, imageKey: 'images' in product ? product.images[0]?.storageKey : 'imageKey' in product ? product.imageKey ?? undefined : undefined, quantity: 1, available, priceMinor, discountMinor: '0' }]); searchRef.current?.focus();
     } catch (caught) { setError(message(caught)); }
     finally { setBusy(false); }
   }
@@ -454,10 +454,10 @@ export function App() {
     try {
       if (offlineSignedIn || offlineNetwork) throw new TypeError('Offline session');
       const exact = await client.get<PosProduct>(`/products/lookup/barcode/${encodeURIComponent(code)}`);
-      setBusy(false); await addProduct(exact);
+      setBusy(false); await addProduct(exact); setSearch('');
     } catch (caught) {
       setBusy(false);
-      if ((caught instanceof ApiError && caught.status === 404) || (hasDesktopCache() && connectionFailed(caught))) { const cached = hasDesktopCache() && userId && storeId ? await readCachedProducts(userId, storeId) : []; const match = [...products, ...cached].find(product => product.sku.toLowerCase() === code.toLowerCase() || ('barcodes' in product && product.barcodes.some(barcode => (typeof barcode === 'string' ? barcode : barcode.value) === code))); if (match) await addProduct(match); else setError('Штрихкод не найден. Выберите товар из списка.'); }
+      if ((caught instanceof ApiError && caught.status === 404) || (hasDesktopCache() && connectionFailed(caught))) { const cached = hasDesktopCache() && userId && storeId ? await readCachedProducts(userId, storeId) : []; const match = [...products, ...cached].find(product => product.sku.toLowerCase() === code.toLowerCase() || ('barcodes' in product && product.barcodes.some(barcode => (typeof barcode === 'string' ? barcode : barcode.value) === code))); if (match) { await addProduct(match); setSearch(''); } else setError('Штрихкод не найден. Выберите товар из списка.'); }
       else setError(message(caught));
     }
   }

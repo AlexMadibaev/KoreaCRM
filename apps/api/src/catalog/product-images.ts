@@ -54,6 +54,7 @@ export class ProductImagesService {
     try {
       return await this.db.$transaction(async tx => {
         const image = await tx.productImage.create({ data: { productId, storageKey, sortOrder: (existing._max.sortOrder ?? -1) + 1 } });
+        await tx.product.update({ where: { id: productId }, data: { updatedAt: new Date() } });
         await tx.auditLog.create({ data: { userId, action: 'PRODUCT_IMAGE_ADDED', entityType: 'ProductImage', entityId: image.id, newValue: { productId, storageKey } } });
         return image;
       });
@@ -65,6 +66,7 @@ export class ProductImagesService {
     if (!image) throw new NotFoundException('Изображение не найдено');
     await this.db.$transaction(async tx => {
       await tx.productImage.delete({ where: { id: imageId } });
+      await tx.product.update({ where: { id: productId }, data: { updatedAt: new Date() } });
       await tx.auditLog.create({ data: { userId, action: 'PRODUCT_IMAGE_REMOVED', entityType: 'ProductImage', entityId: imageId, oldValue: { productId, storageKey: image.storageKey } } });
     });
     await unlink(join(imageDirectory, image.storageKey)).catch(() => undefined);
