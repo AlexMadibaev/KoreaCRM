@@ -6,6 +6,7 @@ export const routePermission: Record<string, string> = {
   '/sales': 'sales.view',
   '/customers': 'customers.view',
   '/loyalty': 'settings.edit',
+  '/payment-methods': 'settings.edit',
   '/brands': 'brands.view',
   '/categories': 'categories.view',
   '/suppliers': 'suppliers.view',

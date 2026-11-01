@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { z } from 'zod';
@@ -19,19 +19,21 @@ const saleInclude = { items: { include: { product: { select: { name: true, sku: 
 @Injectable()
 export class SalesService {
   constructor(private readonly db: DatabaseService, private readonly stock: StockService, private readonly finance: FinanceService, private readonly notifications: NotificationsService) {}
-  methods() { return this.db.salePaymentMethod.findMany({ orderBy: { code: 'asc' } }); }
+  methods() { return this.db.salePaymentMethod.findMany({ orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] }); }
   async createMethod(input: z.infer<typeof paymentMethodSchema>, actorId: string) {
     try { return await this.db.$transaction(async tx => {
-      const method = await tx.salePaymentMethod.create({ data: input });
-      await tx.auditLog.create({ data: { userId: actorId, action: 'SALE_PAYMENT_METHOD_CREATED', entityType: 'SalePaymentMethod', entityId: method.id, newValue: input } });
+      const last = await tx.salePaymentMethod.aggregate({ _max: { sortOrder: true } });
+      const data = { ...input, code: input.code ?? `CUSTOM_${randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`, sortOrder: input.sortOrder ?? (last._max.sortOrder ?? 0) + 10 };
+      const method = await tx.salePaymentMethod.create({ data });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'SALE_PAYMENT_METHOD_CREATED', entityType: 'SalePaymentMethod', entityId: method.id, newValue: data } });
       return method;
     }); } catch (error) { if (retryable(error)) throw new ConflictException('Payment method code already exists'); throw error; }
   }
   async editMethod(id: string, input: z.infer<typeof paymentMethodPatchSchema>, actorId: string) {
     const existing = await this.db.salePaymentMethod.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException('Payment method not found');
-    if (existing.system && input.active === false) throw new ConflictException('System payment method cannot be disabled');
     return this.db.$transaction(async tx => {
+      if (existing.active && input.active === false && !await tx.salePaymentMethod.count({ where: { active: true, id: { not: id } } })) throw new ConflictException('At least one payment method must stay active');
       const method = await tx.salePaymentMethod.update({ where: { id }, data: input });
       await tx.auditLog.create({ data: { userId: actorId, action: 'SALE_PAYMENT_METHOD_UPDATED', entityType: 'SalePaymentMethod', entityId: id, newValue: input } });
       return method;

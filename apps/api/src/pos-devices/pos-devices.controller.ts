@@ -1,4 +1,4 @@
-import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AccessGuard, RequirePermission, StoreScopeGuard } from '../auth/guards';
@@ -16,5 +16,6 @@ export class PosDevicesController {
     if (!hasPermission(req.access, 'sales.create') && !hasPermission(req.access, 'sales.return')) throw new ForbiddenException();
     return this.service.register(storeId, parseInput(registerDeviceSchema, body), req.access.userId);
   }
+  @Delete(':deviceId') @RequirePermission('settings.edit') unbind(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('deviceId') deviceId: string, @Req() req: AuthorizedRequest) { return this.service.unbind(storeId, deviceId, req.access.userId); }
   @Patch(':deviceId/status') @RequirePermission('settings.edit') setStatus(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('deviceId') deviceId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.setStatus(storeId, deviceId, parseInput(statusSchema, body), req.access.userId); }
 }

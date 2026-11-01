@@ -51,14 +51,15 @@ async function main() {
     await prisma.expenseCategory.upsert({ where: { name }, update: {}, create: { name } });
   }
   for (const method of [
-    { code: 'CASH', name: 'Наличные', kind: 'CASH' },
-    { code: 'CARD', name: 'Карта', kind: 'CARD' },
-    { code: 'QR', name: 'QR', kind: 'QR' },
-    { code: 'TRANSFER', name: 'Перевод', kind: 'TRANSFER' },
-    { code: 'BONUS', name: 'Бонусы', kind: 'BONUS' },
-    { code: 'DEBT', name: 'Долг', kind: 'DEBT' },
+    { code: 'CASH', name: 'Наличные', kind: 'CASH', sortOrder: 10 },
+    { code: 'CARD', name: 'Карта', kind: 'CARD', sortOrder: 20 },
+    { code: 'QR', name: 'QR', kind: 'QR', sortOrder: 30 },
+    { code: 'TRANSFER', name: 'Перевод', kind: 'TRANSFER', sortOrder: 40 },
+    { code: 'BONUS', name: 'Бонусы', kind: 'BONUS', sortOrder: 60 },
+    { code: 'DEBT', name: 'Долг', kind: 'DEBT', sortOrder: 50 },
   ] as const) {
-    await prisma.salePaymentMethod.upsert({ where: { code: method.code }, update: { name: method.name, kind: method.kind, system: true, active: true }, create: { ...method, system: true, active: true } });
+    // Name, order and availability are edited in the cabinet, so a redeploy must not reset them.
+    await prisma.salePaymentMethod.upsert({ where: { code: method.code }, update: { kind: method.kind, system: true }, create: { ...method, system: true, active: true } });
   }
   const permissions = await prisma.permission.findMany();
   const permissionByCode = new Map(permissions.map((permission) => [permission.code, permission.id]));

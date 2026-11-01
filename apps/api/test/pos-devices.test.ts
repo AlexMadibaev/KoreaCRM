@@ -26,3 +26,20 @@ test('employee allowed to return sales can register a device without sale creati
   assert.throws(() => controller.register('store-1', input, request(['sales.view']) as never), ForbiddenException);
   assert.equal(registrations, 1);
 });
+
+test('POS device is unbound only when it has no open cash shift', async () => {
+  let deleted = 0;
+  let openShift: object | null = { id: 'shift-1' };
+  const tx = {
+    posDevice: { findFirst: async () => ({ deviceId: 'POS-1', storeId: 'store-1', status: 'ACTIVE' }), delete: async () => { deleted++; } },
+    cashShift: { findFirst: async () => openShift },
+    auditLog: { create: async () => undefined },
+  };
+  const db = { $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
+  const service = new PosDevicesService(db);
+  await assert.rejects(service.unbind('store-1', 'POS-1', 'actor'), ConflictException);
+  assert.equal(deleted, 0);
+  openShift = null;
+  assert.deepEqual(await service.unbind('store-1', 'POS-1', 'actor'), { deviceId: 'POS-1' });
+  assert.equal(deleted, 1);
+});

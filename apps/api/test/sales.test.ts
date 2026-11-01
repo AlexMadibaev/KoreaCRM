@@ -225,3 +225,31 @@ test('partial cash returns allocate discounted amount exactly and reject excess 
   assert.deepEqual(cash, ['-33', '-33', '-34']);
   assert.equal(records.length, 3);
 });
+
+test('system payment methods can be disabled while another method stays active', async () => {
+  const updates: unknown[] = [];
+  let activeOthers = 1;
+  const tx = {
+    salePaymentMethod: { count: async () => activeOthers, update: async ({ data }: { data: unknown }) => { updates.push(data); return { id: paymentMethodId, ...data as object }; } },
+    auditLog: { create: async () => undefined },
+  };
+  const db = { salePaymentMethod: { findUnique: async () => ({ id: paymentMethodId, system: true, active: true }) }, $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
+  const service = new SalesService(db, {} as StockService, {} as FinanceService, notifications);
+  await service.editMethod(paymentMethodId, { active: false }, 'actor');
+  assert.deepEqual(updates, [{ active: false }]);
+  activeOthers = 0;
+  await assert.rejects(service.editMethod(paymentMethodId, { active: false }, 'actor'), ConflictException);
+  assert.equal(updates.length, 1);
+});
+
+test('new payment method gets a generated code and goes to the end of the list', async () => {
+  let created: { code: string; sortOrder: number } | null = null;
+  const tx = {
+    salePaymentMethod: { aggregate: async () => ({ _max: { sortOrder: 60 } }), create: async ({ data }: { data: { code: string; sortOrder: number } }) => { created = data; return { id: 'method-1', ...data }; } },
+    auditLog: { create: async () => undefined },
+  };
+  const db = { $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
+  await new SalesService(db, {} as StockService, {} as FinanceService, notifications).createMethod({ name: 'Алиф', kind: 'CUSTOM' }, 'actor');
+  assert.match(created!.code, /^CUSTOM_[0-9A-F]{12}$/);
+  assert.equal(created!.sortOrder, 70);
+});

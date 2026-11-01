@@ -48,6 +48,13 @@ const loginError = (caught: unknown, codeLogin = false) => {
   if (caught instanceof ApiError && caught.status === 401) return codeLogin ? 'Код кассира не подошёл. Попросите администратора выдать новый.' : 'Неверный логин или пароль. Проверьте данные и попробуйте ещё раз.';
   return message(caught);
 };
+const deviceRegistrationError = (caught: unknown) => {
+  if (connectionFailed(caught)) return 'Касса не подключилась: нет связи с сервером. Нажмите «Повторить подключение».';
+  if (caught instanceof ApiError && caught.message === 'Device is assigned to another store') return 'Эта касса уже привязана к другому магазину. Выберите его в списке или отвяжите кассу в личном кабинете: «Магазины» → карточка магазина → «Кассы».';
+  if (caught instanceof ApiError && caught.message === 'Device is disabled') return 'Эта касса отключена в личном кабинете. Обратитесь к администратору.';
+  if (caught instanceof ApiError && caught.message === 'Active store not found') return 'Магазин не найден или не активен. Выберите другой магазин.';
+  return `Касса не подключилась: ${message(caught)}`;
+};
 const validMinor = (value: string) => /^(0|[1-9]\d{0,17})$/.test(value);
 const russianCount = (count: number, one: string, few: string, many: string) => {
   const remainder = count % 100;
@@ -93,6 +100,7 @@ export function App() {
   const client = useMemo(() => createApiClient(clientBaseUrl, deviceId), [clientBaseUrl, deviceId]);
   const [registrationRequested, setRegistrationRequested] = useState(false);
   const [registerNonce, setRegisterNonce] = useState(0);
+  const [deviceError, setDeviceError] = useState('');
   const [signedIn, setSignedIn] = useState(false), [login, setLogin] = useState(''), [cashierName, setCashierName] = useState(''), [password, setPassword] = useState(''), [permissions, setPermissions] = useState<string[]>([]);
   const [loginMode, setLoginMode] = useState<'password' | 'scan'>('password'), [scanCode, setScanCode] = useState(''), [cameraOpen, setCameraOpen] = useState(false);
   const [userId, setUserId] = useState('');
@@ -145,6 +153,8 @@ export function App() {
   useEffect(() => { setPersonalDiscountDraft(selectedCustomer?.discountPercent ?? '0'); }, [selectedCustomer?.id, selectedCustomer?.discountPercent]);
   const customerMatches = customers.filter(customer => !customerSearch.trim() || `${customer.firstName} ${customer.lastName ?? ''} ${customer.phone}`.toLocaleLowerCase('ru').includes(customerSearch.trim().toLocaleLowerCase('ru'))).slice(0, 8);
   const customerDiscountPercent = selectedCustomer?.discountPercent ?? '0';
+  // Tier and promotion rules can apply even without a personal discount, so label the percent actually used.
+  const appliedDiscountPercent = (percents: string[]) => percents.length && percents.every(percent => percent === percents[0]) && Number(percents[0]) > 0 ? ` (${percents[0]}%)` : '';
   const cartSubtotal = cart.reduce((sum, line) => sum + BigInt(line.priceMinor) * BigInt(line.quantity), 0n);
   const cartPercents = loyalty ? cart.map(line => loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null, cartSubtotal)) : [];
   const cartLines = cart.map(line => ({ productId: line.product.id, quantity: line.quantity, available: line.available, priceMinor: line.priceMinor, discountMinor: line.discountMinor }));
@@ -152,7 +162,7 @@ export function App() {
   let cartError = '';
   try { if (cart.length && loyalty) cartTotal = calculateCartWithDiscount(cartLines, cartPercents); } catch { cartError = 'Проверьте количество товаров и скидку клиента.'; }
   const paid = tenders.reduce((total, tender) => total + BigInt(validMinor(tender.amountMinor) ? tender.amountMinor : '0'), 0n);
-  const checkoutHint = pending ? 'Сначала проверьте предыдущую продажу.' : !cart.length ? 'Сначала добавьте товар в чек.' : !deviceReady ? 'Подождите, пока касса подключится.' : cartError ? 'Проверьте количество товаров и скидку клиента.' : cashPayment && !shift ? 'Для оплаты наличными нужна открытая кассовая смена. Откройте её до отключения связи.' : cartTotal && paid !== cartTotal.total ? 'Внесённая сумма должна совпадать с итогом чека.' : '';
+  const checkoutHint = pending ? 'Сначала проверьте предыдущую продажу.' : !cart.length ? 'Сначала добавьте товар в чек.' : !deviceReady ? deviceError || 'Подождите, пока касса подключится.' : cartError ? 'Проверьте количество товаров и скидку клиента.' : cashPayment && !shift ? 'Для оплаты наличными нужна открытая кассовая смена. Откройте её до отключения связи.' : cartTotal && paid !== cartTotal.total ? 'Внесённая сумма должна совпадать с итогом чека.' : '';
   const totalMinor = cartTotal?.total.toString() ?? '0';
   // A single payment always covers the whole receipt; only split payments are typed by hand.
   useEffect(() => { setTenders(current => current.length === 1 && current[0]!.amountMinor !== totalMinor ? [{ ...current[0]!, amountMinor: totalMinor }] : current); }, [totalMinor, tenders.length]);
@@ -249,7 +259,7 @@ export function App() {
   }
   function signInWithCode(event: FormEvent) { event.preventDefault(); void authenticateCode(scanCode); }
   const cameraDetected = useCallback((code: string) => { setCameraOpen(false); setScanCode(code); void authenticateCode(code); }, [client, apiUrl, pending]);
-  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* End this cashier session even if the server is unreachable. */ } finally { offlineCredentialRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setActiveScreen('sale'); setCart([]); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCashierName(''); setLogin(''); setPassword(''); setScanCode(''); setCustomerId(''); setCustomers([]); setShift(null); setDeviceReady(false); setRegistrationRequested(false); setStores([]); setStoreId(''); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setLoginMode('scan'); setBusy(false); } }
+  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* End this cashier session even if the server is unreachable. */ } finally { offlineCredentialRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setActiveScreen('sale'); setCart([]); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCashierName(''); setLogin(''); setPassword(''); setScanCode(''); setCustomerId(''); setCustomers([]); setShift(null); setDeviceReady(false); setDeviceError(''); setRegistrationRequested(false); setStores([]); setStoreId(''); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setLoginMode('scan'); setBusy(false); } }
   const refreshQueueSummary = useCallback(async () => {
     if (!hasDesktopCache() || !userId || !storeId) return;
     const [summary, entries] = await Promise.all([syncQueueSummary(userId, storeId), listSyncQueue(userId, storeId)]);
@@ -379,7 +389,7 @@ export function App() {
   useEffect(() => {
     if (!signedIn || offlineSignedIn || !storeId || !registrationRequested) return;
     let active = true;
-    setDeviceReady(false); setShift(null);
+    setDeviceReady(false); setShift(null); setDeviceError('');
     if (!reconnectingRef.current) { setCart([]); setStockNotice(''); setReceipt(null); setCustomerId(''); }
     reconnectingRef.current = false;
     void (async () => {
@@ -392,7 +402,7 @@ export function App() {
         const opened = (shiftPage as PosPage<PosShift>).items.find(value => value.deviceId === deviceId && value.status === 'OPEN') ?? null;
         setShift(opened); setClosingCash(opened?.expectedCashMinor ?? '0'); setCustomers((customerPage as PosPage<PosCustomer> | undefined)?.items ?? []); setDeviceReady(true); localStorage.setItem(`${savedStoreKey}:${userId}`, storeId);
         if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Локальный вход не готов: ${message(caught)}`));
-      } catch (caught) { if (active) setError(message(caught)); }
+      } catch (caught) { if (active) setDeviceError(deviceRegistrationError(caught)); }
     })();
     return () => { active = false; };
   }, [signedIn, offlineSignedIn, storeId, registrationRequested, registerNonce, client, deviceId, permissions, apiUrl, login, stores, loginMode]);
@@ -666,6 +676,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     <div className="topbar-cashier"><span><small>Кассир</small><strong>{cashierName || login}</strong></span><button className="cashier-switch" disabled={busy || Boolean(pending)} onClick={() => void signOut()}>Сменить</button></div>
   </header>
     {error && <p role="alert" className="error">{error}</p>}
+    {!deviceReady && deviceError && <p role="alert" className="error">{deviceError}</p>}
     {activeScreen === 'sync' && cacheError && <p role="status" className="cache-warning">Не удалось обновить товары: {cacheError}. Продажи при наличии связи доступны.</p>}
     {activeScreen === 'sale' && stockNotice && <p role="status" className="stock-notice">{stockNotice}</p>}
     {queueNotice && <p role="status" className="stock-notice">{queueNotice}</p>}
@@ -723,7 +734,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
           {selectedCustomer && can('customers.discount.edit') && <div className="customer-personal-discount"><label>Персональная скидка, %<input inputMode="decimal" value={personalDiscountDraft} onChange={event => setPersonalDiscountDraft(event.target.value)} disabled={busy || offlineSignedIn || !serverReachable} /></label><button type="button" className="secondary" onClick={() => void savePersonalDiscount()} disabled={busy || offlineSignedIn || !serverReachable || personalDiscountDraft.replace(',', '.') === selectedCustomer.discountPercent}>Сохранить скидку</button></div>}
           {customerId && customerDiscountPercent !== '0' && <p className="muted">Персональная скидка: {customerDiscountPercent}%.</p>}{selectedCustomer && methods.some(method => method.kind === 'BONUS') && <p className="muted">Доступно бонусов: {formatMinor(selectedCustomer.bonusBalanceMinor ?? '0')}</p>}
           {cartError && <p role="alert" className="cart-discount-error">{cartError}</p>}
-          <div className="order-totals">{selectedCustomer && cartTotal && cartTotal.discount > 0n && <><div><span>Товары</span><strong>{formatMinor(cartTotal.subtotal)}</strong></div><div><span>Скидка клиента ({customerDiscountPercent}%)</span><strong>− {formatMinor(cartTotal.discount)}</strong></div></>}<div className="order-total"><span>К оплате</span><strong>{formatMinor(cartTotal?.total ?? 0n)} <small>сомони</small></strong></div></div>
+          <div className="order-totals">{selectedCustomer && cartTotal && cartTotal.discount > 0n && <><div><span>Товары</span><strong>{formatMinor(cartTotal.subtotal)}</strong></div><div><span>Скидка клиента{appliedDiscountPercent(cartPercents)}</span><strong>− {formatMinor(cartTotal.discount)}</strong></div></>}<div className="order-total"><span>К оплате</span><strong>{formatMinor(cartTotal?.total ?? 0n)} <small>сомони</small></strong></div></div>
           <div className="payments">
             {tenders.length <= 1 ? <div className="payment-methods" role="radiogroup" aria-label="Способ оплаты · F5">{methods.map((method, index) => <button type="button" role="radio" key={method.id} ref={tenders[0]?.methodId === method.id || (!tenders[0] && index === 0) ? paymentRef : undefined} aria-checked={tenders[0]?.methodId === method.id} className={tenders[0]?.methodId === method.id ? 'selected' : ''} disabled={Boolean(pending)} onClick={() => setTenders(current => [{ ...(current[0] ?? { id: crypto.randomUUID(), reference: '' }), methodId: method.id, amountMinor: totalMinor }])}>{method.name}</button>)}</div>
               : <div className="payment-split">{tenders.map((tender, index) => <div className="payment" key={tender.id}><select aria-label={`Способ оплаты ${index + 1}`} value={tender.methodId} onChange={event => setTenders(current => current.map(part => part.id === tender.id ? { ...part, methodId: event.target.value } : part))} disabled={Boolean(pending)}>{methods.map(method => <option key={method.id} value={method.id}>{method.name}</option>)}</select><MoneyInput required aria-label={`Сумма оплаты ${index + 1}`} valueMinor={tender.amountMinor} onMinorChange={minor => setTenders(current => current.map(part => part.id === tender.id ? { ...part, amountMinor: minor } : part))} disabled={Boolean(pending)} /><button type="button" className="payment-remove" aria-label="Убрать способ оплаты" onClick={() => setTenders(current => current.filter(part => part.id !== tender.id))} disabled={Boolean(pending)}>×</button></div>)}

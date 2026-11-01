@@ -23,6 +23,17 @@ export class PosDevicesService {
     }
     throw new ConflictException('Device registration could not be completed');
   }
+  // Sales and shifts keep the device id as plain text, so unbinding only frees the device to register in another store.
+  async unbind(storeId: string, deviceId: string, actorId: string) {
+    return this.db.$transaction(async tx => {
+      const existing = await tx.posDevice.findFirst({ where: { storeId, deviceId } });
+      if (!existing) throw new NotFoundException('Device not found');
+      if (await tx.cashShift.findFirst({ where: { deviceId, status: 'OPEN' } })) throw new ConflictException('Close the open cash shift on this device first');
+      await tx.posDevice.delete({ where: { deviceId } });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'POS_DEVICE_UNBOUND', entityType: 'PosDevice', entityId: deviceId, oldValue: { storeId, status: existing.status } } });
+      return { deviceId };
+    });
+  }
   async setStatus(storeId: string, deviceId: string, input: z.infer<typeof statusSchema>, actorId: string) {
     const existing = await this.db.posDevice.findFirst({ where: { storeId, deviceId } });
     if (!existing) throw new NotFoundException('Device not found');

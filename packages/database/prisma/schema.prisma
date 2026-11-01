@@ -622,6 +622,7 @@ model SalePaymentMethod {
   kind             SalePaymentKind
   active           Boolean          @default(true)
   system           Boolean          @default(false)
+  sortOrder        Int              @default(0)
   payments         Payment[]
   customerPayments CustomerPayment[]
   createdAt        DateTime         @default(now())
