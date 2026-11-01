@@ -132,6 +132,12 @@ export class ProductController {
 export class PosProductsController {
   constructor(private readonly catalog: CatalogService) {}
 
+  @Get('revision')
+  @RequirePermission('products.view')
+  revision(@Param('storeId', ParseUUIDPipe) storeId: string) {
+    return this.catalog.posCatalogRevision(storeId);
+  }
+
   @Get()
   @RequirePermission('products.view')
   list(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) {

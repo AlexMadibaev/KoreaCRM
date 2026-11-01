@@ -5,6 +5,24 @@ import { CatalogService } from '../src/catalog/catalog.service';
 import { productUpdateSchema } from '../src/catalog/catalog.schemas';
 import type { DatabaseService } from '../src/database.service';
 
+test('POS catalog revision changes with store stock and scopes store data', async () => {
+  const storeId = 'store-a';
+  let stockVersion = new Date('2026-01-01T00:00:00Z');
+  const staticVersion = { _count: 1, _max: { updatedAt: new Date('2026-01-01T00:00:00Z') } };
+  const db = {
+    store: { findFirst: async () => ({ id: storeId }) },
+    product: { aggregate: async () => staticVersion },
+    storeProductSettings: { aggregate: async ({ where }: { where: { storeId: string } }) => { assert.equal(where.storeId, storeId); return staticVersion; } },
+    stock: { aggregate: async ({ where }: { where: { storeId: string } }) => { assert.equal(where.storeId, storeId); return { _count: 1, _max: { updatedAt: stockVersion } }; } },
+    customer: { aggregate: async () => staticVersion },
+  } as unknown as DatabaseService;
+  const service = new CatalogService(db);
+  const before = await service.posCatalogRevision(storeId);
+  stockVersion = new Date('2026-01-02T00:00:00Z');
+  const after = await service.posCatalogRevision(storeId);
+  assert.notEqual(before.revision, after.revision);
+});
+
 test('a partial product update preserves omitted photos, barcodes, status and unit', () => {
   assert.deepEqual(productUpdateSchema.parse({ name: 'New name' }), { name: 'New name' });
   assert.deepEqual(productUpdateSchema.parse({ imageKeys: [], barcodes: [] }), { imageKeys: [], barcodes: [] });

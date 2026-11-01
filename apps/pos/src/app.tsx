@@ -6,7 +6,7 @@ import type { PosCustomer, PosPage, PosPaymentMethod, PosProduct, PosSale, PosSe
 import { calculateCartWithDiscount, formatMinor, validatePayments } from './calculations';
 import { loyaltyPercent, type LoyaltySettings } from './loyalty';
 import { buildEscPosReceipt } from './escpos';
-import { hasDesktopCache, readCachedCustomers, readCachedProducts, readCatalogCacheStatus, readDatabaseHealth, refreshCatalogCache, type CacheStatus, type DatabaseHealth } from './local-cache';
+import { hasDesktopCache, readCachedCustomers, readCachedProducts, readCatalogCacheStatus, readCatalogRevision, readDatabaseHealth, refreshCatalogCache, type CacheStatus, type DatabaseHealth } from './local-cache';
 import { enqueueSale, listSyncQueue, retryConflictSale, setSyncStatus, syncQueueSummary, type QueueEntry, type QueueSummary } from './sync-queue';
 import { drainQueue } from './queue-drain';
 import { markOfflineSessionReady, matchOfflineCode, passwordVerifier, readOfflineCodeSessions, readOfflineSession, sameVerifier, saveOfflineCodeSession, saveOfflineSession, type OfflineSession } from './offline-session';
@@ -91,6 +91,8 @@ export function App() {
   const [loginMode, setLoginMode] = useState<'password' | 'scan'>('password'), [scanCode, setScanCode] = useState(''), [cameraOpen, setCameraOpen] = useState(false);
   const [userId, setUserId] = useState('');
   const [cacheStatus, setCacheStatus] = useState<CacheStatus | null>(null), [cacheProgress, setCacheProgress] = useState(''), [cacheError, setCacheError] = useState(''), [cacheBusy, setCacheBusy] = useState(false);
+  const cacheBusyRef = useRef(false);
+  const [catalogRefreshToken, setCatalogRefreshToken] = useState(0);
   const [databaseHealth, setDatabaseHealth] = useState<DatabaseHealth | null>(null);
   const [queueSummary, setQueueSummary] = useState<QueueSummary | null>(null), [queueNotice, setQueueNotice] = useState('');
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
@@ -101,6 +103,7 @@ export function App() {
   const offlineNetwork = !networkOnline && !isLocalServerUrl(apiUrl);
   const [serverReachable, setServerReachable] = useState(true);
   const [offlineSignedIn, setOfflineSignedIn] = useState(false);
+  const connectionOffline = offlineSignedIn || offlineNetwork || !serverReachable;
   const offlineCredentialRef = useRef('');
   const offlineCredentialModeRef = useRef<'password' | 'scan'>('password');
   const reconnectingRef = useRef(false);
@@ -312,13 +315,14 @@ export function App() {
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); };
   }, []);
   const updateLocalCache = useCallback(async () => {
-    if (!hasDesktopCache() || offlineSignedIn || !userId || !storeId) return;
+    if (!hasDesktopCache() || offlineSignedIn || !userId || !storeId || cacheBusyRef.current) return;
+    cacheBusyRef.current = true;
     setCacheBusy(true); setCacheError('');
     try {
       const status = await refreshCatalogCache(client, userId, storeId, permissions, setCacheProgress);
-      setCacheStatus(status); setCacheProgress('');
-    } catch (caught) { setCacheError(message(caught)); setCacheProgress(''); }
-    finally { setCacheBusy(false); }
+      setCacheStatus(status); setCacheProgress(''); setCatalogRefreshToken(value => value + 1); setServerReachable(true);
+    } catch (caught) { setCacheError(message(caught)); setCacheProgress(''); if (connectionFailed(caught)) setServerReachable(false); }
+    finally { cacheBusyRef.current = false; setCacheBusy(false); }
   }, [client, offlineSignedIn, userId, storeId, permissions]);
   useEffect(() => {
     if (!signedIn || offlineSignedIn || !deviceReady || !userId || !storeId || !hasDesktopCache()) return;
@@ -327,6 +331,25 @@ export function App() {
     void updateLocalCache();
     return () => { active = false; };
   }, [signedIn, offlineSignedIn, deviceReady, userId, storeId, updateLocalCache]);
+  useEffect(() => {
+    if (!signedIn || offlineSignedIn || offlineNetwork || !deviceReady || !userId || !storeId || !hasDesktopCache()) return;
+    let checking = false;
+    const check = async () => {
+      if (checking || cacheBusyRef.current) return;
+      checking = true;
+      try {
+        const revision = await readCatalogRevision(client, storeId);
+        const status = await readCatalogCacheStatus(userId, storeId);
+        if (status.revision !== revision) await updateLocalCache();
+        else setServerReachable(true);
+      } catch (caught) { if (connectionFailed(caught)) setServerReachable(false); }
+      finally { checking = false; }
+    };
+    const timer = window.setInterval(() => void check(), 30000);
+    const online = () => void check();
+    window.addEventListener('online', online);
+    return () => { window.clearInterval(timer); window.removeEventListener('online', online); };
+  }, [signedIn, offlineSignedIn, offlineNetwork, deviceReady, userId, storeId, client, updateLocalCache]);
   useEffect(() => {
     if (!signedIn || activeScreen !== 'sync' || !hasDesktopCache()) return;
     let active = true;
@@ -367,7 +390,7 @@ export function App() {
       } else setError(message(caught));
     }); }, query ? 200 : 0);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [signedIn, search, client, userId, storeId, offlineSignedIn, offlineNetwork]);
+  }, [signedIn, search, client, userId, storeId, offlineSignedIn, offlineNetwork, catalogRefreshToken]);
   useEffect(() => {
     if (!signedIn || !can('customers.view') || !customerSearch.trim()) return;
     if (offlineSignedIn || offlineNetwork) {
@@ -600,7 +623,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     <div className="topbar-brand"><div className="brand-mark" aria-hidden="true">K<span>•</span></div><div><p className="eyebrow">KOREA CRM</p><h1>{activeScreen === 'sale' ? 'Касса продаж' : activeScreen === 'history' ? 'История чеков' : activeScreen === 'shift' ? 'Кассовая смена' : 'Отправка продаж'}</h1></div></div>
     <label>Магазин{stores.length === 1 ? <strong className="assigned-store">{stores[0]!.name}</strong> : <select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={busy || deviceReady}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>}</label>
     {!deviceReady && <button disabled={busy} onClick={() => registrationRequested ? setRegisterNonce(value => value + 1) : setRegistrationRequested(true)}>{registrationRequested ? 'Повторить подключение' : 'Подключить кассу'}</button>}
-    <span className={offlineSignedIn ? "connection-pill" : deviceReady ? "connection-pill is-ready" : "connection-pill"}><i aria-hidden="true" />{offlineSignedIn ? "Нет связи" : deviceReady ? "Касса готова" : "Подключаем кассу"}</span>
+    <span className={connectionOffline ? "connection-pill" : deviceReady ? "connection-pill is-ready" : "connection-pill"}><i aria-hidden="true" />{connectionOffline ? "Нет связи · локальный режим" : deviceReady ? "Касса готова" : "Подключаем кассу"}</span>
     <button className="cashier-switch" disabled={busy || Boolean(pending)} onClick={() => void signOut()}>Сменить кассира</button>
   </header>
     {error && <p role="alert" className="error">{error}</p>}
@@ -609,6 +632,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     {queueNotice && <p role="status" className="stock-notice">{queueNotice}</p>}
     {activeScreen === 'sync' && hasDesktopCache() && <section id="sync" className="panel sync-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Отправка продаж</h2><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{offlineNetwork || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : (queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? `Ожидают повторной отправки: ${(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0)} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales()} disabled={!deviceReady || offlineNetwork || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div><details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>}
     {activeScreen === 'sync' && databaseHealth && <p role="status" className={databaseHealth.integrity === 'ok' ? 'stock-notice' : 'error'}>Локальная база: {databaseHealth.integrity === 'ok' ? 'исправна' : 'обнаружена ошибка, требуется восстановление из копии'} · режим записи: {databaseHealth.journalMode.toUpperCase()}</p>}
+    {activeScreen === 'sync' && cacheStatus?.lastSyncedAt && <p role="status" className="stock-notice">Товары и клиенты обновлены: {new Date(cacheStatus.lastSyncedAt).toLocaleString('ru-RU')} · клиентов: {cacheStatus.customerCount}</p>}
     {pending && <section className="panel pending"><h2>Проверка предыдущей продажи</h2><p>Не удалось получить подтверждение. Нажмите «Проверить продажу», чтобы избежать повторного списания. Магазин: {stores.find(store => store.id === pending.storeId)?.name ?? 'другой магазин'}.</p><button disabled={busy || !deviceReady || storeId !== pending.storeId} onClick={() => void retryPending()} className="primary">Проверить продажу</button></section>}
     {activeScreen === 'sale' && <div className="columns" id="workspace">
       <section className="panel catalog-panel" aria-label="Каталог товаров">

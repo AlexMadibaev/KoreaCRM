@@ -70,4 +70,15 @@ const repeatedWriteOff = await request('POST', `/stores/${storeId}/stock/write-o
 assert.equal(repeatedWriteOff.id, writeOff.id);
 assert.equal(await stockQuantity(), 0);
 
-console.log(JSON.stringify({ result: 'ok', checks: ['login', 'purchase', 'receipt idempotency', 'stock', 'oversell rejection', 'sale idempotency', 'write-off limit and idempotency'], storeId, productId: product.id, saleId: sale.id }));
+const manualProduct = await request('POST', '/products', { name: `Manual stock ${suffix}`, sku: `MAN-${suffix}`, barcodes: [] }, 201);
+await request('PATCH', `/stores/${storeId}/products/${manualProduct.id}/settings`, { priceMinor: 30000, costBasisMinor: 10000, active: true });
+const revisionBefore = (await request('GET', `/stores/${storeId}/pos-products/revision`)).revision;
+await request('POST', `/stores/${storeId}/stock/adjustments`, { productId: manualProduct.id, type: 'INVENTORY', delta: 2, comment: 'Initial stock with documented cost' }, 201);
+assert.notEqual((await request('GET', `/stores/${storeId}/pos-products/revision`)).revision, revisionBefore);
+const manualSaleBody = { operationId: randomUUID(), deviceId, items: [{ productId: manualProduct.id, quantity: 1, discountMinor: '0' }], payments: [{ paymentMethodId: cardId, amountMinor: '30000' }] };
+const manualSale = await request('POST', `/stores/${storeId}/sales`, manualSaleBody, 201);
+assert.equal(manualSale.costMinor, '10000');
+assert.equal(manualSale.profitMinor, '20000');
+assert.equal((await request('POST', `/stores/${storeId}/sales`, manualSaleBody, 201)).id, manualSale.id);
+
+console.log(JSON.stringify({ result: 'ok', checks: ['login', 'purchase', 'receipt idempotency', 'stock', 'oversell rejection', 'sale idempotency', 'write-off limit and idempotency', 'manual stock cost basis and replay'], storeId, productId: product.id, saleId: sale.id }));

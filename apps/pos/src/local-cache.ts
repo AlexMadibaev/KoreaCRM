@@ -4,7 +4,7 @@ import { createApiClient } from '@koreacrm/api-client';
 import type { PosCatalogProduct } from './product-results';
 
 type Client = ReturnType<typeof createApiClient>;
-export type CacheStatus = { storeId: string; productCount: number; customerCount: number; lastSyncedAt: string | null };
+export type CacheStatus = { storeId: string; productCount: number; customerCount: number; lastSyncedAt: string | null; revision: string | null };
 export type DatabaseHealth = { integrity: string; journalMode: string };
 export type CachedProduct = { id: string; name: string; sku: string; brandId: string | null; categoryId: string | null; imageKey: string | null; barcodes: string[]; priceMinor: number | null; availableQuantity: number; active: boolean };
 
@@ -26,6 +26,11 @@ export function readCachedCustomers(userId: string, storeId: string): Promise<Po
   return invoke<PosCustomer[]>('cached_customers', { userId, storeId });
 }
 
+export async function readCatalogRevision(client: Client, storeId: string): Promise<string> {
+  const result = await client.get<{ revision: string }>(`/stores/${storeId}/pos-products/revision`);
+  return result.revision;
+}
+
 async function allPages<T>(client: Client, path: string): Promise<T[]> {
   const items: T[] = [];
   let page = 1;
@@ -40,7 +45,8 @@ async function allPages<T>(client: Client, path: string): Promise<T[]> {
 
 export async function refreshCatalogCache(client: Client, userId: string, storeId: string, permissions: string[], progress: (value: string) => void): Promise<CacheStatus> {
   progress('Загружаем товары и остатки…');
-  const [products, customers] = await Promise.all([
+  const [revision, products, customers] = await Promise.all([
+    readCatalogRevision(client, storeId),
     allPages<PosCatalogProduct>(client, `/stores/${storeId}/pos-products`),
     permissions.includes('customers.view') ? allPages<PosCustomer>(client, '/customers') : Promise.resolve([]),
   ]);
@@ -59,7 +65,7 @@ export async function refreshCatalogCache(client: Client, userId: string, storeI
   progress('Сохраняем локальную базу…');
   return invoke<CacheStatus>('save_catalog_snapshot', {
     snapshot: {
-      userId, storeId, products: cachedProducts,
+      userId, storeId, revision, products: cachedProducts,
       customers: customers.map(customer => ({ id: customer.id, firstName: customer.firstName, lastName: customer.lastName, phone: customer.phone, discountPercent: customer.discountPercent ?? '0' })),
       permissions,
     },

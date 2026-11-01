@@ -39,6 +39,8 @@ pub struct CatalogSnapshot {
     pub products: Vec<CachedProduct>,
     pub customers: Vec<CachedCustomer>,
     pub permissions: Vec<String>,
+    #[serde(default)]
+    pub revision: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -48,6 +50,7 @@ pub struct CacheStatus {
     pub product_count: i64,
     pub customer_count: i64,
     pub last_synced_at: Option<String>,
+    pub revision: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -73,7 +76,8 @@ pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
          PRAGMA synchronous = FULL;
          CREATE TABLE IF NOT EXISTS cache_meta (
            store_id TEXT PRIMARY KEY,
-           last_synced_at TEXT NOT NULL
+           last_synced_at TEXT NOT NULL,
+           revision TEXT
          );
          CREATE TABLE IF NOT EXISTS cached_products (
            store_id TEXT NOT NULL,
@@ -137,6 +141,8 @@ pub(crate) fn initialize(connection: &Connection) -> rusqlite::Result<()> {
          CREATE INDEX IF NOT EXISTS sync_queue_scope_status ON sync_queue(scope_key,status,created_at);",
     )?;
     let has_discount = connection.prepare("PRAGMA table_info(cached_customers)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?.iter().any(|column| column == "discount_percent");
+    let meta_columns = connection.prepare("PRAGMA table_info(cache_meta)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
+    if !meta_columns.iter().any(|column| column == "revision") { connection.execute("ALTER TABLE cache_meta ADD COLUMN revision TEXT", [])?; }
     if !has_discount { connection.execute("ALTER TABLE cached_customers ADD COLUMN discount_percent TEXT NOT NULL DEFAULT '0'", [])?; }
     let product_columns = connection.prepare("PRAGMA table_info(cached_products)")?.query_map([], |row| row.get::<_, String>(1))?.collect::<rusqlite::Result<Vec<_>>>()?;
     if !product_columns.iter().any(|column| column == "brand_id") { connection.execute("ALTER TABLE cached_products ADD COLUMN brand_id TEXT", [])?; }
@@ -182,7 +188,7 @@ fn replace_snapshot(connection: &mut Connection, snapshot: &CatalogSnapshot) -> 
     for permission in &snapshot.permissions {
         tx.execute("INSERT INTO cached_permissions (store_id,name) VALUES (?1,?2)", params![scope, permission]).map_err(|error| error.to_string())?;
     }
-    tx.execute("INSERT INTO cache_meta (store_id,last_synced_at) VALUES (?1,strftime('%Y-%m-%dT%H:%M:%fZ','now')) ON CONFLICT(store_id) DO UPDATE SET last_synced_at=excluded.last_synced_at", [&scope]).map_err(|error| error.to_string())?;
+    tx.execute("INSERT INTO cache_meta (store_id,last_synced_at,revision) VALUES (?1,strftime('%Y-%m-%dT%H:%M:%fZ','now'),?2) ON CONFLICT(store_id) DO UPDATE SET last_synced_at=excluded.last_synced_at,revision=excluded.revision", params![scope, snapshot.revision]).map_err(|error| error.to_string())?;
     tx.commit().map_err(|error| error.to_string())
 }
 
@@ -191,7 +197,8 @@ fn status(connection: &Connection, user_id: &str, store_id: &str) -> rusqlite::R
     let product_count = connection.query_row("SELECT COUNT(*) FROM cached_products WHERE store_id=?1", [&scope], |row| row.get(0))?;
     let customer_count = connection.query_row("SELECT COUNT(*) FROM cached_customers WHERE store_id=?1", [&scope], |row| row.get(0))?;
     let last_synced_at = connection.query_row("SELECT last_synced_at FROM cache_meta WHERE store_id=?1", [&scope], |row| row.get(0)).optional()?;
-    Ok(CacheStatus { store_id: store_id.into(), product_count, customer_count, last_synced_at })
+    let revision = connection.query_row("SELECT revision FROM cache_meta WHERE store_id=?1", [&scope], |row| row.get(0)).optional()?.flatten();
+    Ok(CacheStatus { store_id: store_id.into(), product_count, customer_count, last_synced_at, revision })
 }
 
 #[tauri::command]
@@ -274,6 +281,16 @@ mod tests {
     }
 
     #[test]
+    fn existing_cache_meta_gains_revision_without_losing_timestamp() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE cache_meta (store_id TEXT PRIMARY KEY, last_synced_at TEXT NOT NULL); INSERT INTO cache_meta VALUES ('user-a:store-a','2026-01-01T00:00:00Z');").unwrap();
+        initialize(&db).unwrap();
+        let current = status(&db, "user-a", "store-a").unwrap();
+        assert_eq!(current.last_synced_at.as_deref(), Some("2026-01-01T00:00:00Z"));
+        assert_eq!(current.revision, None);
+    }
+
+    #[test]
     fn adds_brand_and_category_to_existing_product_cache() {
         let db = Connection::open_in_memory().unwrap();
         db.execute_batch("CREATE TABLE cached_products (store_id TEXT NOT NULL,id TEXT NOT NULL,name TEXT NOT NULL,sku TEXT NOT NULL,barcodes_json TEXT NOT NULL,price_minor INTEGER,available_quantity INTEGER NOT NULL,active INTEGER NOT NULL,PRIMARY KEY (store_id,id)); INSERT INTO cached_products (store_id,id,name,sku,barcodes_json,price_minor,available_quantity,active) VALUES ('store-a','product-a','Cream','A','[]',100,3,1);").unwrap();
@@ -286,14 +303,16 @@ mod tests {
     fn snapshot_replacement_is_atomic_and_scoped_to_store() {
         let mut db = Connection::open_in_memory().unwrap();
         initialize(&db).unwrap();
-        let first = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { id: "product-a".into(), name: "Cream".into(), sku: "A".into(), brand_id: None, category_id: None, image_key: Some("photo.png".into()), barcodes: vec!["123".into()], price_minor: Some(100), available_quantity: 3, active: true }], customers: vec![], permissions: vec!["sales.create".into()] };
+        let first = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { id: "product-a".into(), name: "Cream".into(), sku: "A".into(), brand_id: None, category_id: None, image_key: Some("photo.png".into()), barcodes: vec!["123".into()], price_minor: Some(100), available_quantity: 3, active: true }], customers: vec![], permissions: vec!["sales.create".into()], revision: Some("rev-1".into()) };
         replace_snapshot(&mut db, &first).unwrap();
         assert_eq!(status(&db, "user-a", "store-a").unwrap().product_count, 1);
+        assert_eq!(status(&db, "user-a", "store-a").unwrap().revision.as_deref(), Some("rev-1"));
         assert_eq!(products_with_local_sales(&db, "user-a", "store-a").unwrap()[0].image_key.as_deref(), Some("photo.png"));
-        let invalid = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { available_quantity: -1, ..first.products[0].clone() }], customers: vec![], permissions: vec![] };
+        let invalid = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { available_quantity: -1, ..first.products[0].clone() }], customers: vec![], permissions: vec![], revision: Some("rev-2".into()) };
         assert!(replace_snapshot(&mut db, &invalid).is_err());
         assert_eq!(status(&db, "user-a", "store-a").unwrap().product_count, 1);
-        let other = CatalogSnapshot { user_id: "user-b".into(), store_id: "store-a".into(), products: first.products.clone(), customers: vec![], permissions: vec![] };
+        assert_eq!(status(&db, "user-a", "store-a").unwrap().revision.as_deref(), Some("rev-1"));
+        let other = CatalogSnapshot { user_id: "user-b".into(), store_id: "store-a".into(), products: first.products.clone(), customers: vec![], permissions: vec![], revision: None };
         replace_snapshot(&mut db, &other).unwrap();
         assert_eq!(status(&db, "user-a", "store-a").unwrap().product_count, 1);
         assert_eq!(status(&db, "user-b", "store-a").unwrap().product_count, 1);
@@ -303,7 +322,7 @@ mod tests {
     fn cached_quantity_reserves_queued_and_recently_synced_sales() {
         let mut db = Connection::open_in_memory().unwrap();
         initialize(&db).unwrap();
-        let snapshot = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { id: "product-a".into(), name: "Cream".into(), sku: "A".into(), brand_id: None, category_id: None, image_key: None, barcodes: vec![], price_minor: Some(100), available_quantity: 3, active: true }], customers: vec![], permissions: vec![] };
+        let snapshot = CatalogSnapshot { user_id: "user-a".into(), store_id: "store-a".into(), products: vec![CachedProduct { id: "product-a".into(), name: "Cream".into(), sku: "A".into(), brand_id: None, category_id: None, image_key: None, barcodes: vec![], price_minor: Some(100), available_quantity: 3, active: true }], customers: vec![], permissions: vec![], revision: None };
         replace_snapshot(&mut db, &snapshot).unwrap();
         db.execute("UPDATE cache_meta SET last_synced_at='2020-01-01T00:00:00.000Z'", []).unwrap();
         db.execute("INSERT INTO sync_queue (operation_id,scope_key,entity_type,entity_id,payload_json,status) VALUES ('op-1','user-a:store-a','SALE','op-1','{\"operationId\":\"op-1\",\"items\":[{\"productId\":\"product-a\",\"quantity\":1}]}','ERROR')", []).unwrap();

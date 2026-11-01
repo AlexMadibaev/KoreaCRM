@@ -195,6 +195,19 @@ export class CatalogService {
     };
   }
 
+  async posCatalogRevision(storeId: string) {
+    const store = await this.db.store.findFirst({ where: { id: storeId, deletedAt: null }, select: { id: true } });
+    if (!store) throw new NotFoundException('Store not found');
+    const [products, settings, stocks, customers] = await Promise.all([
+      this.db.product.aggregate({ where: { deletedAt: null, status: 'ACTIVE' }, _max: { updatedAt: true }, _count: true }),
+      this.db.storeProductSettings.aggregate({ where: { storeId }, _max: { updatedAt: true }, _count: true }),
+      this.db.stock.aggregate({ where: { storeId }, _max: { updatedAt: true }, _count: true }),
+      this.db.customer.aggregate({ where: { deletedAt: null }, _max: { updatedAt: true }, _count: true }),
+    ]);
+    const revision = [products, settings, stocks, customers].map(value => `${value._count}:${value._max.updatedAt?.toISOString() ?? ''}`).join('|');
+    return { revision };
+  }
+
   async product(id: string) {
     const item = await this.db.product.findFirst({ where: { id, deletedAt: null }, include: { brand: true, category: true, barcodes: true, images: { orderBy: { sortOrder: 'asc' } } } });
     if (!item) throw new NotFoundException('Product not found');
