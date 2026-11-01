@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { formatCurrencyMinor } from '@koreacrm/ui';
+import { CategoryAutoAssign } from '../../components/category-auto-assign';
 import { api, productImageUrl, queryString, type Brand, type Category, type Page, type Product } from '../../lib/api';
 
 type Store = { id: string; name: string };
@@ -29,10 +30,13 @@ export default function ProductsPage() {
     const timer = window.setTimeout(() => setAppliedSearch(search), 300);
     return () => window.clearTimeout(timer);
   }, [search]);
+  const [filtersRevision, setFiltersRevision] = useState(0);
   useEffect(() => {
     Promise.all([api<Page<Brand>>('/brands?limit=100'), api<Page<Category>>('/categories?limit=100')])
       .then(([brandPage, categoryPage]) => { setBrands(brandPage.items); setCategories(categoryPage.items); })
       .catch(caught => setError(caught instanceof Error ? caught.message : 'Не удалось загрузить фильтры'));
+  }, [filtersRevision]);
+  useEffect(() => {
     api<Store[]>('/stores').then(available => { setStores(available); setStoreId(available[0]?.id ?? ''); })
       .catch(caught => setPriceError(caught instanceof Error ? caught.message : 'Не удалось загрузить магазины'));
   }, []);
@@ -64,6 +68,7 @@ export default function ProductsPage() {
   const filtered = Boolean(search || brandId || categoryId);
   return <section className="crm-products-page">
     <div className="crm-page-head"><div><span className="crm-eyebrow">АССОРТИМЕНТ</span><h1>Товары</h1><p>Управляйте каталогом и находите нужные позиции.</p></div><div className="crm-import-actions"><Link className="crm-outline-button" href="/products/import">Импорт / экспорт</Link><Link className="crm-primary-button" href="/products/new">＋ Добавить товар</Link></div></div>
+    <CategoryAutoAssign onApplied={() => { setFiltersRevision(value => value + 1); void load(); }} />
     <div className="crm-products-toolbar"><div className="crm-products-search"><span aria-hidden="true">⌕</span><input aria-label="Поиск товаров" type="search" enterKeyHint="search" autoComplete="off" placeholder="Поиск по названию, артикулу или штрихкоду" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div><select aria-label="Фильтр по бренду" value={brandId} onChange={event => { setBrandId(event.target.value); setPage(1); }}><option value="">Все бренды</option>{brands.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><select aria-label="Фильтр по категории" value={categoryId} onChange={event => { setCategoryId(event.target.value); setPage(1); }}><option value="">Все категории</option>{categories.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><select aria-label="Магазин для цен" value={storeId} onChange={event => setStoreId(event.target.value)} disabled={!stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>{filtered && <button className="crm-clear-filters" onClick={() => { setSearch(''); setBrandId(''); setCategoryId(''); setPage(1); }}>Сбросить</button>}</div>
     {error && <div className="crm-alert" role="alert">{error}</div>}
     {priceError && <div className="crm-alert" role="alert">{priceError}</div>}

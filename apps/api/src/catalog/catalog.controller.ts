@@ -60,6 +60,14 @@ export class CategoryController {
     return this.catalog.categories(input.page, input.limit, input.search);
   }
 
+  @Get('auto-assign')
+  @RequirePermission('categories.edit')
+  previewAutoAssign(@Req() request: AuthorizedRequest) { return this.catalog.autoCategorize(false, request.access.userId); }
+
+  @Post('auto-assign')
+  @RequirePermission('categories.edit')
+  autoAssign(@Req() request: AuthorizedRequest) { return this.catalog.autoCategorize(true, request.access.userId); }
+
   @Get(':id')
   @RequirePermission('categories.view')
   get(@Param('id', ParseUUIDPipe) id: string) { return this.catalog.category(id); }

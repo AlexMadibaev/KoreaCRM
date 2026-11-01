@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../database.service';
 import type { z } from 'zod';
 import { brandSchema, categorySchema, posProductQuerySchema, productQuerySchema, productSchema, productUpdateSchema, storeSettingsSchema } from './catalog.schemas';
+import { suggestCategory } from './category-rules';
 
 type BrandInput = z.infer<typeof brandSchema>;
 type CategoryInput = z.infer<typeof categorySchema>;
@@ -130,6 +131,30 @@ export class CatalogService {
       this.db.auditLog.create({ data: { userId, action: 'CATEGORY_DELETED', entityType: 'Category', entityId: id, oldValue: { name: old.name, parentId: old.parentId } } }),
     ]);
     return { success: true };
+  }
+
+  // Only products without a category are touched, so manual choices always win.
+  async autoCategorize(apply: boolean, userId: string) {
+    const products = await this.db.product.findMany({ where: { deletedAt: null, categoryId: null }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+    const groups = new Map<string, { id: string; name: string }[]>();
+    for (const product of products) {
+      const name = suggestCategory(product.name);
+      if (name) groups.set(name, [...groups.get(name) ?? [], product]);
+    }
+    const summary = {
+      total: products.length,
+      matched: [...groups.values()].reduce((sum, rows) => sum + rows.length, 0),
+      groups: [...groups].map(([name, rows]) => ({ name, count: rows.length, examples: rows.slice(0, 5).map(row => row.name) })).sort((a, b) => b.count - a.count),
+    };
+    if (!apply || !summary.matched) return { ...summary, applied: false };
+    await this.db.$transaction(async (tx) => {
+      for (const [name, rows] of groups) {
+        const category = await tx.category.findFirst({ where: { deletedAt: null, name: { equals: name, mode: 'insensitive' } } }) ?? await tx.category.create({ data: { name } });
+        await tx.product.updateMany({ where: { id: { in: rows.map(row => row.id) }, categoryId: null }, data: { categoryId: category.id } });
+      }
+      await tx.auditLog.create({ data: { userId, action: 'CATEGORIES_AUTO_ASSIGNED', entityType: 'Category', newValue: { matched: summary.matched, groups: summary.groups.map(({ name, count }) => ({ name, count })) } } });
+    }, { timeout: 60_000 });
+    return { ...summary, applied: true };
   }
 
   async products(query: ProductQuery) {
