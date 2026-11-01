@@ -5,11 +5,28 @@ const host = '127.0.0.1';
 const port = Number(process.env.KOREACRM_DEMO_PORT ?? 3001);
 const store = { id: 'demo-store', code: 'DEMO', name: 'Демо-магазин' };
 const brands = [{ id: 'demo-brand', name: 'K-Beauty Lab' }];
-const categories = [{ id: 'demo-category', name: 'Уход за кожей', parentId: null }];
+const categories = [
+  { id: 'demo-category', name: 'Кремы', parentId: null },
+  { id: 'demo-serums', name: 'Сыворотки и ампулы', parentId: null },
+  { id: 'demo-cleansing', name: 'Очищение', parentId: null },
+  { id: 'demo-sun', name: 'Солнцезащита', parentId: null },
+  { id: 'demo-masks', name: 'Маски', parentId: null },
+  { id: 'demo-hair', name: 'Волосы', parentId: null },
+];
 const products = [
   { id: 'demo-cream', name: 'Крем для лица Centella', sku: 'KR-001', status: 'ACTIVE', barcodes: [{ value: '4600000000011' }], priceMinor: 129000, quantity: 24 },
-  { id: 'demo-serum', name: 'Сыворотка с ниацинамидом', sku: 'KR-002', status: 'ACTIVE', barcodes: [{ value: '4600000000028' }], priceMinor: 189000, quantity: 18 },
-  { id: 'demo-cleanser', name: 'Очищающая пенка', sku: 'KR-003', status: 'ACTIVE', barcodes: [{ value: '4600000000035' }], priceMinor: 95000, quantity: 32 },
+  { id: 'demo-serum', categoryId: 'demo-serums', name: 'Сыворотка с ниацинамидом', sku: 'KR-002', status: 'ACTIVE', barcodes: [{ value: '4600000000028' }], priceMinor: 189000, quantity: 18 },
+  { id: 'demo-cleanser', categoryId: 'demo-cleansing', name: 'Очищающая пенка', sku: 'KR-003', status: 'ACTIVE', barcodes: [{ value: '4600000000035' }], priceMinor: 95000, quantity: 32 },
+  { id: 'demo-p0', categoryId: 'demo-sun', name: 'Солнцезащитный крем Round Lab Birch Juice SPF50+', sku: 'KR-100', status: 'ACTIVE', barcodes: [{ value: '4600000000100' }], priceMinor: 165000, quantity: 12 },
+  { id: 'demo-p1', categoryId: 'demo-serums', name: 'Anua Heartleaf 77% Soothing Toner', sku: 'KR-101', status: 'ACTIVE', barcodes: [{ value: '4600000000101' }], priceMinor: 210000, quantity: 9 },
+  { id: 'demo-p2', categoryId: 'demo-serums', name: 'Medicube PDRN Pink Peptide Serum', sku: 'KR-102', status: 'ACTIVE', barcodes: [{ value: '4600000000102' }], priceMinor: 245000, quantity: 6 },
+  { id: 'demo-p3', categoryId: 'demo-masks', name: 'Numbuzin No.5 Vitamin Sheet Mask (4ea)', sku: 'KR-103', status: 'ACTIVE', barcodes: [{ value: '4600000000103' }], priceMinor: 78000, quantity: 40 },
+  { id: 'demo-p4', categoryId: 'demo-serums', name: 'Skin1004 Madagascar Centella Ampoule', sku: 'KR-104', status: 'ACTIVE', barcodes: [{ value: '4600000000104' }], priceMinor: 172000, quantity: 15 },
+  { id: 'demo-p5', categoryId: 'demo-hair', name: 'LADOR Wonder Bubble Shampoo', sku: 'KR-105', status: 'ACTIVE', barcodes: [{ value: '4600000000105' }], priceMinor: 135000, quantity: 2 },
+  { id: 'demo-p6', categoryId: 'demo-sun', name: 'Beauty of Joseon Relief Sun Rice + Probiotics', sku: 'KR-106', status: 'ACTIVE', barcodes: [{ value: '4600000000106' }], priceMinor: 158000, quantity: 20 },
+  { id: 'demo-p7', categoryId: 'demo-cleansing', name: 'Torriden Dive-In Hyaluronic Cleansing Foam', sku: 'KR-107', status: 'ACTIVE', barcodes: [{ value: '4600000000107' }], priceMinor: 99000, quantity: 0 },
+  { id: 'demo-p8', categoryId: 'demo-category', name: 'Dr.Jart+ Ceramidin Moisturizing Cream', sku: 'KR-108', status: 'ACTIVE', barcodes: [{ value: '4600000000108' }], priceMinor: 289000, quantity: 7 },
+  { id: 'demo-p9', categoryId: 'demo-masks', name: 'Mary&May Collagen Peptide Wash Off Mask', sku: 'KR-109', status: 'ACTIVE', barcodes: [{ value: '4600000000109' }], priceMinor: 112000, quantity: 11 },
 ];
 const customers = [
   { id: 'demo-customer-1', firstName: 'Анна', lastName: 'Иванова', phone: '+998901234567', email: null, birthday: '1995-04-12T00:00:00.000Z', gender: 'Женский', address: null, notes: 'Предпочитает уход для чувствительной кожи', discountPercent: '0', bonusBalanceMinor: '15000', debtBalanceMinor: '0', totalSpentMinor: '0', averageCheckMinor: '0', ordersCount: 0 },
@@ -465,9 +482,11 @@ const server = createServer(async (request, response) => {
     const categoryId = url.searchParams.get('categoryId');
     return send(response, 200, page(products.filter(product => `${product.name} ${product.sku} ${product.barcodes.map(code => code.value).join(' ')}`.toLocaleLowerCase('ru').includes(search) && (!brandId || (product.brandId ?? brands[0].id) === brandId) && (!categoryId || (product.categoryId ?? categories[0].id) === categoryId)).map(catalogProduct)));
   }
+  if (request.method === 'GET' && path === `/stores/${store.id}/pos-products/categories`) return send(response, 200, categories.map(({ id, name }) => ({ id, name })));
   if (request.method === 'GET' && path === `/stores/${store.id}/pos-products`) {
     const search = (url.searchParams.get('search') ?? '').toLocaleLowerCase('ru');
-    return send(response, 200, page(products.filter(product => product.status === 'ACTIVE' && `${product.name} ${product.sku} ${product.barcodes.map(code => code.value).join(' ')}`.toLocaleLowerCase('ru').includes(search)).map(product => ({ id: product.id, name: product.name, sku: product.sku, status: product.status, barcodes: product.barcodes, images: product.images ?? [], priceMinor: product.priceMinor, availableQuantity: Math.max(0, product.quantity), active: true }))));
+    const categoryId = url.searchParams.get('categoryId');
+    return send(response, 200, page(products.filter(product => product.status === 'ACTIVE' && (!categoryId || (product.categoryId ?? categories[0].id) === categoryId) && `${product.name} ${product.sku} ${product.barcodes.map(code => code.value).join(' ')}`.toLocaleLowerCase('ru').includes(search)).map(product => ({ id: product.id, name: product.name, sku: product.sku, categoryId: product.categoryId ?? categories[0].id, status: product.status, barcodes: product.barcodes, images: product.images ?? [], priceMinor: product.priceMinor, availableQuantity: Math.max(0, product.quantity), active: true }))));
   }
   if (request.method === 'POST' && path === '/products') {
     if (!body.name?.trim() || !body.sku?.trim()) return error(response, 400, 'Укажите название и SKU');
@@ -585,6 +604,8 @@ const server = createServer(async (request, response) => {
     recordAudit(sessionEmployee.id, 'SALE_CREATED', 'Sale', sale.id, body.deviceId);
     return send(response, 201, sale);
   }
+  if (request.method === 'GET' && path === '/loyalty/settings') return send(response, 200, { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [] });
+  console.warn('demo 404', request.method, path);
   return error(response, 404, 'Демо-маршрут не найден');
 });
 

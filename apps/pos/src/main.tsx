@@ -5,5 +5,6 @@ import '../../../packages/ui/src/components.css';
 import './style.css';
 import './premium.css';
 import './pos-redesign.css';
+import './pos-workspace.css';
 
 createRoot(document.getElementById('root')!).render(<App />);
