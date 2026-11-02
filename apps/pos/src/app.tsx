@@ -35,7 +35,7 @@ const loyaltyKey = 'koreacrm-pos-loyalty-v1';
 const deviceKey = 'koreacrm-pos-device-v1';
 const savedStoreKey = 'koreacrm-pos-store-v1';
 const settingsKey = 'koreacrm-pos-settings-v1';
-const appVersion = '0.2.1';
+const appVersion = '0.2.2';
 const readSettings = (): PosSettingsState => { const base = { ...defaultCardView, printByDefault: false, printerHost: '', sound: false }; try { const raw = localStorage.getItem(settingsKey); return raw ? { ...base, ...JSON.parse(raw) as Partial<PosSettingsState> } : base; } catch { return base; } };
 const message = (caught: unknown) => {
   if (caught instanceof TypeError) return 'Нет связи. Проверьте подключение и попробуйте ещё раз.';

@@ -1,22 +1,27 @@
 /* Cashier screen: dark layout matching docs/POS_SPEC_cloudshop_clone.md and its reference screenshots. */
-.cs, .cs-overlay, .cs-sheet, .cs-pay, .cs-pop-backdrop, .login {
-  --pos-bg: #1a2138;
-  --pos-surface: #222b45;
-  --pos-raised: #2e3653;
-  --pos-menu: #3a4260;
-  --pos-surface-hover: rgba(255, 255, 255, 0.08);
-  --pos-overlay: rgba(0, 0, 0, 0.5);
-  --pos-primary: #1976d2;
-  --pos-primary-2: #4791db;
-  --pos-accent: #ffa726;
-  --pos-danger: #e53935;
-  --pos-success: #43a047;
-  --pos-cyan: #03a9f4;
-  --pos-text: #fff;
-  --pos-text-2: rgba(255, 255, 255, 0.7);
-  --pos-text-3: rgba(255, 255, 255, 0.5);
-  --pos-border: rgba(255, 255, 255, 0.12);
-  --pos-outline: rgba(255, 255, 255, 0.3);
+.cs, .cs-overlay, .cs-sheet, .cs-pay, .cs-pop-backdrop {
+  --pos-bg: #f4f4f6;
+  --pos-surface: #ffffff;
+  --pos-raised: #fbf9fa;
+  --pos-menu: #ffffff;
+  --pos-surface-hover: #fff3f4;
+  --pos-overlay: rgba(48, 32, 40, 0.38);
+  --pos-primary: #a44f59;
+  --pos-primary-2: #a44f59;
+  --pos-accent: #f2979c;
+  --pos-on-accent: #3b2328;
+  --pos-soft: #ffeff0;
+  --pos-soft-2: #fff7f8;
+  --pos-danger: #c62828;
+  --pos-success: #2e7d32;
+  --pos-warn: #9a4f00;
+  --pos-cyan: #ffeff0;
+  --pos-text: #2f2b30;
+  --pos-text-2: #625c66;
+  --pos-text-3: #69636f;
+  --pos-border: #ebe7ea;
+  --pos-outline: #d4cdd2;
+  --pos-shadow: 0 10px 30px rgba(80, 40, 55, 0.16);
   --pos-font: 'Oswald', 'Arial Narrow', sans-serif;
   --r-xs: 4px;
   --r-sm: 8px;
@@ -24,7 +29,7 @@
   font-family: var(--pos-font);
   color: var(--pos-text);
 }
-:root:has(.cs), :root:has(.cs) body, :root:has(.login), :root:has(.login) body { background: #1a2138; }
+:root:has(.cs), :root:has(.cs) body { background: #f4f4f6; }
 .cs *, .cs-overlay *, .cs-sheet *, .cs-pay *, .cs-pop-backdrop * { box-sizing: border-box; }
 :where(.cs, .cs-overlay, .cs-pay, .cs-pop-backdrop, .cs-sheet-head) button { font-family: var(--pos-font); color: inherit; border: 0; border-radius: var(--r-xs); background: transparent; padding: 0; margin: 0; cursor: pointer; box-shadow: none; min-height: 0; transform: none; }
 :where(.cs, .cs-overlay, .cs-pay, .cs-pop-backdrop) button:disabled { cursor: default; opacity: 0.45; }
@@ -38,11 +43,11 @@
 /* Main layout */
 .cs { position: fixed; inset: 0; display: grid; grid-template-columns: minmax(0, 59fr) 10px minmax(380px, 40fr); background: var(--pos-bg); overflow: hidden; }
 .cs-left, .cs-right { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
-.cs-divider { position: relative; background: #2a3150; }
-.cs-divider::after { content: ''; position: absolute; top: 50%; left: 3px; width: 3px; height: 26px; margin-top: -13px; border-radius: 2px; background: rgba(255, 255, 255, 0.45); }
+.cs-divider { position: relative; background: var(--pos-border); }
+.cs-divider::after { content: ''; position: absolute; top: 50%; left: 3px; width: 3px; height: 26px; margin-top: -13px; border-radius: 2px; background: var(--pos-outline); }
 .cs-right { background: var(--pos-surface); }
-.cs-bar { display: flex; align-items: center; gap: 4px; height: 64px; padding: 4px; background: var(--pos-surface); border-bottom: 1px solid rgba(0, 0, 0, 0.25); flex: none; }
-.cs-left .cs-bar { box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); }
+.cs-bar { display: flex; align-items: center; gap: 4px; height: 64px; padding: 4px; background: var(--pos-surface); border-bottom: 1px solid rgba(80, 40, 55, 0.1); flex: none; }
+.cs-left .cs-bar { box-shadow: 0 2px 6px rgba(80, 40, 55, 0.1); }
 .cs-mode { display: grid !important; place-items: center; width: 56px; height: 56px; background: var(--pos-primary-2) !important; color: #fff; }
 .cs-mode .cs-icon, .cs-add-customer .cs-icon { fill: currentColor; stroke: none; }
 .cs-search { position: relative; display: flex; align-items: center; flex: 1; height: 56px; }
@@ -50,7 +55,7 @@
 .cs-search .cs-kbd { position: absolute; right: 14px; color: var(--pos-text); }
 .cs-notices { display: grid; gap: 4px; padding: 4px 4px 0; }
 .cs-notice { display: flex; align-items: center; gap: 12px; margin: 0; padding: 10px 14px; border-radius: var(--r-xs); background: var(--pos-surface); color: var(--pos-text); font-size: 15px; }
-.cs-notice.is-error { background: rgba(229, 57, 53, 0.25); }
+.cs-notice.is-error { background: #fdecea; }
 .cs-notice button { margin-left: auto !important; color: var(--pos-text-2) !important; }
 .cs-catalog { flex: 1; min-height: 0; overflow-y: auto; padding: 4px; }
 .cs-chip { display: inline-flex !important; align-items: center; gap: 6px; height: 34px; padding: 0 12px !important; margin: 0 0 4px !important; background: var(--pos-surface) !important; color: var(--pos-text-2) !important; font-size: 14px; font-weight: 500; text-transform: uppercase; }
@@ -65,7 +70,7 @@
 .cs-card.is-off { opacity: 0.6; }
 .cs-card-hit { display: flex !important; flex-direction: column; align-items: center; gap: 10px; flex: 1; width: 100%; min-height: 0; padding: 10px 8px 6px !important; text-align: center; }
 .cs-card-stock { color: var(--pos-text-3); font-size: 16px; line-height: 1; }
-.cs-card-photo { display: grid; place-items: center; width: 100%; aspect-ratio: 145 / 132; border-radius: var(--r-sm); background: var(--pos-surface-hover); color: rgba(255, 255, 255, 0.4); overflow: hidden; }
+.cs-card-photo { display: grid; place-items: center; width: 100%; aspect-ratio: 145 / 132; border-radius: var(--r-sm); background: var(--pos-surface-hover); color: var(--pos-outline); overflow: hidden; }
 .cs-card-photo img { width: 100%; height: 100%; object-fit: cover; }
 .cs-card-photo .cs-icon { fill: currentColor; stroke: none; }
 .cs-card-name { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; font-size: 16px; font-weight: 400; line-height: 1.5; }
@@ -87,33 +92,33 @@
 .cs-stepper { display: inline-flex; align-items: center; gap: 4px; height: 36px; padding: 2px; border-radius: var(--r-pill); background: var(--pos-surface-hover); }
 .cs-stepper button { display: grid !important; place-items: center; width: 32px; height: 32px; border-radius: 50% !important; }
 .cs-stepper strong { min-width: 28px; text-align: center; font-size: 16px; font-weight: 500; }
-.cs-stepper.is-big { display: flex; width: 100%; justify-content: space-between; height: 72px; padding: 6px; background: rgba(255, 255, 255, 0.1); }
+.cs-stepper.is-big { display: flex; width: 100%; justify-content: space-between; height: 72px; padding: 6px; background: #f7f3f5; }
 .cs-stepper.is-big button { width: 60px; height: 60px; background: var(--pos-surface) !important; }
 .cs-stepper.is-big strong { font-size: 40px; font-weight: 500; }
 
 /* Status bars */
 .cs-status, .cs-sale-bar { display: flex; align-items: center; height: 48px; flex: none; }
 .cs-status { gap: 0; padding: 0 12px 0 0; background: var(--pos-raised); font-size: 15px; }
-.cs-menu-button { display: inline-flex !important; align-items: center; gap: 10px; height: 48px; padding: 0 16px !important; border-right: 1px solid rgba(0, 0, 0, 0.3) !important; border-radius: 0 !important; font-size: 16px; }
+.cs-menu-button { display: inline-flex !important; align-items: center; gap: 10px; height: 48px; padding: 0 16px !important; border-right: 1px solid rgba(80, 40, 55, 0.1) !important; border-radius: 0 !important; font-size: 16px; }
 .cs-menu-button:hover { background: var(--pos-surface-hover) !important; }
 .cs-status-center { flex: 1; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--pos-text-2); }
 .cs-status-center select { width: auto; display: inline-block; margin: 0 6px; padding: 2px 8px; height: 30px; font-size: 14px; background: var(--pos-surface); }
 .cs-status-right { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
-.cs-net { display: inline-grid; color: #66bb6a; }
+.cs-net { display: inline-grid; color: var(--pos-success); }
 .cs-net.is-off { color: var(--pos-danger); }
 
 /* Receipt panel */
 .cs-customer { display: flex !important; align-items: center; gap: 14px; flex: 1; height: 56px; padding: 0 12px !important; text-align: left; font-size: 20px; font-weight: 500; }
 .cs-customer > .cs-icon { color: var(--pos-text-3); }
 .cs-customer span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cs-add-customer { display: grid !important; place-items: center; width: 56px; height: 55px; background: var(--pos-accent) !important; color: #1a2138 !important; }
+.cs-add-customer { display: grid !important; place-items: center; width: 56px; height: 55px; background: var(--pos-accent) !important; color: var(--pos-on-accent) !important; }
 .cs-add-customer .cs-icon { fill: none; stroke: currentColor; stroke-width: 2.6; }
 .cs-section-row { display: flex; align-items: center; justify-content: space-between; height: 34px; padding: 0 8px 0 16px; border-bottom: 1px solid var(--pos-border); color: var(--pos-text-2); font-size: 15px; flex: none; }
 .cs-lines .cs-section-row { margin-top: 18px; }
 .cs-locked { display: flex; flex: 1; flex-direction: column; align-items: center; justify-content: center; gap: 22px; padding: 24px; text-align: center; color: var(--pos-text-2); font-size: 18px; }
-.cs-locked .cs-icon { color: #fff; }
+.cs-locked .cs-icon { color: var(--pos-primary); }
 .cs-locked .cs-action { width: auto; min-width: 240px; }
-.cs-return-banner { margin: 0; padding: 10px 14px; background: rgba(255, 167, 38, 0.18); color: var(--pos-accent); font-size: 15px; }
+.cs-return-banner { margin: 0; padding: 10px 14px; background: var(--pos-soft); color: var(--pos-accent); font-size: 15px; }
 .cs-lines { flex: 1; min-height: 0; overflow-y: auto; }
 .cs-lines ul { margin: 0; padding: 0; list-style: none; }
 .cs-lines li { position: relative; border-bottom: 1px solid var(--pos-border); }
@@ -125,7 +130,7 @@
 .cs-line-main { display: grid; flex: 1; min-width: 0; gap: 4px; }
 .cs-line-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 15px; font-weight: 400; }
 .cs-line-main small { display: flex; align-items: center; gap: 8px; color: var(--pos-text-3); font-size: 11px; }
-.cs-badge { padding: 1px 5px; border-radius: 3px; background: rgba(255, 167, 38, 0.25); color: #ffcc80; font-size: 11px; font-style: normal; font-weight: 500; }
+.cs-badge { padding: 1px 5px; border-radius: 3px; background: var(--pos-soft); color: var(--pos-primary); font-size: 11px; font-style: normal; font-weight: 500; }
 .cs-line-qty { display: inline-flex; align-items: center; gap: 2px; font-size: 18px; font-weight: 500; }
 .cs-line-qty i { color: var(--pos-text-3); font-style: normal; font-weight: 300; }
 .cs-line-sum { display: grid; justify-items: end; min-width: 76px; }
@@ -138,36 +143,36 @@
 .cs-totals strong { color: var(--pos-text); font-weight: 600; }
 .cs-link { color: var(--pos-primary-2) !important; font-size: 16px; font-weight: 600; }
 .cs-queue-chips { display: grid !important; grid-template-columns: 1fr 1fr; margin-top: 4px; }
-.cs-queue-chips button { height: 36px; background: rgba(255, 255, 255, 0.12) !important; color: var(--pos-text-2) !important; font-size: 14px; font-weight: 500; text-transform: uppercase; border-radius: 0 var(--r-xs) var(--r-xs) 0 !important; }
-.cs-queue-chips button.is-accent { background: var(--pos-accent) !important; color: #1a2138 !important; border-radius: var(--r-xs) 0 0 var(--r-xs) !important; }
+.cs-queue-chips button { height: 36px; background: #f7f3f5 !important; color: var(--pos-text-2) !important; font-size: 14px; font-weight: 500; text-transform: uppercase; border-radius: 0 var(--r-xs) var(--r-xs) 0 !important; }
+.cs-queue-chips button.is-accent { background: var(--pos-accent) !important; color: var(--pos-on-accent) !important; border-radius: var(--r-xs) 0 0 var(--r-xs) !important; }
 .cs-queue-chips button:disabled { opacity: 1; }
-.cs-error { margin: 0; color: #ff8a80; font-size: 14px; }
+.cs-error { margin: 0; color: var(--pos-danger); font-size: 14px; }
 .cs-sale-bar { background: var(--pos-primary); }
 .cs-more-button { display: grid !important; place-items: center; width: 52px; height: 48px; }
 .cs-sale { display: flex !important; align-items: center; justify-content: space-between; flex: 1; height: 48px; padding: 0 16px 0 24px !important; font-size: 19px; font-weight: 700; text-transform: uppercase; }
 .cs-sale strong { font-size: 19px; font-weight: 700; text-transform: none; }
 .cs-sale:disabled, .cs-more-button:disabled { opacity: 0.55 !important; }
-.cs-right.is-return .cs-sale-bar { background: var(--pos-accent); color: #1a2138; }
+.cs-right.is-return .cs-sale-bar { background: var(--pos-accent); color: var(--pos-on-accent); }
 
 /* Shared controls */
 .cs-text-button { display: inline-flex !important; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; color: var(--pos-text-2) !important; text-transform: uppercase; }
-.cs-text-button:hover { color: #fff !important; }
+.cs-text-button:hover { color: var(--pos-primary) !important; }
 .cs-text-button.is-accent { color: var(--pos-accent) !important; }
 .cs-text-button.is-blue { color: var(--pos-primary-2) !important; }
 .cs-text-button.is-danger { color: var(--pos-danger) !important; }
-.cs-action { position: relative; display: flex !important; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 42px; padding: 0 48px !important; font-size: 15px; font-weight: 600; text-transform: uppercase; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3) !important; }
+.cs-action { position: relative; display: flex !important; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 42px; padding: 0 48px !important; font-size: 15px; font-weight: 600; text-transform: uppercase; box-shadow: 0 2px 4px rgba(80, 40, 55, 0.1) !important; }
 .cs-action > .cs-kbd { position: absolute; right: 12px; }
 .cs-action.is-primary { background: var(--pos-primary) !important; color: #fff !important; }
-.cs-action.is-accent { background: var(--pos-accent) !important; color: #1a2138 !important; }
+.cs-action.is-accent { background: var(--pos-accent) !important; color: var(--pos-on-accent) !important; }
 .cs-action.is-danger { background: var(--pos-danger) !important; color: #fff !important; }
-.cs-action:disabled { background: rgba(255, 255, 255, 0.12) !important; color: var(--pos-text-3) !important; opacity: 1 !important; }
+.cs-action:disabled { background: #f7f3f5 !important; color: var(--pos-text-3) !important; opacity: 1 !important; }
 .cs-action.is-small { width: auto; min-height: 36px; padding: 0 16px !important; font-size: 14px; }
-.cs-small-button { padding: 4px 8px !important; background: rgba(255, 255, 255, 0.12) !important; color: var(--pos-text-2) !important; font-size: 13px; font-weight: 600; }
+.cs-small-button { padding: 4px 8px !important; background: #f7f3f5 !important; color: var(--pos-text-2) !important; font-size: 13px; font-weight: 600; }
 .cs-outline-button { position: relative; display: flex !important; align-items: center; justify-content: center; width: 100%; height: 42px; border: 1px solid var(--pos-primary) !important; color: var(--pos-primary-2) !important; font-size: 15px; font-weight: 600; text-transform: uppercase; }
-.cs-outline-button .cs-kbd { position: absolute; right: 12px; color: #fff; }
+.cs-outline-button .cs-kbd { position: absolute; right: 12px; color: var(--pos-primary); }
 .cs-avatar { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; background: var(--pos-primary-2); color: #fff; font-size: 16px; font-weight: 500; flex: none; }
-.cs-avatar.is-cyan { background: var(--pos-cyan); color: #1a2138; }
-.cs-avatar.is-gray { width: 28px; height: 28px; background: #8b90a1; font-size: 14px; }
+.cs-avatar.is-cyan { background: var(--pos-soft); color: var(--pos-primary); }
+.cs-avatar.is-gray { width: 28px; height: 28px; background: var(--pos-soft); color: var(--pos-primary); font-size: 14px; }
 
 /* Outlined fields with a floating label */
 .cs-outlined { position: relative; display: flex; align-items: center; min-height: 56px; border: 1px solid var(--pos-outline); border-radius: var(--r-xs); }
@@ -183,17 +188,17 @@
 .cs-group.is-center { justify-items: center; }
 .cs-group-label { margin: 0; color: var(--pos-text-2); font-size: 15px; }
 .cs-radio-tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-.cs-radio-tiles span { display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 16px; border-radius: var(--r-xs); background: rgba(255, 255, 255, 0.06); color: var(--pos-text-3); font-size: 16px; }
-.cs-radio-tiles span.is-on { background: rgba(255, 255, 255, 0.1); color: var(--pos-text); }
+.cs-radio-tiles span { display: flex; align-items: center; gap: 12px; height: 42px; padding: 0 16px; border-radius: var(--r-xs); background: #f7f3f5; color: var(--pos-text-3); font-size: 16px; }
+.cs-radio-tiles span.is-on { background: #f7f3f5; color: var(--pos-text); }
 .cs-radio-tiles i { width: 20px; height: 20px; border: 2px solid currentColor; border-radius: 50%; }
 .cs-radio-tiles .is-on i { border-color: var(--pos-primary-2); box-shadow: inset 0 0 0 4px var(--pos-surface), inset 0 0 0 10px var(--pos-primary-2); }
-.cs-panel { display: grid; gap: 10px; padding: 12px 16px; border-radius: var(--r-xs); background: rgba(255, 255, 255, 0.06); }
-.cs-panel .cs-outlined > span { background: #2a3350; }
-.cs-warning { margin: 0; padding: 12px 14px; border-radius: var(--r-xs); background: #1d1708; color: #ffd28a; font-size: 14px; }
+.cs-panel { display: grid; gap: 10px; padding: 12px 16px; border-radius: var(--r-xs); background: #f7f3f5; }
+.cs-panel .cs-outlined > span { background: var(--pos-soft-2); }
+.cs-warning { margin: 0; padding: 12px 14px; border-radius: var(--r-xs); background: #fff4e2; color: var(--pos-warn); font-size: 14px; }
 
 /* Modals */
 .cs-overlay { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; padding: 20px; background: var(--pos-overlay); }
-.cs-modal { display: flex; flex-direction: column; max-width: 100%; max-height: calc(100vh - 40px); background: var(--pos-surface); border-radius: var(--r-xs); box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); overflow: hidden; }
+.cs-modal { display: flex; flex-direction: column; max-width: 100%; max-height: calc(100vh - 40px); background: var(--pos-surface); border-radius: var(--r-xs); box-shadow: 0 20px 60px rgba(80, 40, 55, 0.16); overflow: hidden; }
 .cs-modal.is-round { border-radius: 16px; }
 .cs-modal-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 68px; padding: 12px 24px; border-bottom: 1px solid var(--pos-border); }
 .cs-modal-head h2 { margin: 0; font-size: 20px; font-weight: 500; }
@@ -202,14 +207,14 @@
 .cs-line-modal .cs-modal-head { border-bottom: 0; background: linear-gradient(var(--pos-raised) 0 30px, transparent 30px); }
 .cs-line-modal .cs-modal-head h2 { font-size: 18px; }
 .cs-line-title { display: inline-flex; align-items: center; gap: 20px; }
-.cs-line-avatar { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; background: var(--pos-bg); color: rgba(255, 255, 255, 0.45); overflow: hidden; }
+.cs-line-avatar { display: grid; place-items: center; width: 72px; height: 72px; border-radius: 50%; background: var(--pos-bg); color: var(--pos-outline); overflow: hidden; }
 .cs-line-avatar img { width: 100%; height: 100%; object-fit: cover; }
 .cs-line-avatar .cs-icon, .cs-queue-line i .cs-icon { fill: currentColor; stroke: none; }
 .cs-line-total { display: grid; justify-items: center; gap: 2px; font-size: 16px; color: var(--pos-text-2); }
 .cs-line-total strong { color: var(--pos-text); font-size: 32px; font-weight: 700; }
 .cs-discount-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .cs-two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-.cs-note { padding: 12px 14px; border-radius: var(--r-xs); background: rgba(255, 255, 255, 0.06); color: var(--pos-text-2); font-size: 15px; }
+.cs-note { padding: 12px 14px; border-radius: var(--r-xs); background: #f7f3f5; color: var(--pos-text-2); font-size: 15px; }
 .cs-note p { margin: 2px 0; }
 .cs-input { display: grid; gap: 6px; font-size: 14px; color: var(--pos-text-2); }
 .cs-input.is-required textarea, .cs-input.is-required input { border-color: var(--pos-danger); }
@@ -230,7 +235,7 @@
 
 /* Customer search drop-down */
 .cs-overlay.is-top { place-items: start center; padding-top: 33px; }
-.cs-dropdown { width: min(672px, 100%); background: var(--pos-surface); border-radius: var(--r-xs); box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5); overflow: hidden; }
+.cs-dropdown { width: min(672px, 100%); background: var(--pos-surface); border-radius: var(--r-xs); box-shadow: 0 16px 40px rgba(80, 40, 55, 0.16); overflow: hidden; }
 .cs-dropdown-search { display: flex; align-items: center; gap: 16px; height: 68px; padding: 0 16px 0 20px; border: 2px solid var(--pos-accent); border-radius: var(--r-xs); color: var(--pos-accent); }
 .cs-overlay .cs-dropdown-search input { flex: 1; height: 60px; border: 0; padding: 0; font-size: 20px; font-weight: 500; }
 .cs-dropdown ul { margin: 0; padding: 0; list-style: none; }
@@ -249,36 +254,36 @@
 .cs-queue time { font-size: 16px; color: var(--pos-text); }
 .cs-queue-line { display: grid; grid-template-columns: 1fr 80px 80px; gap: 8px; padding: 6px 16px 10px 0; border-bottom: 1px solid var(--pos-border); font-size: 14px; }
 .cs-queue-line span:first-child { display: inline-flex; align-items: center; gap: 10px; }
-.cs-queue-line i { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(255, 255, 255, 0.12); color: var(--pos-text-2); }
+.cs-queue-line i { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: #f7f3f5; color: var(--pos-text-2); }
 .cs-queue-line span:not(:first-child) { text-align: right; }
 .cs-queue footer { display: flex; align-items: center; gap: 16px; padding: 10px 0 12px; }
 
 /* Popover menus */
 .cs-pop-backdrop { position: fixed; inset: 0; z-index: 55; }
-.cs-pop { position: absolute; display: grid; min-width: 248px; padding: 0; background: var(--pos-menu); border-radius: var(--r-xs); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); overflow: hidden; }
+.cs-pop { position: absolute; display: grid; min-width: 248px; padding: 0; background: var(--pos-menu); border-radius: var(--r-xs); box-shadow: 0 12px 40px rgba(80, 40, 55, 0.16); overflow: hidden; }
 .cs-pop.is-left { left: 16px; bottom: 48px; }
 .cs-pop.is-right { left: 50%; bottom: 0; width: min(568px, 100%); transform: translateX(-50%); }
 .cs-pop > button { display: flex !important; align-items: center; gap: 30px; height: 48px; padding: 0 16px !important; font-size: 16px; text-align: left; }
-.cs-pop > button:hover { background: rgba(255, 255, 255, 0.08) !important; }
-.cs-pop > button.is-danger { color: #ff5f52 !important; }
-.cs-pop hr { width: 100%; margin: 0; border: 0; border-top: 1px solid rgba(0, 0, 0, 0.3); }
+.cs-pop > button:hover { background: #f7f3f5 !important; }
+.cs-pop > button.is-danger { color: var(--pos-danger) !important; }
+.cs-pop hr { width: 100%; margin: 0; border: 0; border-top: 1px solid rgba(80, 40, 55, 0.1); }
 .cs-pop .cs-pop-cancel { color: var(--pos-text) !important; }
 .cs-pop .cs-pop-cancel .cs-pop-gap { width: 24px; }
 .cs-pop .cs-pop-cancel .cs-kbd { margin-left: auto; }
-.cs-profile { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-bottom: 1px solid rgba(0, 0, 0, 0.3); }
-.cs-profile .cs-avatar { background: #8b90a1; }
+.cs-profile { display: flex; align-items: center; gap: 16px; padding: 14px 16px; border-bottom: 1px solid rgba(80, 40, 55, 0.1); }
+.cs-profile .cs-avatar { background: var(--pos-soft); color: var(--pos-primary); }
 .cs-profile span:last-child { display: grid; }
 .cs-profile strong { font-size: 16px; font-weight: 500; }
 .cs-profile small, .cs-seller-row small { color: var(--pos-text-2); font-size: 13px; }
 .cs-seller-row { display: flex !important; align-items: center; gap: 30px; width: 100%; height: 48px; padding: 0 16px !important; text-align: left; border-radius: 0 !important; }
 .cs-seller-row strong { flex: 1; font-size: 16px; font-weight: 500; }
-.cs-seller-row:hover { background: rgba(255, 255, 255, 0.08) !important; }
+.cs-seller-row:hover { background: #f7f3f5 !important; }
 .cs-seller-row:disabled { opacity: 1; cursor: default; }
-.cs-mode-pop { position: absolute; top: 60px; left: 16px; display: flex; gap: 16px; padding: 16px; background: var(--pos-menu); border-radius: var(--r-xs); box-shadow: 0 12px 30px rgba(0, 0, 0, 0.45); }
-.cs-mode-pop button { display: grid !important; justify-items: center; align-content: center; gap: 10px; width: 110px; height: 110px; background: rgba(255, 255, 255, 0.1) !important; font-size: 14px; font-weight: 500; }
+.cs-mode-pop { position: absolute; top: 60px; left: 16px; display: flex; gap: 16px; padding: 16px; background: var(--pos-menu); border-radius: var(--r-xs); box-shadow: 0 12px 30px rgba(80, 40, 55, 0.16); }
+.cs-mode-pop button { display: grid !important; justify-items: center; align-content: center; gap: 10px; width: 110px; height: 110px; background: #f7f3f5 !important; font-size: 14px; font-weight: 500; }
 .cs-mode-pop button.is-on { background: var(--pos-accent) !important; }
 .cs-mode-pop .cs-icon { fill: currentColor; stroke: none; }
-.cs-discount-pop { position: absolute; right: 12px; bottom: 30px; display: grid; gap: 16px; width: 224px; padding: 16px; background: var(--pos-raised); border-radius: var(--r-xs); box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5); }
+.cs-discount-pop { position: absolute; right: 12px; bottom: 30px; display: grid; gap: 16px; width: 224px; padding: 16px; background: var(--pos-raised); border-radius: var(--r-xs); box-shadow: 0 12px 40px rgba(80, 40, 55, 0.16); }
 .cs-discount-pop header { display: flex; align-items: baseline; justify-content: space-between; }
 .cs-discount-pop header strong { font-size: 18px; font-weight: 600; }
 .cs-discount-pop header span { color: var(--pos-text-2); font-size: 13px; }
@@ -287,7 +292,7 @@
 .cs-discount-pop .cs-action { width: 100%; }
 .cs-segment { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; border: 1px solid var(--pos-accent); border-radius: var(--r-xs); overflow: hidden; }
 .cs-segment button { height: 34px; color: var(--pos-accent) !important; font-size: 14px; font-weight: 600; border-radius: 0 !important; }
-.cs-segment button.is-on { background: var(--pos-accent) !important; color: #1a2138 !important; }
+.cs-segment button.is-on { background: var(--pos-accent) !important; color: var(--pos-on-accent) !important; }
 
 /* Payment screen */
 .cs-pay { position: fixed; inset: 0; z-index: 50; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 24px; background: var(--pos-surface); overflow-y: auto; }
@@ -305,34 +310,34 @@
 .cs-comment { height: 100px; margin-top: 16px !important; resize: none; font-size: 16px !important; }
 .cs-switch { display: flex; align-items: center; gap: 14px; margin-top: 10px; font-size: 20px; font-weight: 600; cursor: pointer; }
 .cs-switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
-.cs-switch-track { position: relative; width: 34px; height: 14px; border-radius: 7px; background: rgba(255, 255, 255, 0.35); }
-.cs-switch-track::after { content: ''; position: absolute; top: -3px; left: -2px; width: 20px; height: 20px; border-radius: 50%; background: #eee; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); transition: transform 0.15s; }
-.cs-switch input:checked + .cs-switch-track { background: rgba(25, 118, 210, 0.6); }
+.cs-switch-track { position: relative; width: 34px; height: 14px; border-radius: 7px; background: #efe9ec; }
+.cs-switch-track::after { content: ''; position: absolute; top: -3px; left: -2px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(80, 40, 55, 0.16); transition: transform 0.15s; }
+.cs-switch input:checked + .cs-switch-track { background: rgba(164, 79, 89, 0.6); }
 .cs-switch input:checked + .cs-switch-track::after { transform: translateX(18px); background: var(--pos-primary-2); }
-.cs-pay-customer { display: flex; align-items: center; gap: 16px; padding: 16px; border-radius: var(--r-xs); background: var(--pos-raised); box-shadow: 0 2px 4px rgba(0, 0, 0, 0.25); }
+.cs-pay-customer { display: flex; align-items: center; gap: 16px; padding: 16px; border-radius: var(--r-xs); background: var(--pos-raised); box-shadow: 0 2px 4px rgba(80, 40, 55, 0.1); }
 .cs-pay-customer > span:nth-child(2) { display: grid; flex: 1; }
 .cs-pay-customer strong { font-size: 16px; font-weight: 500; }
 .cs-pay-customer small { font-size: 13px; }
 .cs-pay-customer .cs-small-button { align-self: flex-start; }
 .cs-methods { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin: 24px 0 26px; }
 .cs-methods > button { display: grid !important; gap: 6px; }
-.cs-method-tile { display: grid; place-items: center; height: 70px; border: 1px solid rgba(25, 118, 210, 0.7); border-radius: var(--r-xs); color: var(--pos-primary); }
+.cs-method-tile { display: grid; place-items: center; height: 70px; border: 1px solid rgba(164, 79, 89, 0.7); border-radius: var(--r-xs); color: var(--pos-primary); }
 .cs-methods > button small { color: var(--pos-text); font-size: 12px; }
-.cs-methods > button.is-on .cs-method-tile { background: var(--pos-primary); border-color: var(--pos-primary); color: #fff; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3); }
+.cs-methods > button.is-on .cs-method-tile { background: var(--pos-primary); border-color: var(--pos-primary); color: #fff; box-shadow: 0 2px 4px rgba(80, 40, 55, 0.1); }
 .cs-pay .cs-outlined { min-height: 64px; }
 .cs-pay .cs-outlined input { height: 62px; font-size: 22px; font-weight: 600; }
 .cs-subtitle { margin: 26px 0 12px; font-size: 18px; font-weight: 600; }
 .cs-bills { display: flex; flex-wrap: wrap; }
-.cs-bills button { min-width: 50px; height: 36px; padding: 0 12px !important; border: 1px solid rgba(255, 255, 255, 0.85) !important; border-left-width: 0 !important; border-radius: 0 !important; font-size: 15px; font-weight: 500; }
+.cs-bills button { min-width: 50px; height: 36px; padding: 0 12px !important; border: 1px solid var(--pos-outline) !important; border-left-width: 0 !important; border-radius: 0 !important; font-size: 15px; font-weight: 500; }
 .cs-bills button:first-child { border-left-width: 1px !important; border-radius: var(--r-xs) 0 0 var(--r-xs) !important; }
 .cs-bills button:last-child { border-radius: 0 var(--r-xs) var(--r-xs) 0 !important; }
-.cs-bills button.is-on { background: rgba(255, 255, 255, 0.14) !important; }
+.cs-bills button.is-on { background: #efe9ec !important; }
 .cs-debt-box { display: grid; justify-items: center; gap: 4px; margin-top: 16px; padding: 20px; border-radius: var(--r-xs); background: var(--pos-raised); }
 .cs-debt-box span { color: var(--pos-text-2); font-size: 14px; }
 .cs-debt-box strong { font-size: 36px; font-weight: 600; }
-.cs-pay-accept { position: relative; display: flex !important; align-items: center; justify-content: center; height: 56px; margin-top: 32px !important; background: var(--pos-primary) !important; color: #fff !important; font-size: 22px; font-weight: 600; text-transform: uppercase; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35) !important; }
+.cs-pay-accept { position: relative; display: flex !important; align-items: center; justify-content: center; height: 56px; margin-top: 32px !important; background: var(--pos-primary) !important; color: #fff !important; font-size: 22px; font-weight: 600; text-transform: uppercase; box-shadow: 0 2px 6px rgba(80, 40, 55, 0.16) !important; }
 .cs-pay-accept .cs-kbd { position: absolute; right: 12px; }
-.cs-pay-accept.is-accent { background: var(--pos-accent) !important; color: #1a2138 !important; }
+.cs-pay-accept.is-accent { background: var(--pos-accent) !important; color: var(--pos-on-accent) !important; }
 .cs-pay .cs-error { margin-top: 12px; }
 .cs-success-card { display: grid; width: min(100%, 536px); text-align: left; }
 .cs-success-card h2 { margin-bottom: 36px; text-align: center; font-size: 36px; }
@@ -343,7 +348,7 @@
 
 /* Full-screen sheets hosting the journal, shifts, debts and settings */
 .cs-sheet { position: fixed; inset: 0; z-index: 45; display: flex; flex-direction: column; background: var(--pos-bg); }
-.cs-sheet-head { display: flex; align-items: center; gap: 24px; height: 64px; padding: 0 24px; background: var(--pos-raised); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3); flex: none; }
+.cs-sheet-head { display: flex; align-items: center; gap: 24px; height: 64px; padding: 0 24px; background: var(--pos-raised); box-shadow: 0 2px 6px rgba(80, 40, 55, 0.1); flex: none; }
 .cs-sheet-head h2 { margin: 0; font-size: 24px; font-weight: 500; }
 .cs-sheet-head button { display: grid; place-items: center; width: 36px; height: 36px; border: 0; background: transparent; color: var(--pos-text); cursor: pointer; }
 .cs-sheet-body { flex: 1; min-height: 0; overflow-y: auto; padding: 16px; }
@@ -352,13 +357,13 @@
 .cs-sheet-body .screen-heading .eyebrow, .cs-sheet-body .screen-heading h2, .cs-sheet-body .section-heading .eyebrow, .cs-sheet-body .section-number { display: none; }
 .cs-sheet-body, .cs-sheet-body h2, .cs-sheet-body h3, .cs-sheet-body h4, .cs-sheet-body strong, .cs-sheet-body label, .cs-sheet-body p, .cs-sheet-body span, .cs-sheet-body li { color: var(--pos-text); font-family: var(--pos-font); }
 .cs-sheet-body .muted, .cs-sheet-body small, .cs-sheet-body .shift-state span, .cs-sheet-body .sales-history-list span, .cs-sheet-body .shift-report-methods, .cs-sheet-body .shift-report-operations { color: var(--pos-text-2) !important; }
-.cs-legacy button { font-family: var(--pos-font); background: rgba(255, 255, 255, 0.1) !important; color: var(--pos-text) !important; border: 1px solid transparent !important; border-radius: var(--r-xs) !important; box-shadow: none !important; }
+.cs-legacy button { font-family: var(--pos-font); background: #f7f3f5 !important; color: var(--pos-text) !important; border: 1px solid transparent !important; border-radius: var(--r-xs) !important; box-shadow: none !important; }
 .cs-legacy button.primary, .cs-legacy .primary { background: var(--pos-primary) !important; color: #fff !important; }
 .cs-sheet-body .shift-cash-type button.selected, .cs-sheet-body .debts-list li.selected button { background: var(--pos-primary) !important; }
-.cs-sheet-body .shift-state, .cs-sheet-body .shift-notice, .cs-sheet-body .sales-return-notice, .cs-sheet-body .stock-notice { background: rgba(255, 255, 255, 0.06) !important; border-color: var(--pos-border) !important; }
-.cs-sheet-body .shift-variance { color: #81c784 !important; }
+.cs-sheet-body .shift-state, .cs-sheet-body .shift-notice, .cs-sheet-body .sales-return-notice, .cs-sheet-body .stock-notice { background: #f7f3f5 !important; border-color: var(--pos-border) !important; }
+.cs-sheet-body .shift-variance { color: var(--pos-success) !important; }
 .cs-sheet-body .shift-variance.is-off, .cs-sheet-body .debt-amount { color: var(--pos-accent) !important; }
-.cs-sheet-body .error { background: rgba(229, 57, 53, 0.2) !important; color: #ffcdd2 !important; border-color: transparent !important; }
+.cs-sheet-body .error { background: #fdecea !important; color: var(--pos-danger) !important; border-color: transparent !important; }
 .cs-legacy input, .cs-legacy textarea, .cs-legacy select { color: var(--pos-text) !important; background: transparent !important; border-color: var(--pos-outline) !important; font-family: var(--pos-font); }
 .cs-sheet-body .sales-history-list li, .cs-sheet-body .shift-report, .cs-sheet-body .shift-report-row.is-total { border-color: var(--pos-border) !important; }
 .cs-sheet-body .pos.cs-legacy { display: block; width: auto; max-width: none; height: auto; min-height: 0; margin: 0; padding: 0; border: 0; border-radius: 0; background: transparent; box-shadow: none; overflow: visible; grid-template-columns: none; }
@@ -367,15 +372,6 @@
 .cs-settings section { display: grid; align-content: start; gap: 14px; padding: 20px 24px; border-radius: var(--r-xs); background: var(--pos-raised); }
 .cs-settings h3 { margin: 0; font-size: 22px; font-weight: 600; }
 .cs-sample { display: grid; justify-items: center; gap: 8px; padding: 8px; border: 1px solid var(--pos-accent); border-radius: var(--r-xs); background: var(--pos-surface); }
-
-/* Login */
-.login { min-height: 100vh; background: #1a2138 !important; }
-.login .login-shell { background: transparent !important; box-shadow: none !important; }
-.login .login-story { display: none !important; }
-.login h1, .login h2, .login label, .login p, .login span, .login strong { color: var(--pos-text) !important; font-family: var(--pos-font); }
-.login .muted, .login small { color: var(--pos-text-2) !important; }
-.login input { background: #1a2138 !important; color: var(--pos-text) !important; border: 1px solid rgba(255, 255, 255, 0.2) !important; }
-.login .primary, .login button[type='submit'] { background: #3b82f6 !important; color: #fff !important; border: 0 !important; }
 
 /* Receipt preview from the journal stays on top of the dark sheets */
 .receipt-backdrop { z-index: 70; }
@@ -390,13 +386,6 @@
   .cs-sheet { position: static; background: #fff; }
   .cs-sheet-head { display: none; }
 }
-.login .login-shell { grid-template-columns: 1fr !important; width: min(460px, 100%) !important; min-height: 0 !important; border: 1px solid rgba(255, 255, 255, 0.15) !important; border-radius: 12px !important; overflow: hidden; }
-.login .login-shell .login-form { padding: 36px 40px !important; background: #1f2840 !important; }
-.login .login-shell .login-form h1 { color: #fff !important; font-size: 30px; }
-.login .login-shell .login-form .eyebrow { color: var(--pos-primary-2) !important; }
-.login .login-form .connection-settings { background: #1a2138 !important; border-color: rgba(255, 255, 255, 0.15) !important; }
-.login .login-form .connection-toggle { color: var(--pos-primary-2) !important; }
-.login .login-form [role='tablist'] button, .login .login-form .login-mode button { background: transparent !important; color: var(--pos-text-2) !important; border-color: rgba(255, 255, 255, 0.2) !important; }
 
 /* Payment details */
 .cs-switch-label { color: var(--pos-text) !important; }
@@ -405,7 +394,7 @@
 .cs-outlined.is-area { align-items: stretch; }
 .cs-overlay .cs-outlined.is-area textarea { min-height: 90px; border: 0; background: transparent; resize: vertical; padding: 14px; }
 .cs-outlined.is-required { border-color: var(--pos-danger); }
-.cs-ok { margin: 0; color: #81c784; font-size: 14px; }
+.cs-ok { margin: 0; color: var(--pos-success); font-size: 14px; }
 .cs-avatar.is-big { width: 72px; height: 72px; font-size: 26px; }
 .cs-avatar.is-square { border-radius: var(--r-xs); }
 
@@ -414,20 +403,20 @@
 .cs-shift-list { align-self: start; position: sticky; top: 0; max-height: calc(100vh - 100px); overflow-y: auto; padding-bottom: 8px; border-radius: var(--r-xs); background: var(--pos-raised); }
 .cs-shift-day { display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 16px 6px; color: var(--pos-text-2); font-size: 14px; }
 .cs-shift-list button { display: flex !important; align-items: center; justify-content: space-between; width: 100%; padding: 10px 16px !important; border-radius: 0 !important; background: transparent !important; text-align: left; }
-.cs-shift-list button.is-on { background: rgba(71, 145, 219, 0.25) !important; }
+.cs-shift-list button.is-on { background: var(--pos-soft) !important; }
 .cs-shift-list button span { display: grid; }
 .cs-shift-list strong { font-size: 16px; font-weight: 500; }
 .cs-shift-list small { color: var(--pos-text-2) !important; font-size: 13px; }
-.cs-shift-list em { color: #81c784; font-size: 13px; font-style: normal; }
+.cs-shift-list em { color: var(--pos-success); font-size: 13px; font-style: normal; }
 .cs-shift-main { display: grid; align-content: start; gap: 16px; max-width: 700px; }
 .cs-shift-head { display: flex; align-items: flex-start; justify-content: space-between; padding: 12px 24px 0; }
 .cs-shift-head h2 { margin: 0; font-size: 36px; font-weight: 600; }
 .cs-shift-head p { margin: 0 0 12px; color: var(--pos-text-2) !important; font-size: 14px; }
-.cs-danger-soft { padding: 8px 10px !important; background: rgba(229, 57, 53, 0.18) !important; color: #ef5350 !important; font-size: 15px; font-weight: 600; }
+.cs-danger-soft { padding: 8px 10px !important; background: #fdecea !important; color: var(--pos-danger) !important; font-size: 15px; font-weight: 600; }
 .cs-shift-card { display: grid; gap: 16px; padding: 20px 24px; border-radius: var(--r-xs); background: var(--pos-raised); }
 .cs-shift-ops { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 16px; border-bottom: 1px solid var(--pos-border); }
 .cs-shift-ops p { width: 100%; margin: 0; color: var(--pos-text-2) !important; font-size: 13px; }
-.cs-shift-ops button { display: inline-flex !important; align-items: center; gap: 6px; padding: 6px 12px !important; background: rgba(255, 255, 255, 0.06) !important; color: var(--pos-accent) !important; font-size: 15px; font-weight: 600; }
+.cs-shift-ops button { display: inline-flex !important; align-items: center; gap: 6px; padding: 6px 12px !important; background: #f7f3f5 !important; color: var(--pos-accent) !important; font-size: 15px; font-weight: 600; }
 .cs-shift-info { display: flex; flex-wrap: wrap; gap: 40px; }
 .cs-shift-info > span { display: flex; align-items: center; gap: 12px; }
 .cs-shift-info > span > .cs-icon { width: 36px; height: 36px; padding: 8px; border-radius: var(--r-xs); background: var(--pos-surface); }
@@ -450,30 +439,30 @@
 .cs-money-row strong { font-size: 20px; font-weight: 500; }
 .cs-money-row small { display: inline-flex; align-items: center; gap: 4px; color: var(--pos-text-2) !important; font-size: 13px; }
 .cs-money-row > span { font-size: 18px; font-weight: 600; color: var(--pos-text-2) !important; }
-.cs-money-row > span.is-minus { color: #ef5350 !important; }
+.cs-money-row > span.is-minus { color: var(--pos-danger) !important; }
 
 /* Journal */
 .cs-journal { width: min(880px, 100%); height: calc(100vh - 40px); }
 .cs-journal-body { display: grid; grid-template-columns: 240px minmax(0, 1fr); flex: 1; min-height: 0; }
-.cs-journal-filter { display: grid; align-content: start; gap: 18px; padding: 16px 24px; border-right: 1px solid var(--pos-border); background: rgba(0, 0, 0, 0.12); }
+.cs-journal-filter { display: grid; align-content: start; gap: 18px; padding: 16px 24px; border-right: 1px solid var(--pos-border); background: #faf8f9; }
 .cs-journal-filter p { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 14px; color: var(--pos-text-2); }
-.cs-journal-filter .cs-outlined > span { background: #1f2740; }
+.cs-journal-filter .cs-outlined > span { background: #faf8f9; }
 .cs-journal-filter .cs-outlined input { height: 42px; font-size: 15px; }
-.cs-journal-list { display: grid; align-content: start; gap: 16px; padding: 16px; overflow-y: auto; background: rgba(0, 0, 0, 0.12); }
+.cs-journal-list { display: grid; align-content: start; gap: 16px; padding: 16px; overflow-y: auto; background: #faf8f9; }
 .cs-receipt-card { border-radius: var(--r-xs); background: var(--pos-raised); overflow: hidden; }
 .cs-receipt-card header { display: flex; align-items: center; gap: 8px; padding: 16px 16px 6px; }
 .cs-receipt-card h3 { margin: 0 6px 0 0; font-size: 24px; font-weight: 500; }
 .cs-receipt-card header > strong { margin-left: auto; font-size: 20px; font-weight: 600; }
 .cs-receipt-card > p { display: flex; align-items: center; gap: 6px; margin: 0; padding: 2px 16px; color: var(--pos-text-2); font-size: 13px; }
 .cs-receipt-card > p:last-of-type { padding-bottom: 12px; }
-.cs-chip-button { display: inline-flex !important; align-items: center; gap: 6px; padding: 5px 9px !important; background: rgba(255, 255, 255, 0.14) !important; font-size: 13px; font-weight: 600; }
+.cs-chip-button { display: inline-flex !important; align-items: center; gap: 6px; padding: 5px 9px !important; background: #efe9ec !important; font-size: 13px; font-weight: 600; }
 .cs-receipt-toggle { display: grid !important; grid-template-columns: 30px 1fr auto; align-items: center; width: 100%; height: 48px; padding: 0 16px !important; border-top: 1px solid var(--pos-border) !important; border-radius: 0 !important; text-align: left; font-size: 15px; }
 .cs-receipt-toggle em { margin-left: 70px; color: var(--pos-text-2); font-style: normal; font-size: 14px; }
 .cs-receipt-table { width: 100%; border-collapse: collapse; font-size: 14px; }
 .cs-receipt-table th { padding: 12px 16px; border-top: 1px solid var(--pos-border); text-align: left; font-weight: 500; }
 .cs-receipt-table td { padding: 12px 16px; border-top: 1px solid var(--pos-border); }
 .cs-receipt-table td:last-child, .cs-receipt-table th:last-child { text-align: right; }
-.cs-receipt-table tr.is-minus td { color: #ef9a9a; }
+.cs-receipt-table tr.is-minus td { color: var(--pos-danger); }
 .cs-receipt-table small { color: var(--pos-text-3); }
 
 /* Return by receipt */
@@ -494,7 +483,7 @@
 .cs-debtors button:hover { background: var(--pos-surface-hover) !important; }
 .cs-debtors strong { flex: 1; font-size: 16px; font-weight: 500; }
 .cs-debtor-card .cs-modal-head { position: relative; flex-direction: column; align-items: center; border-top: 30px solid var(--pos-cyan); padding-top: 0; }
-.cs-debtor-card .cs-modal-head > button { position: absolute; top: -26px; right: 16px; color: #1a2138 !important; }
+.cs-debtor-card .cs-modal-head > button { position: absolute; top: -26px; right: 16px; color: var(--pos-on-accent) !important; }
 .cs-debtor-head { display: grid; justify-items: center; gap: 4px; margin-top: -28px; text-align: center; }
 .cs-debtor-head strong { font-size: 18px; font-weight: 600; }
 .cs-debtor-card .cs-modal-body { padding: 0 0 16px; gap: 12px; }
@@ -505,11 +494,11 @@
 .cs-debt-list span { display: grid; }
 .cs-debt-list span:last-child { text-align: right; }
 .cs-debt-list small { color: var(--pos-text-2); font-size: 13px; }
-.cs-round-icon { display: grid !important; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #66bb6a; color: #1a2138; }
+.cs-round-icon { display: grid !important; place-items: center; width: 36px; height: 36px; border-radius: 50%; background: #e3f2e5; color: var(--pos-success); }
 @media (max-width: 900px) { .cs-shifts, .cs-journal-body { grid-template-columns: 1fr; } .cs-shift-grid { grid-template-columns: 1fr; } }
 .cs-journal-list { display: flex; flex-direction: column; }
 .cs-journal-list > * { flex: none; }
-.cs-date-button { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; height: 36px; border-radius: var(--r-xs); background: rgba(25, 118, 210, 0.25); color: var(--pos-primary-2); font-size: 14px; font-weight: 600; cursor: pointer; }
+.cs-date-button { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; height: 36px; border-radius: var(--r-xs); background: rgba(164, 79, 89, 0.25); color: var(--pos-primary-2); font-size: 14px; font-weight: 600; cursor: pointer; }
 .cs-date-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
 .cs-filter-day { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--pos-text); }
 
@@ -517,20 +506,101 @@
 .cs-settings { display: grid !important; grid-template-columns: 248px minmax(0, 600px); gap: 16px; max-width: 880px; margin: 0; }
 .cs-set-tabs { align-self: start; display: grid; overflow: hidden; border-radius: var(--r-xs); background: var(--pos-raised); }
 .cs-legacy .cs-set-tabs button, .cs-set-tabs button { display: flex !important; align-items: center; gap: 22px; height: 48px; padding: 0 16px !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; text-align: left; font-size: 16px; }
-.cs-legacy .cs-set-tabs button.is-on { background: rgba(71, 145, 219, 0.25) !important; }
+.cs-legacy .cs-set-tabs button.is-on { background: var(--pos-soft) !important; }
 .cs-set-page { display: grid; align-content: start; gap: 20px; padding: 20px 24px; border-radius: var(--r-xs); background: var(--pos-raised); }
 .cs-set-group { display: grid; gap: 10px; }
 .cs-set-group h3 { margin: 0; font-size: 24px; font-weight: 600; }
-.cs-set-box { display: grid; padding: 8px 0; border-radius: var(--r-xs); background: rgba(255, 255, 255, 0.06); }
+.cs-set-box { display: grid; padding: 8px 0; border-radius: var(--r-xs); background: #f7f3f5; }
 .cs-set-box.is-padded { gap: 16px; padding: 18px 16px; }
 .cs-legacy .cs-set-box > button { display: flex !important; align-items: center; gap: 22px; height: 40px; padding: 0 16px !important; border: 0 !important; background: transparent !important; text-align: left; font-size: 14px; }
-.cs-set-box > button i { width: 20px; height: 20px; border: 2px solid #fff; border-radius: 50%; }
-.cs-set-box > button.is-on i { box-shadow: inset 0 0 0 4px var(--pos-raised), inset 0 0 0 10px #fff; }
+.cs-set-box > button i { width: 20px; height: 20px; border: 2px solid var(--pos-primary); border-radius: 50%; }
+.cs-set-box > button.is-on i { box-shadow: inset 0 0 0 4px var(--pos-raised), inset 0 0 0 10px var(--pos-primary); }
 .cs-set-box > button.is-check .cs-icon { visibility: hidden; }
 .cs-set-box > button.is-check.is-on .cs-icon { visibility: visible; }
 .cs-range { display: grid; grid-template-columns: 140px 1fr 40px; align-items: center; gap: 12px; font-size: 14px; }
 .cs-range input { accent-color: var(--pos-primary-2); }
 .cs-range em { font-style: normal; }
-.cs-set-box .cs-outlined > span { background: #333b58; }
+.cs-set-box .cs-outlined > span { background: #f6f3f5; }
 .cs-version { text-align: center; }
 .cs-settings .cs-set-group { padding: 0; background: transparent; }
+
+/* Light brand theme adjustments */
+.cs-bar { border-bottom-color: var(--pos-border); }
+.cs-left .cs-bar, .cs-status { box-shadow: 0 1px 0 var(--pos-border); }
+.cs-status { border-top: 1px solid var(--pos-border); background: var(--pos-surface); }
+.cs-card { border-color: var(--pos-border); }
+.cs-card:hover, .cs-card:focus-within { border-color: var(--pos-accent); box-shadow: 0 0 0 1px var(--pos-accent); }
+.cs-card-photo { background: #f6f2f4; color: #c9b8bf; }
+.cs-badge { background: var(--pos-soft); color: var(--pos-primary); }
+.cs-orange, .cs-debt-amount { color: var(--pos-warn); }
+.cs-net { color: var(--pos-success); }
+.cs-sale-bar { color: #fff; }
+.cs-right.is-return .cs-sale-bar { color: var(--pos-on-accent); }
+.cs-right.is-return .cs-sale-bar .cs-more-button, .cs-right.is-return .cs-sale { color: var(--pos-on-accent) !important; }
+.cs-sale:disabled, .cs-more-button:disabled { opacity: 0.6 !important; }
+.cs-mode, .cs-add-customer { color: #fff !important; }
+.cs-add-customer { background: var(--pos-primary) !important; }
+.cs-add-customer .cs-icon { stroke: #fff; }
+.cs-modal, .cs-pop, .cs-dropdown, .cs-discount-pop, .cs-mode-pop { box-shadow: var(--pos-shadow); border: 1px solid var(--pos-border); }
+.cs-pop > button:hover, .cs-seller-row:hover, .cs-dropdown li button:hover, .cs-list button:hover, .cs-debtors button:hover, .cs-debt-list button:hover, .cs-line:hover { background: var(--pos-surface-hover) !important; }
+.cs-mode-pop button { background: #f6f2f4 !important; color: var(--pos-text) !important; }
+.cs-mode-pop button.is-on { background: var(--pos-accent) !important; color: var(--pos-on-accent) !important; }
+.cs-queue-chips button { background: #efe9ec !important; color: var(--pos-text-2) !important; }
+.cs-queue-chips button.is-accent { background: var(--pos-accent) !important; color: var(--pos-on-accent) !important; }
+.cs-action:disabled { background: #ece7ea !important; color: var(--pos-text-2) !important; }
+.cs-kbd { opacity: 0.85; }
+.cs-search .cs-kbd { color: var(--pos-text-2); }
+.cs-dropdown-search { color: var(--pos-primary); border-color: var(--pos-accent); }
+.cs-outlined:focus-within { border-color: var(--pos-primary); box-shadow: inset 0 0 0 1px var(--pos-primary); }
+.cs-outlined:focus-within > span { color: var(--pos-primary); }
+.cs-segment { border-color: var(--pos-primary); }
+.cs-segment button { color: var(--pos-primary) !important; }
+.cs-segment button.is-on { background: var(--pos-primary) !important; color: #fff !important; }
+.cs-method-tile { border-color: var(--pos-outline); color: var(--pos-primary); }
+.cs-methods > button.is-on .cs-method-tile { background: var(--pos-primary); border-color: var(--pos-primary); color: #fff; }
+.cs-bills button { border-color: var(--pos-outline) !important; color: var(--pos-text); }
+.cs-bills button.is-on { background: var(--pos-soft) !important; color: var(--pos-primary); }
+.cs-switch-track { background: #d9d1d5; }
+.cs-switch input:checked + .cs-switch-track { background: #e7b9be; }
+.cs-switch input:checked + .cs-switch-track::after { background: var(--pos-primary); }
+.cs-debt-box, .cs-pay-customer, .cs-note, .cs-panel { background: var(--pos-soft-2); border: 1px solid var(--pos-border); box-shadow: none; }
+.cs-small-button { background: var(--pos-soft) !important; color: var(--pos-primary) !important; }
+.cs-chip-button { background: var(--pos-soft) !important; color: var(--pos-primary) !important; }
+.cs-danger-soft { background: #fdecea !important; color: var(--pos-danger) !important; }
+.cs-shift-ops button { background: var(--pos-soft) !important; color: var(--pos-primary) !important; }
+.cs-text-button.is-accent { color: var(--pos-primary) !important; }
+.cs-warning { background: #fff4e2; color: var(--pos-warn); }
+.cs-notice { background: var(--pos-surface); border: 1px solid var(--pos-border); }
+.cs-notice.is-error { background: #fdecea; color: #8e1c1c; border-color: #f5c6c2; }
+.cs-error { color: var(--pos-danger); }
+.cs-remove { color: #fff !important; }
+.cs-receipt-card, .cs-queue li, .cs-shift-card, .cs-shift-list, .cs-set-tabs, .cs-set-page, .cs-settings section, .cs-money-row, .cs-shift-grid section { border: 1px solid var(--pos-border); }
+.cs-shift-grid section, .cs-money-row { background: var(--pos-surface); }
+.cs-receipt-table tr.is-minus td { color: var(--pos-danger); }
+.cs-sheet-head { background: var(--pos-surface); border-bottom: 1px solid var(--pos-border); box-shadow: none; }
+.cs-line-modal .cs-modal-head { background: linear-gradient(var(--pos-soft) 0 30px, transparent 30px); }
+.cs-line-avatar { background: var(--pos-soft); color: #c9a3a9; }
+.cs-debtor-card .cs-modal-head { border-top-color: var(--pos-accent); }
+.cs-date-button { background: var(--pos-soft); color: var(--pos-primary); }
+.cs-legacy .cs-set-tabs button.is-on, .cs-shift-list button.is-on { background: var(--pos-soft) !important; color: var(--pos-primary) !important; }
+.cs-divider { background: var(--pos-border); }
+.cs-divider::after { background: #c9c1c6; }
+.cs-sheet-body .error { background: #fdecea !important; color: #8e1c1c !important; }
+.cs-sheet-body .shift-variance { color: var(--pos-success) !important; }
+.cs-sheet-body .shift-variance.is-off, .cs-sheet-body .debt-amount { color: var(--pos-warn) !important; }
+
+/* Readability fixes for the light theme */
+.cs-return-banner { color: var(--pos-primary); font-weight: 500; }
+.cs-pay .cs-modal-head h2 { margin: 0; font-size: 20px; font-weight: 500; }
+.cs-pay .cs-two .cs-outlined input { font-size: 16px; font-weight: 500; }
+.cs-sale-bar:has(.cs-sale:disabled) { background: #ece4e7; color: var(--pos-text-2); }
+.cs-sale-bar:has(.cs-sale:disabled) .cs-sale, .cs-sale-bar:has(.cs-sale:disabled) .cs-more-button { opacity: 1 !important; color: var(--pos-text-2) !important; }
+.cs-legacy .cs-danger-soft { background: #fdecea !important; color: var(--pos-danger) !important; }
+.cs-legacy .cs-shift-ops button { background: var(--pos-soft) !important; color: var(--pos-primary) !important; }
+.cs-legacy .cs-shift-head .cs-text-button { background: transparent !important; color: var(--pos-primary) !important; }
+.cs-settings .cs-set-group { border: 0; }
+.cs-card.is-off { opacity: 0.75; }
+.cs-link:disabled { opacity: 1 !important; color: var(--pos-text-2) !important; }
+.cs-card.is-off { opacity: 1; }
+.cs-card.is-off .cs-card-photo { opacity: 0.55; }
+.cs-card.is-off .cs-card-name, .cs-card.is-off .cs-card-stock { color: var(--pos-text-2); }

@@ -163,7 +163,7 @@ export function SettingsPanel({ value, onChange, version }: { value: PosSettings
     <nav className="cs-set-tabs">{tabs.map(([key, label, icon]) => <button type="button" key={key} className={tab === key ? 'is-on' : ''} onClick={() => setTab(key)}><Icon name={icon} size={22} />{label}</button>)}</nav>
     <div className="cs-set-page">
       {tab === 'main' && <>
-        <RadioGroup title="Оформление" value="dark" options={[['dark', 'Тёмное']]} onChange={() => undefined} />
+        <RadioGroup title="Оформление" value="brand" options={[['brand', 'Светлое, фирменные цвета']]} onChange={() => undefined} />
         <RadioGroup title="Печать чека" value={value.printByDefault ? 'yes' : 'no'} options={[['yes', 'Печатать чек по умолчанию'], ['no', 'Не печатать']]} onChange={next => set('printByDefault', next === 'yes')} />
         <RadioGroup title="Товары с нулевым остатком" value={value.hideEmpty ? 'hide' : 'show'} options={[['show', 'Показывать'], ['hide', 'Не показывать']]} onChange={next => set('hideEmpty', next === 'hide')} />
       </>}
