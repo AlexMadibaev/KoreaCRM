@@ -121,6 +121,36 @@
 .crm-report-card h2 { margin: 0 0 10px; font-size: 18px; font-weight: 500; }
 .crm-report-card p { min-height: 48px; font-size: 13px; line-height: 1.6; color: var(--ks-color-text-muted); }
 .crm-report-card > span { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; margin-top: 16px; color: var(--ks-color-brand-strong); }
+.crm-device-group { margin-top: 24px; }
+.crm-device-group h4, .crm-browser-devices > summary { display: flex; align-items: center; gap: 9px; font-size: 15px; }
+.crm-device-group h4 { font-weight: 600; }
+.crm-device-group h4 > span, .crm-browser-devices > summary > span { padding: 2px 8px; border-radius: 12px; background: var(--ks-color-canvas); font-size: 12px; }
+.crm-device-group > p, .crm-browser-devices > p { margin: 8px 0 14px; color: var(--ks-color-text-muted); font-size: 13px; line-height: 1.6; }
+.crm-device-row { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; border-top: 1px solid var(--ks-color-border); }
+.crm-device-icon { display: grid; place-items: center; flex: 0 0 40px; height: 40px; border-radius: 6px; background: var(--ks-color-brand-soft); color: var(--ks-color-brand-strong); }
+.crm-device-icon.web, .crm-device-icon.other { background: var(--ks-color-canvas); color: var(--ks-color-text-muted); }
+.crm-device-info { flex: 1; min-width: 0; font-size: 13px; }
+.crm-device-info > strong { display: block; }
+.crm-device-info > span { display: block; margin-top: 3px; color: var(--ks-color-text-muted); font-size: 12px; }
+.crm-device-info p { margin: 8px 0; color: var(--ks-color-text-muted); font-size: 12px; }
+.crm-device-info details { font-size: 12px; }
+.crm-device-info summary { cursor: pointer; color: var(--ks-color-brand-strong); }
+.crm-device-info code { display: block; overflow-wrap: anywhere; margin-top: 8px; padding: 8px; background: var(--ks-color-canvas); font-size: 11px; }
+.crm-device-actions { display: flex; align-items: flex-end; flex-direction: column; gap: 12px; font-size: 12px; }
+.crm-device-actions button { color: var(--ks-color-danger); cursor: pointer; }
+.crm-device-actions button:disabled { opacity: .5; cursor: wait; }
+.crm-device-status { padding: 4px 8px; background: var(--ks-color-brand-soft); border-radius: 4px; white-space: nowrap; }
+.crm-device-status.disabled { background: var(--ks-color-canvas); color: var(--ks-color-text-muted); }
+.crm-browser-devices { border-top: 1px solid var(--ks-color-border); padding-top: 18px; margin-top: 18px; }
+.crm-browser-devices > summary { cursor: pointer; }
+.crm-device-chevron { margin-left: auto; flex-shrink: 0; }
+.crm-browser-devices[open] .crm-device-chevron { transform: rotate(180deg); }
+.crm-device-empty { padding: 14px; border: 1px dashed var(--ks-color-border); border-radius: 4px; }
+.crm-device-footnote { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--ks-color-border); font-size: 12px; line-height: 1.6; color: var(--ks-color-text-muted); }
+@media (max-width: 530px) {
+  .crm-device-row { flex-wrap: wrap; }
+  .crm-device-actions { width: 100%; padding-left: 52px; flex-direction: row; align-items: center; justify-content: space-between; }
+}
 @media (min-width: 761px) {
   .crm-main table { border-collapse: collapse; }
   .crm-main table thead { background: var(--ks-color-canvas); }
