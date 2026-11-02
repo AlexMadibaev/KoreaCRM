@@ -604,3 +604,18 @@
 .cs-card.is-off { opacity: 1; }
 .cs-card.is-off .cs-card-photo { opacity: 0.55; }
 .cs-card.is-off .cs-card-name, .cs-card.is-off .cs-card-stock { color: var(--pos-text-2); }
+
+/* Receipts printed through the Windows dialog: only #print-root is on paper. */
+#print-root { display: none; }
+@media print {
+  @page { margin: 0; }
+  html, body { background: #fff !important; }
+  body > *:not(#print-root) { display: none !important; }
+  #print-root { display: block !important; width: 100%; max-width: 76mm; margin: 0 auto; padding: 3mm 3mm 8mm; box-sizing: border-box; color: #000; font: 12px/1.4 Arial, sans-serif; }
+  #print-root .print-row { display: flex; justify-content: space-between; gap: 8px; }
+  #print-root .print-row span:nth-child(2) { white-space: nowrap; text-align: right; }
+  #print-root .is-center { justify-content: center; text-align: center; }
+  #print-root .is-strong { font-weight: 700; }
+  #print-root .is-big { font-size: 15px; }
+  #print-root .is-rule { margin: 4px 0; border-top: 1px dashed #000; }
+}

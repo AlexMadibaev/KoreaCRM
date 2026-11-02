@@ -14,6 +14,7 @@ import { projectShiftCash } from './shift-projection';
 import { queuedSaleDetails } from './queued-sale-details';
 import { isLocalServerUrl, normalizeServerUrl } from './server-url';
 import { DebtsModal, JournalModal, ShiftsScreen } from './cloud-screens';
+import { printRows, receiptRows } from './print-layout';
 import { translateError } from './error-text';
 import { defaultParkedLabel, parkReceipt, readParked, writeParked, type ParkedReceipt } from './parked-receipts';
 import { ProductImage, type CatalogItem, type PosCatalogProduct } from './product-results';
@@ -35,7 +36,7 @@ const loyaltyKey = 'koreacrm-pos-loyalty-v1';
 const deviceKey = 'koreacrm-pos-device-v1';
 const savedStoreKey = 'koreacrm-pos-store-v1';
 const settingsKey = 'koreacrm-pos-settings-v1';
-const appVersion = '0.2.2';
+const appVersion = '0.2.3';
 const readSettings = (): PosSettingsState => { const base = { ...defaultCardView, printByDefault: false, printerHost: '', sound: false }; try { const raw = localStorage.getItem(settingsKey); return raw ? { ...base, ...JSON.parse(raw) as Partial<PosSettingsState> } : base; } catch { return base; } };
 const message = (caught: unknown) => {
   if (caught instanceof TypeError) return 'Нет связи. Проверьте подключение и попробуйте ещё раз.';
@@ -472,6 +473,7 @@ export function App() {
   const keysRef = useRef<(event: globalThis.KeyboardEvent) => void>(() => undefined);
   useEffect(() => {
     keysRef.current = event => {
+      if (event.ctrlKey && (event.key.toLowerCase() === 'q' || event.key.toLowerCase() === 'й')) { event.preventDefault(); requestSignOut(); return; }
       if (hasOverlay() || sheet || payOpen || success) return;
       const target = event.target as HTMLElement | null;
       const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
@@ -579,8 +581,14 @@ export function App() {
       void refreshShift().catch(caught => setError(message(caught)));
     }
   }
+  function requestSignOut() {
+    if (busy || pending) return;
+    if (cart.length && !window.confirm('В чеке есть товары. Выйти из кассы? Чек не сохранится — его можно отложить через меню «⋮».')) return;
+    void signOut();
+  }
   async function printSale(sale: PosSale) {
-    if (!printerHost.trim()) return;
+    // Without a network printer the receipt goes to the Windows print dialog (USB printers such as POS-80C).
+    if (!printerHost.trim()) { printRows(receiptRows(sale)); return; }
     try { await invoke('print_escpos', { host: printerHost.trim(), bytes: buildEscPosReceipt(sale) }); }
     catch (caught) { setError(`Принтер не ответил: ${message(caught)}`); }
   }
@@ -728,6 +736,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
       </div>
       <footer className="cs-status">
         <button type="button" className="cs-menu-button" onClick={() => setOverlay('menu')}><Icon name="menu" /> Меню</button>
+        <button type="button" className="cs-menu-button" onClick={requestSignOut} disabled={busy || Boolean(pending)} title="Выйти из кассы · Ctrl+Q"><Icon name="logout" /> Выход <Kbd>Ctrl+Q</Kbd></button>
         <span className="cs-status-center">{storeName}{stores.length > 1 && !deviceReady && <select aria-label="Магазин" value={storeId} onChange={event => { setCategoryId('all'); setCatalogPage(1); setCategories([]); setStoreId(event.target.value); }} disabled={busy}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>} / {shift ? (shiftNumber ? `Смена #${shiftNumber}` : `Смена${openedAt ? ` с ${new Date(openedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ' открыта'}`) : 'Смена закрыта'}</span>
         <span className="cs-status-right">{clock.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}, {clock.toLocaleDateString('ru-RU', { weekday: 'long' })} {clock.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}<span className={connectionOffline ? 'cs-net is-off' : 'cs-net'} title={connectionOffline ? 'Нет связи · локальный режим' : 'Связь есть'}><Icon name="wifi" size={20} /></span></span>
       </footer>
@@ -793,14 +802,14 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     {overlay === 'returnReason' && <ReturnReasonModal totalMinor={totalsView.total} busy={busy} onConfirm={reason => void returnWithoutReceipt(reason)} onClose={() => setOverlay(null)} />}
     {editedLine && <LineEditor name={editedLine.product.name} imageKey={editedLine.imageKey} apiUrl={client.baseUrl()} priceMinor={editedLine.priceMinor} quantity={editedLine.quantity} available={editedLine.available} discountMinor={editedLine.discountMinor} onApply={(quantity, discountMinor) => { setCart(current => current.map(item => item.product.id === editedLine.product.id ? { ...item, quantity, discountMinor } : item)); setLineEditId(''); }} onClose={() => setLineEditId('')} />}
     {payOpen && overlay === 'pay' && <PaymentScreen totals={totalsView} methods={methods} customer={selectedCustomer ?? null} shiftOpen={Boolean(shift)} busy={busy} printDefault={settings.printByDefault} onChangeCustomer={() => setOverlay('customer')} onComplete={(parts, change, print, comment) => void completeSale(parts, change, print, comment)} onClose={() => { setPayOpen(false); setOverlay(null); }} />}
-    {success && <SaleSuccess totals={success.totals} methods={methods} parts={success.parts} change={success.change} onPrint={success.sale ? () => { if (printerHost.trim()) void printSale(success.sale!); else { setReceipt(success.sale); setReceiptScreen('history'); } } : undefined} onClose={() => { setSuccess(null); window.setTimeout(() => searchRef.current?.focus(), 0); }} />}
+    {success && <SaleSuccess totals={success.totals} methods={methods} parts={success.parts} change={success.change} onPrint={success.sale ? () => void printSale(success.sale!) : undefined} onClose={() => { setSuccess(null); window.setTimeout(() => searchRef.current?.focus(), 0); }} />}
 
-    {sheet === 'history' && <JournalModal client={client} storeId={storeId} deviceId={deviceId} shift={shift} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} printerHost={printerHost} errorText={message} onPrint={sale => { setReceipt(sale); setReceiptScreen('history'); }} onReturned={() => { setSalesRevision(value => value + 1); void refreshShift().catch(caught => setError(message(caught))); }} onClose={() => setSheet(null)} />}
+    {sheet === 'history' && <JournalModal client={client} storeId={storeId} deviceId={deviceId} shift={shift} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} printerHost={printerHost} errorText={message} onPrint={sale => void printSale(sale)} onReturned={() => { setSalesRevision(value => value + 1); void refreshShift().catch(caught => setError(message(caught))); }} onClose={() => setSheet(null)} />}
     {sheet === 'debts' && <DebtsModal client={client} storeId={storeId} shift={shift} methods={methods} canPay={can('finance.customer_pay')} errorText={message} onPaid={cash => { if (cash) void refreshShift().catch(caught => setError(message(caught))); }} onClose={() => setSheet(null)} />}
     {sheet === 'shift' && <Sheet title="Смены" onClose={() => setSheet(null)}><ShiftsScreen client={client} storeId={storeId} deviceId={deviceId} current={shift} canManage={can('finance.cash')} queuedCashMinor={projectedShift?.queuedCashMinor ?? 0n} printerHost={printerHost} errorText={message} onClosed={() => { setShift(null); setReturnMode(false); void persistShift(null); setSheet(null); flashNotice('Смена закрыта.'); }} onCashChanged={() => void refreshShift().catch(caught => setError(message(caught)))} /></Sheet>}
     {sheet === 'sync' && <Sheet title="Непроведённые продажи" onClose={() => setSheet(null)}>{syncPanel}</Sheet>}
     {sheet === 'settings' && <Sheet title="Настройки кассы" onClose={() => setSheet(null)}><SettingsPanel value={{ ...settings, printerHost }} version={appVersion} onChange={next => { setSettings(next); setPrinterHost(next.printerHost); localStorage.setItem('koreacrm-pos-printer-host', next.printerHost); }} /></Sheet>}
 
-    {receipt && receiptScreen === 'history' && <div className="receipt-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setReceipt(null); }}><section id="receipt" className="panel receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title" onKeyDown={event => { if (event.key === 'Escape') setReceipt(null); }}><div className="receipt-heading"><div><h2 id="receipt-title">Чек {receipt.number}</h2><small>Не является фискальным чеком</small></div><div><button className="quiet" onClick={() => window.print()}>Печать</button><button disabled={busy || !printerHost.trim()} onClick={() => void printSale(receipt)}>На чековый принтер</button></div></div>{(receipt.returns?.length ?? 0) > 0 && <p className="receipt-returned">Возврат по этому чеку · возвращено {formatMinor(receipt.returns.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</p>}<p>{receipt.store.name} · {receipt.store.address ?? ''} · {receipt.store.phone ?? ''}</p><p>{new Date(receipt.createdAt).toLocaleString('ru-RU')} · кассир {receipt.employee.name}{receipt.seller ? ` · продавец ${receipt.seller.name}` : ''}</p>{receipt.customer && <p>{receipt.customer.firstName} {receipt.customer.phone}</p>}<ul>{receipt.items.map(item => <li key={item.id}><span>{item.product.name} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul><p>Скидка: {formatMinor(receipt.discountMinor)}</p><p className="total">Итого <strong>{formatMinor(receipt.totalMinor)}</strong></p>{receipt.payments.map(part => <p key={part.id}>{part.paymentMethod.name}: {formatMinor(part.amountMinor)}</p>)}<button type="button" className="primary receipt-close" autoFocus onClick={() => setReceipt(null)}>Закрыть</button></section></div>}
+    {receipt && receiptScreen === 'history' && <div className="receipt-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setReceipt(null); }}><section id="receipt" className="panel receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title" onKeyDown={event => { if (event.key === 'Escape') setReceipt(null); }}><div className="receipt-heading"><div><h2 id="receipt-title">Чек {receipt.number}</h2><small>Не является фискальным чеком</small></div><div><button className="quiet" onClick={() => void printSale(receipt)}>Печать</button><button disabled={busy || !printerHost.trim()} onClick={() => void printSale(receipt)}>На чековый принтер</button></div></div>{(receipt.returns?.length ?? 0) > 0 && <p className="receipt-returned">Возврат по этому чеку · возвращено {formatMinor(receipt.returns.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</p>}<p>{receipt.store.name} · {receipt.store.address ?? ''} · {receipt.store.phone ?? ''}</p><p>{new Date(receipt.createdAt).toLocaleString('ru-RU')} · кассир {receipt.employee.name}{receipt.seller ? ` · продавец ${receipt.seller.name}` : ''}</p>{receipt.customer && <p>{receipt.customer.firstName} {receipt.customer.phone}</p>}<ul>{receipt.items.map(item => <li key={item.id}><span>{item.product.name} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul><p>Скидка: {formatMinor(receipt.discountMinor)}</p><p className="total">Итого <strong>{formatMinor(receipt.totalMinor)}</strong></p>{receipt.payments.map(part => <p key={part.id}>{part.paymentMethod.name}: {formatMinor(part.amountMinor)}</p>)}<button type="button" className="primary receipt-close" autoFocus onClick={() => setReceipt(null)}>Закрыть</button></section></div>}
   </main>;
 }

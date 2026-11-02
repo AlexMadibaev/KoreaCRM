@@ -7,7 +7,8 @@ import { formatMinor } from './calculations';
 import { Icon, Kbd, Modal, Stepper, useOverlayKeys } from './cloud-ui';
 import { buildEscPosShiftReport } from './escpos';
 import { fullyReturned, refundInstruction, refundPreview, returnAmount, returnedQuantity } from './return-calculations';
-import { cashVariance, varianceLabel } from './shift-report';
+import { printRows, textRows } from './print-layout';
+import { cashVariance, shiftReportLines, varianceLabel } from './shift-report';
 
 type Client = ReturnType<typeof createApiClient>;
 type ShiftRow = PosShift & { openedAt: string; closedAt: string | null };
@@ -51,7 +52,7 @@ export function ShiftsScreen({ client, storeId, deviceId, current, canManage, qu
   const outcome = cash ? -sum([cash.refundsMinor, cash.withdrawalsMinor, cash.expensesMinor]) - (BigInt(cash.correctionsMinor) < 0n ? BigInt(cash.correctionsMinor) : 0n) : 0n;
   async function print() {
     if (!report) return;
-    if (!printerHost.trim()) { window.print(); return; }
+    if (!printerHost.trim()) { printRows(textRows(['KOREA CRM', ...shiftReportLines(report)])); return; }
     try { await invoke('print_escpos', { host: printerHost.trim(), bytes: buildEscPosShiftReport(report) }); } catch (caught) { setError(errorText(caught)); }
   }
   const refresh = async () => { await load(); onCashChanged(); };
