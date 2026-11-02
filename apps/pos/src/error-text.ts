@@ -23,3 +23,11 @@ const knownErrors: Record<string, string> = {
 export function translateError(text: string): string {
   return knownErrors[text] ?? text;
 }
+
+// Tauri rejects commands with a plain string for Rust Result::Err(String).
+export function errorDetail(caught: unknown): string {
+  if (caught instanceof Error) return caught.message;
+  if (typeof caught === 'string' && caught.trim()) return caught;
+  if (caught && typeof caught === 'object' && 'message' in caught && typeof caught.message === 'string') return caught.message;
+  return 'Не удалось выполнить действие.';
+}

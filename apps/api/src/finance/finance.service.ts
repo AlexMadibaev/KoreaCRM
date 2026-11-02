@@ -116,9 +116,9 @@ export class FinanceService {
       return expense;
     });
   }
-  async shifts(storeId: string, page: Page) {
+  async shifts(storeId: string, page: Page & { status?: 'OPEN' | 'CLOSED' }) {
     await this.requireStore(storeId);
-    const where = { storeId };
+    const where = { storeId, ...(page.status ? { status: page.status } : {}) };
     const [items, total] = await this.db.$transaction([this.db.cashShift.findMany({ where, orderBy: { openedAt: 'desc' }, skip: (page.page - 1) * page.limit, take: page.limit }), this.db.cashShift.count({ where })]);
     return { items, total, ...page };
   }

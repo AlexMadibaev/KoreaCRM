@@ -15,7 +15,7 @@ import { queuedSaleDetails } from './queued-sale-details';
 import { isLocalServerUrl, normalizeServerUrl } from './server-url';
 import { DebtsModal, JournalModal, ShiftsScreen } from './cloud-screens';
 import { printRows, receiptRows } from './print-layout';
-import { translateError } from './error-text';
+import { errorDetail, translateError } from './error-text';
 import { defaultParkedLabel, parkReceipt, readParked, writeParked, type ParkedReceipt } from './parked-receipts';
 import { ProductImage, type CatalogItem, type PosCatalogProduct } from './product-results';
 import { Icon, Kbd, LineEditor, ProductGrid, Sheet, defaultCardView, hasOverlay } from './cloud-ui';
@@ -36,7 +36,7 @@ const loyaltyKey = 'koreacrm-pos-loyalty-v1';
 const deviceKey = 'koreacrm-pos-device-v1';
 const savedStoreKey = 'koreacrm-pos-store-v1';
 const settingsKey = 'koreacrm-pos-settings-v1';
-const appVersion = '0.2.4';
+const appVersion = '0.2.5';
 const readSettings = (): PosSettingsState => { const base = { ...defaultCardView, printByDefault: false, printerHost: '', sound: false }; try { const raw = localStorage.getItem(settingsKey); return raw ? { ...base, ...JSON.parse(raw) as Partial<PosSettingsState> } : base; } catch { return base; } };
 const message = (caught: unknown) => {
   if (caught instanceof TypeError) return 'Нет связи. Проверьте подключение и попробуйте ещё раз.';
@@ -46,7 +46,7 @@ const message = (caught: unknown) => {
     if (caught.status >= 500) return 'Сервис временно недоступен. Попробуйте ещё раз позже.';
     if (/^(Forbidden|Unauthorized|Not Found|Internal Server Error|API returned \d+)$/i.test(caught.message)) return `Не удалось выполнить действие (код сервера ${caught.status}). Попробуйте ещё раз.`;
   }
-  return caught instanceof Error ? translateError(caught.message) : 'Не удалось выполнить действие.';
+  return translateError(errorDetail(caught));
 };
 const connectionFailed = (caught: unknown) => caught instanceof TypeError || caught instanceof DOMException && ['TimeoutError', 'AbortError'].includes(caught.name) || (caught instanceof ApiError && caught.status >= 500);
 const loginError = (caught: unknown, codeLogin = false) => {

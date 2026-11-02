@@ -3,6 +3,7 @@ import type { PosCustomer, PosPage } from '@koreacrm/types';
 import { createApiClient } from '@koreacrm/api-client';
 import type { PosCatalogProduct } from './product-results';
 import { fetchStableCatalog } from './stable-catalog';
+import { errorDetail } from './error-text';
 
 type Client = ReturnType<typeof createApiClient>;
 export type CacheStatus = { storeId: string; productCount: number; customerCount: number; lastSyncedAt: string | null; revision: string | null };
@@ -65,11 +66,14 @@ export async function refreshCatalogCache(client: Client, userId: string, storeI
     active: product.active,
   }));
   progress('Сохраняем локальную базу…');
-  return invoke<CacheStatus>('save_catalog_snapshot', {
+  try { return await invoke<CacheStatus>('save_catalog_snapshot', {
     snapshot: {
       userId, storeId, revision, products: cachedProducts,
-      customers: customers.map(customer => ({ id: customer.id, firstName: customer.firstName, lastName: customer.lastName, phone: customer.phone, discountPercent: customer.discountPercent ?? '0' })),
+      customers: customers.map(customer => ({ id: customer.id, firstName: customer.firstName, lastName: customer.lastName, phone: customer.phone, discountPercent: String(customer.discountPercent ?? '0') })),
       permissions,
     },
-  });
+  }); } catch (caught) {
+    const detail = errorDetail(caught);
+    throw new Error(`Ошибка сохранения каталога в локальную базу: ${detail}`);
+  }
 }

@@ -11,6 +11,24 @@ const categoryId = '33333333-3333-4333-8333-333333333333';
 const purchaseId = '44444444-4444-4444-8444-444444444444';
 const operationId = '55555555-5555-4555-8555-555555555555';
 
+test('open shift query filters before pagination and keeps the store boundary', async () => {
+  const observed: unknown[] = [];
+  const db = {
+    store: { findFirst: async () => ({ id: storeId }) },
+    cashShift: {
+      findMany: async (query: unknown) => { observed.push(query); return [{ id: shiftId, deviceId: 'POS-WINDOWS', status: 'OPEN' }]; },
+      count: async (query: unknown) => { observed.push(query); return 1; },
+    },
+    $transaction: (queries: Promise<unknown>[]) => Promise.all(queries),
+  } as unknown as DatabaseService;
+  const result = await new FinanceService(db).shifts(storeId, { page: 1, limit: 100, status: 'OPEN' });
+  assert.equal(result.items[0]?.deviceId, 'POS-WINDOWS');
+  assert.deepEqual(observed, [
+    { where: { storeId, status: 'OPEN' }, orderBy: { openedAt: 'desc' }, skip: 0, take: 100 },
+    { where: { storeId, status: 'OPEN' } },
+  ]);
+});
+
 test('cash expense posts a negative cash operation in the same transaction', async () => {
   let operationAmount = '';
   let expectedCash = '';

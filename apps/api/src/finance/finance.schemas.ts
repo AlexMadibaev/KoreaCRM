@@ -23,3 +23,5 @@ export function parseInput<T extends z.ZodTypeAny>(schema: T, input: unknown): z
   if (!result.success) throw new BadRequestException(result.error.flatten());
   return result.data;
 }
+
+export const shiftQuerySchema = pageSchema.extend({ status: z.enum(['OPEN', 'CLOSED']).optional() });
