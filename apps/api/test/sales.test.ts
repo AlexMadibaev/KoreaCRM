@@ -88,11 +88,16 @@ test('queued sale can create negative stock and records an alert while normal sa
   const service = new SalesService(db, stock, {} as FinanceService, notifications);
   await assert.rejects(service.create(storeId, quotedInput, 'actor'), ConflictException);
   assert.equal(movements, 0);
-  await assert.rejects(service.create(storeId, quotedInput, 'actor', true), ConflictException);
-  assert.equal(movements, 0);
-  manualCost = 40;
+  // A queued sale without a known purchase cost still goes through at zero cost and is flagged.
   await service.create(storeId, quotedInput, 'actor', true);
   assert.equal(movements, 1);
+  assert.equal(recordedCost, '0');
+  assert.ok(alerts.includes('PURCHASE_COST_MISSING'));
+  manualCost = 40;
+  alerts.length = 0;
+  await service.create(storeId, quotedInput, 'actor', true);
+  assert.equal(movements, 2);
+  assert.ok(!alerts.includes('PURCHASE_COST_MISSING'));
   assert.equal(recordedPrice, '100');
   assert.equal(recordedCost, '40');
   assert.equal(recordedBatchId, null);

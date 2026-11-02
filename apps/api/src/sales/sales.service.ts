@@ -227,14 +227,16 @@ export class SalesService {
           const stock = await tx.stock.findUnique({ where: { storeId_productId: { storeId, productId: item.productId } } });
           if (!allowNegativeStock && (!stock || stock.quantity - stock.reservedQuantity < item.quantity)) throw new ConflictException(`Insufficient stock for ${product.sku}`);
           const batch = await tx.productBatch.findFirst({ where: { productId: item.productId, storeId }, orderBy: { receivedAt: 'desc' } });
-          const purchasePriceMinor = batch?.purchasePriceMinor ?? (settings?.costBasisMinor == null ? null : new Prisma.Decimal(settings.costBasisMinor));
-          if (purchasePriceMinor === null) throw new ConflictException(`Purchase cost is missing for ${product.sku}`);
+          // A missing purchase cost must not stop the till; the sale is recorded at zero cost and flagged for the back office.
+          const knownCost = batch?.purchasePriceMinor ?? (settings?.costBasisMinor == null ? null : new Prisma.Decimal(settings.costBasisMinor));
+          const costMissing = knownCost === null;
+          const purchasePriceMinor = knownCost ?? new Prisma.Decimal(0);
           const price = new Prisma.Decimal(quotedPrice ?? settings!.priceMinor!);
           const gross = price.mul(item.quantity);
           const discount = new Prisma.Decimal(item.discountMinor);
           if (discount.gt(gross)) throw new BadRequestException('Line discount exceeds line price');
           const cost = purchasePriceMinor.mul(item.quantity);
-          lines.push({ productId: item.productId, brandId: product.brandId, categoryId: product.categoryId, quantity: item.quantity, priceMinor: price, currentPriceMinor: settings?.priceMinor ?? null, purchasePriceMinor, discountMinor: discount, totalMinor: gross.minus(discount), profitMinor: gross.minus(discount).minus(cost), batchId: batch?.id ?? null, gross, cost });
+          lines.push({ productId: item.productId, brandId: product.brandId, categoryId: product.categoryId, quantity: item.quantity, priceMinor: price, currentPriceMinor: settings?.priceMinor ?? null, purchasePriceMinor, discountMinor: discount, totalMinor: gross.minus(discount), profitMinor: gross.minus(discount).minus(cost), batchId: batch?.id ?? null, gross, cost, costMissing, sku: product.sku });
         }
         const subtotal = sum(lines.map(line => line.gross));
         let manualDiscount = new Prisma.Decimal(0);
@@ -287,6 +289,7 @@ export class SalesService {
         const sale = await tx.sale.create({ data: { operationId: input.operationId, requestHash, number: String(sequence), sequence, storeId, deviceId: input.deviceId, cashShiftId, customerId: input.customerId, employeeId: actorId, sellerId: seller?.id ?? null, comment: input.comment || null, subtotalMinor: subtotal, discountMinor: discount, totalMinor: total, costMinor: cost, profitMinor: total.minus(cost), debtMinor: debt } });
         for (const line of lines) {
           const saleItem = await tx.saleItem.create({ data: { saleId: sale.id, productId: line.productId, quantity: line.quantity, priceMinor: line.priceMinor, purchasePriceMinor: line.purchasePriceMinor, discountMinor: line.discountMinor, totalMinor: line.totalMinor, profitMinor: line.profitMinor, batchId: line.batchId } });
+          if (line.costMissing) await tx.auditLog.create({ data: { userId: actorId, action: 'PURCHASE_COST_MISSING', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, sku: line.sku } } });
           if (allowNegativeStock && line.currentPriceMinor !== null && !line.priceMinor.eq(line.currentPriceMinor)) await tx.auditLog.create({ data: { userId: actorId, action: 'OFFLINE_PRICE_DIFFERENCE', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, quotedPriceMinor: line.priceMinor.toString(), currentPriceMinor: String(line.currentPriceMinor) } } });
           const movement = await this.stock.applyMovementInTransaction(tx, { storeId, productId: line.productId, type: 'SALE', delta: -line.quantity, sourceType: 'SALE_ITEM', sourceId: saleItem.id, actorId });
           if (movement.newQuantity < 0) await tx.auditLog.create({ data: { userId: actorId, action: 'NEGATIVE_STOCK', entityType: 'Stock', entityId: `${storeId}:${line.productId}`, newValue: { quantity: movement.newQuantity, saleId: sale.id, productId: line.productId } } });

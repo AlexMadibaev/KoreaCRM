@@ -36,7 +36,7 @@ const loyaltyKey = 'koreacrm-pos-loyalty-v1';
 const deviceKey = 'koreacrm-pos-device-v1';
 const savedStoreKey = 'koreacrm-pos-store-v1';
 const settingsKey = 'koreacrm-pos-settings-v1';
-const appVersion = '0.2.3';
+const appVersion = '0.2.4';
 const readSettings = (): PosSettingsState => { const base = { ...defaultCardView, printByDefault: false, printerHost: '', sound: false }; try { const raw = localStorage.getItem(settingsKey); return raw ? { ...base, ...JSON.parse(raw) as Partial<PosSettingsState> } : base; } catch { return base; } };
 const message = (caught: unknown) => {
   if (caught instanceof TypeError) return 'Нет связи. Проверьте подключение и попробуйте ещё раз.';
@@ -44,7 +44,7 @@ const message = (caught: unknown) => {
     if (caught.status === 401) return 'Сессия кассира завершилась. Войдите снова.';
     if (caught.status === 403) return 'У вас нет доступа к этому действию. Обратитесь к администратору.';
     if (caught.status >= 500) return 'Сервис временно недоступен. Попробуйте ещё раз позже.';
-    if (/^(Forbidden|Unauthorized|Not Found|Internal Server Error|API returned \d+)$/i.test(caught.message)) return 'Не удалось выполнить действие. Попробуйте ещё раз.';
+    if (/^(Forbidden|Unauthorized|Not Found|Internal Server Error|API returned \d+)$/i.test(caught.message)) return `Не удалось выполнить действие (код сервера ${caught.status}). Попробуйте ещё раз.`;
   }
   return caught instanceof Error ? translateError(caught.message) : 'Не удалось выполнить действие.';
 };
@@ -204,7 +204,8 @@ export function App() {
       if (!active.length || !available.length) throw new Error('Нет доступного магазина или способа оплаты');
       const rememberedStoreId = localStorage.getItem(`${savedStoreKey}:${me.userId}`);
       const chosen = available.find(store => store.id === pending?.storeId) ?? available.find(store => store.id === me.primaryStoreId) ?? available.find(store => store.id === rememberedStoreId) ?? available[0]!;
-      setRegistrationRequested(available.length === 1 || chosen.id === me.primaryStoreId || chosen.id === rememberedStoreId || chosen.id === pending?.storeId);
+      // The till connects to the chosen store on its own; the cashier never has to press a button for it.
+      setRegistrationRequested(true);
       if (hasDesktopCache() && offlineCredential) {
         try {
           const common = { deviceId, apiUrl: normalizedApiUrl, login: identityLogin, userId: me.userId, store: chosen, methods: active, permissions: me.permissions };
@@ -413,7 +414,7 @@ export function App() {
     reconnectingRef.current = false;
     void (async () => {
       try {
-        await client.post(`/stores/${storeId}/pos-devices`, { deviceId, appVersion: '0.1.4' });
+        await client.post(`/stores/${storeId}/pos-devices`, { deviceId, appVersion });
         const tasks: Promise<unknown>[] = [can('finance.cash_view') ? client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts?limit=100`) : Promise.resolve({ items: [] })];
         if (can('customers.view')) tasks.push(client.get<PosPage<PosCustomer>>('/customers?limit=100'));
         const [shiftPage, customerPage] = await Promise.all(tasks);
@@ -421,7 +422,12 @@ export function App() {
         const opened = (shiftPage as PosPage<PosShift>).items.find(value => value.deviceId === deviceId && value.status === 'OPEN') ?? null;
         setShift(opened); setCustomers((customerPage as PosPage<PosCustomer> | undefined)?.items ?? []); setDeviceReady(true); localStorage.setItem(`${savedStoreKey}:${userId}`, storeId);
         if (hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, stores.find(store => store.id === storeId)!, opened).catch(caught => setCacheError(`Локальный вход не готов: ${message(caught)}`));
-      } catch (caught) { if (active) setDeviceError(deviceRegistrationError(caught)); }
+      } catch (caught) {
+        if (!active) return;
+        setDeviceError(deviceRegistrationError(caught));
+        // Lost connection: try again by itself instead of waiting for the cashier.
+        if (connectionFailed(caught)) window.setTimeout(() => { if (active) setRegisterNonce(value => value + 1); }, 15_000);
+      }
     })();
     return () => { active = false; };
   }, [signedIn, offlineSignedIn, storeId, registrationRequested, registerNonce, client, deviceId, permissions, apiUrl, login, stores, loginMode]);
@@ -737,7 +743,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
       <footer className="cs-status">
         <button type="button" className="cs-menu-button" onClick={() => setOverlay('menu')}><Icon name="menu" /> Меню</button>
         <button type="button" className="cs-menu-button" onClick={requestSignOut} disabled={busy || Boolean(pending)} title="Выйти из кассы · Ctrl+Q"><Icon name="logout" /> Выход <Kbd>Ctrl+Q</Kbd></button>
-        <span className="cs-status-center">{storeName}{stores.length > 1 && !deviceReady && <select aria-label="Магазин" value={storeId} onChange={event => { setCategoryId('all'); setCatalogPage(1); setCategories([]); setStoreId(event.target.value); }} disabled={busy}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>} / {shift ? (shiftNumber ? `Смена #${shiftNumber}` : `Смена${openedAt ? ` с ${new Date(openedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ' открыта'}`) : 'Смена закрыта'}</span>
+        <span className="cs-status-center">{stores.length > 1 && !shift && !cart.length ? <select aria-label="Магазин" value={storeId} onChange={event => { setCategoryId('all'); setCatalogPage(1); setCategories([]); setStoreId(event.target.value); }} disabled={busy}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select> : storeName} / {shift ? (shiftNumber ? `Смена #${shiftNumber}` : `Смена${openedAt ? ` с ${new Date(openedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ' открыта'}`) : 'Смена закрыта'}</span>
         <span className="cs-status-right">{clock.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}, {clock.toLocaleDateString('ru-RU', { weekday: 'long' })} {clock.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}<span className={connectionOffline ? 'cs-net is-off' : 'cs-net'} title={connectionOffline ? 'Нет связи · локальный режим' : 'Связь есть'}><Icon name="wifi" size={20} /></span></span>
       </footer>
     </section>
