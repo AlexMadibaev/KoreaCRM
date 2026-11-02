@@ -27,7 +27,13 @@ export default function FinancePage() {
   const [operationShiftId, setOperationShiftId] = useState(''), [operationType, setOperationType] = useState<'DEPOSIT' | 'WITHDRAWAL' | 'CORRECTION'>('DEPOSIT'), [operationAmount, setOperationAmount] = useState(''), [operationComment, setOperationComment] = useState(''), [operationId, setOperationId] = useState('');
   const [paymentPurchaseId, setPaymentPurchaseId] = useState(''), [paymentAmount, setPaymentAmount] = useState(''), [paymentMethod, setPaymentMethod] = useState<Method>('BANK_TRANSFER'), [paymentShiftId, setPaymentShiftId] = useState(''), [paymentOperationId, setPaymentOperationId] = useState('');
   const can = (permission: string) => permissions.includes(permission);
-  useEffect(() => { Promise.all([api<{ permissions: string[] }>('/auth/me'), api<Store[]>('/finance/stores')]).then(([me, available]) => { setPermissions(me.permissions); setStores(available); setStoreId(available[0]?.id ?? ''); setOperationId(crypto.randomUUID()); setPaymentOperationId(crypto.randomUUID()); setExpenseOperationId(crypto.randomUUID()); }).catch((caught) => { setError(errorText(caught)); setLoading(false); }); }, []);
+  const shiftJumpDone = useRef(false);
+  useEffect(() => {
+    if (loading || shiftJumpDone.current || window.location.hash !== '#cash-shifts') return;
+    const section = document.getElementById('cash-shifts');
+    if (section) { section.scrollIntoView({ block: 'start' }); shiftJumpDone.current = true; }
+  }, [loading, storeId, permissions]);
+  useEffect(() => { Promise.all([api<{ permissions: string[] }>('/auth/me'), api<Store[]>('/finance/stores')]).then(([me, available]) => { setPermissions(me.permissions); setStores(available); setStoreId(available.find(store => store.id === new URLSearchParams(window.location.search).get('storeId'))?.id ?? available[0]?.id ?? ''); setOperationId(crypto.randomUUID()); setPaymentOperationId(crypto.randomUUID()); setExpenseOperationId(crypto.randomUUID()); }).catch((caught) => { setError(errorText(caught)); setLoading(false); }); }, []);
   const load = useCallback(async () => {
     const version = ++loadVersion.current;
     if (!storeId || !permissions.length) { setLoading(false); return; }

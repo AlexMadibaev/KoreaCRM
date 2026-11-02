@@ -147,6 +147,9 @@
 .crm-browser-devices[open] .crm-device-chevron { transform: rotate(180deg); }
 .crm-device-empty { padding: 14px; border: 1px dashed var(--ks-color-border); border-radius: 4px; }
 .crm-device-footnote { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--ks-color-border); font-size: 12px; line-height: 1.6; color: var(--ks-color-text-muted); }
+.crm-device-warning { margin-top: 14px; padding: 14px; border: 1px solid var(--ks-color-border-brand); border-radius: 4px; background: var(--ks-color-brand-subtle); color: var(--ks-color-ink); scroll-margin-top: 70px; }
+.crm-device-warning p { color: var(--ks-color-ink); font-size: 13px; line-height: 1.6; }
+.crm-device-warning a { color: var(--ks-color-brand-strong); font-weight: 600; text-decoration: underline; }
 @media (max-width: 530px) {
   .crm-device-row { flex-wrap: wrap; }
   .crm-device-actions { width: 100%; padding-left: 52px; flex-direction: row; align-items: center; justify-content: space-between; }
