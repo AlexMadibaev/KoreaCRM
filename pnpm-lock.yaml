@@ -115,6 +115,9 @@ importers:
 
   apps/pos:
     dependencies:
+      '@fontsource/oswald':
+        specifier: 5.2.5
+        version: 5.2.5
       '@koreacrm/api-client':
         specifier: workspace:*
         version: link:../../packages/api-client
@@ -509,6 +512,9 @@ packages:
 
   '@fast-csv/parse@4.3.6':
     resolution: {integrity: sha512-uRsLYksqpbDmWaSmzvJcuApSEe38+6NQZBUsuAyMZKqHxH0g1wcJgsKUvN3WC8tewaqFjBMMGrkHmC+T7k8LvA==}
+
+  '@fontsource/oswald@5.2.5':
+    resolution: {integrity: sha512-Sw8ayEYCoOzG2ISw5HaX3d5ILt3OEG2VFX2nzHaGywYD9p0WvVfO4SBK5/y9JGuOty3jA6OhptxOYZgwjTTPLQ==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -4080,6 +4086,8 @@ snapshots:
       lodash.isnil: 4.0.0
       lodash.isundefined: 3.0.1
       lodash.uniq: 4.5.0
+
+  '@fontsource/oswald@5.2.5': {}
 
   '@humanfs/core@0.19.2':
     dependencies:

@@ -663,6 +663,7 @@ model Sale {
   costMinor      Decimal       @db.Decimal(18, 0)
   profitMinor    Decimal       @db.Decimal(18, 0)
   debtMinor      Decimal       @default(0) @db.Decimal(18, 0)
+  comment        String?
   status         SaleStatus    @default(COMPLETED)
   items          SaleItem[]
   payments       Payment[]

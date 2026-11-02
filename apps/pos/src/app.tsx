@@ -1,7 +1,7 @@
 import { FormEvent, KeyboardEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createApiClient, ApiError } from '@koreacrm/api-client';
-import { Button, MoneyInput } from '@koreacrm/ui';
 import { invoke } from '@tauri-apps/api/core';
+import { Button } from '@koreacrm/ui';
 import type { PosCustomer, PosPage, PosPaymentMethod, PosProduct, PosSale, PosSettings, PosShift, PosStock, PosStore } from '@koreacrm/types';
 import { calculateCartWithDiscount, discountBasisPoints, formatMinor, validatePayments } from './calculations';
 import { loyaltyPercent, type LoyaltySettings } from './loyalty';
@@ -11,23 +11,22 @@ import { enqueueSale, listSyncQueue, retryConflictSale, setSyncStatus, syncQueue
 import { drainQueue, readyForRetry } from './queue-drain';
 import { markOfflineSessionReady, matchOfflineCode, passwordVerifier, readOfflineCodeSessions, readOfflineSession, sameVerifier, saveOfflineCodeSession, saveOfflineSession, type OfflineSession } from './offline-session';
 import { projectShiftCash } from './shift-projection';
-import { changeDue, quickCashAmounts } from './cash-change';
 import { queuedSaleDetails } from './queued-sale-details';
 import { isLocalServerUrl, normalizeServerUrl } from './server-url';
-import { SalesHistory } from './sales-history';
-import { ShiftPanel } from './shift-panel';
+import { DebtsModal, JournalModal, ShiftsScreen } from './cloud-screens';
 import { translateError } from './error-text';
-import { DebtsPanel } from './debts-panel';
 import { defaultParkedLabel, parkReceipt, readParked, writeParked, type ParkedReceipt } from './parked-receipts';
-import { ProductImage, ProductResults, type CatalogItem, type PosCatalogProduct } from './product-results';
+import { ProductImage, type CatalogItem, type PosCatalogProduct } from './product-results';
+import { Icon, Kbd, LineEditor, ProductGrid, Sheet, defaultCardView, hasOverlay } from './cloud-ui';
+import { PaymentScreen, SaleSuccess, type PaymentPart } from './cloud-payment';
+import { CatalogModePopover, CustomerCreateModal, CustomerPickerModal, OpenShiftModal, PopoverMenu, QueueModal, ReceiptDiscountModal, ReturnReasonModal, SellerModal, SettingsPanel, useClock, type NewCustomer, type PosSettingsState } from './cloud-dialogs';
 import { categoryNotice as categoryNoticeFor, filterCachedProducts, posCatalogPath, type PosCategory } from './catalog-filters';
 
 const CameraCodeScanner = lazy(() => import('./camera-code-scanner').then(module => ({ default: module.CameraCodeScanner })));
-type PosScreen = 'sale' | 'history' | 'shift' | 'debts' | 'sync';
+type Overlay = null | 'pay' | 'customer' | 'customerCreate' | 'queue' | 'seller' | 'discount' | 'openShift' | 'menu' | 'more' | 'catalogMode' | 'returnReason';
 
 type Line = { product: Pick<PosProduct, 'id' | 'name' | 'sku' | 'brandId' | 'categoryId'>; imageKey?: string; quantity: number; available: number; priceMinor: number; discountMinor: string };
-type Tender = { id: string; methodId: string; amountMinor: string; reference: string };
-type SaleRequest = { operationId: string; deviceId: string; cashShiftId?: string; customerId?: string; sellerId?: string; items: { productId: string; quantity: number; priceMinor: string; discountMinor: string }[]; payments: { paymentMethodId: string; amountMinor: string; reference?: string }[] };
+type SaleRequest = { operationId: string; deviceId: string; cashShiftId?: string; customerId?: string; sellerId?: string; comment?: string; items: { productId: string; quantity: number; priceMinor: string; discountMinor: string }[]; payments: { paymentMethodId: string; amountMinor: string; reference?: string }[] };
 type PendingSale = { storeId: string; request: SaleRequest };
 const defaultApiUrl = import.meta.env.VITE_API_URL ?? '';
 const apiUrlKey = 'koreacrm-pos-api-url-v1';
@@ -35,8 +34,9 @@ const pendingKey = 'koreacrm-pos-pending-sale-v1';
 const loyaltyKey = 'koreacrm-pos-loyalty-v1';
 const deviceKey = 'koreacrm-pos-device-v1';
 const savedStoreKey = 'koreacrm-pos-store-v1';
-// Card payments keep the terminal's RRN and the card's last digits for disputes.
-const cardReference = (rrn: string, last4: string) => [rrn ? `RRN ${rrn}` : '', last4 ? `карта *${last4}` : ''].filter(Boolean).join(' · ');
+const settingsKey = 'koreacrm-pos-settings-v1';
+const appVersion = '0.2.0';
+const readSettings = (): PosSettingsState => { const base = { ...defaultCardView, printByDefault: false, printerHost: '', sound: false }; try { const raw = localStorage.getItem(settingsKey); return raw ? { ...base, ...JSON.parse(raw) as Partial<PosSettingsState> } : base; } catch { return base; } };
 const message = (caught: unknown) => {
   if (caught instanceof TypeError) return 'Нет связи. Проверьте подключение и попробуйте ещё раз.';
   if (caught instanceof ApiError) {
@@ -61,18 +61,11 @@ const deviceRegistrationError = (caught: unknown) => {
   if (caught instanceof ApiError && caught.message === 'Active store not found') return 'Магазин не найден или не активен. Выберите другой магазин.';
   return `Касса не подключилась: ${message(caught)}`;
 };
-const validMinor = (value: string) => /^(0|[1-9]\d{0,17})$/.test(value);
 const russianCount = (count: number, one: string, few: string, many: string) => {
   const remainder = count % 100;
   if (remainder >= 11 && remainder <= 14) return many;
   switch (count % 10) { case 1: return one; case 2: case 3: case 4: return few; default: return many; }
 };
-const cartLineTotal = (totalMinor?: bigint) => totalMinor === undefined ? '—' : formatMinor(totalMinor);
-
-function NavIcon({ path }: { path: string }) {
-  return <svg aria-hidden="true" viewBox="0 0 24 24"><path d={path} /></svg>;
-}
-
 function ConflictSaleCard({ entry, methods, disabled, onRetry }: { entry: QueueEntry; methods: PosPaymentMethod[]; disabled: boolean; onRetry: () => void }) {
   const details = queuedSaleDetails(entry.payloadJson);
   const explanation = entry.error?.startsWith('Purchase cost is missing')
@@ -116,8 +109,9 @@ export function App() {
   const [databaseHealth, setDatabaseHealth] = useState<DatabaseHealth | null>(null);
   const [queueSummary, setQueueSummary] = useState<QueueSummary | null>(null), [queueNotice, setQueueNotice] = useState('');
   const [queueEntries, setQueueEntries] = useState<QueueEntry[]>([]);
-  const [salesRevision, setSalesRevision] = useState(0);
-  const [activeScreen, setActiveScreen] = useState<PosScreen>('sale');
+  const [, setSalesRevision] = useState(0);
+  const [overlay, setOverlay] = useState<Overlay>(null), [payOpen, setPayOpen] = useState(false);
+  const [sheet, setSheet] = useState<null | 'history' | 'shift' | 'debts' | 'sync' | 'settings'>(null);
   const [receiptScreen, setReceiptScreen] = useState<'sale' | 'history'>('sale');
   const [networkOnline, setNetworkOnline] = useState(() => navigator.onLine);
   const offlineNetwork = !networkOnline && !isLocalServerUrl(apiUrl);
@@ -131,53 +125,42 @@ export function App() {
   const [stores, setStores] = useState<PosStore[]>([]), [storeId, setStoreId] = useState(''), [deviceReady, setDeviceReady] = useState(false), [shift, setShift] = useState<PosShift | null>(null);
   const [methods, setMethods] = useState<PosPaymentMethod[]>([]), [customers, setCustomers] = useState<PosCustomer[]>([]), [customerSearch, setCustomerSearch] = useState(''), [customerId, setCustomerId] = useState('');
   const [loyalty, setLoyalty] = useState<LoyaltySettings | null>(null);
-  const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
-  const [personalDiscountDraft, setPersonalDiscountDraft] = useState('0');
-  const [customerCreateOpen, setCustomerCreateOpen] = useState(false), [customerFirstName, setCustomerFirstName] = useState(''), [customerLastName, setCustomerLastName] = useState(''), [customerPhone, setCustomerPhone] = useState(''), [customerCreateError, setCustomerCreateError] = useState(''), [creatingCustomer, setCreatingCustomer] = useState(false);
-  const [search, setSearch] = useState(''), [products, setProducts] = useState<CatalogItem[]>([]), [cart, setCart] = useState<Line[]>([]), [tenders, setTenders] = useState<Tender[]>([]);
+  const [search, setSearch] = useState(''), [products, setProducts] = useState<CatalogItem[]>([]), [cart, setCart] = useState<Line[]>([]);
   const [categories, setCategories] = useState<PosCategory[]>([]), [categoryId, setCategoryId] = useState('all');
   const [categoryNotice, setCategoryNotice] = useState('');
   const [catalogPage, setCatalogPage] = useState(1), [catalogTotal, setCatalogTotal] = useState(0), [catalogLoading, setCatalogLoading] = useState(false);
   const [stockNotice, setStockNotice] = useState('');
   const [receipt, setReceipt] = useState<PosSale | null>(null), [pending, setPending] = useState<PendingSale | null>(() => { try { const saved = localStorage.getItem(pendingKey); return saved ? JSON.parse(saved) as PendingSale : null; } catch { return null; } });
   const [error, setError] = useState(''), [busy, setBusy] = useState(false), [printerHost, setPrinterHost] = useState(() => localStorage.getItem('koreacrm-pos-printer-host') ?? '');
-  const searchRef = useRef<HTMLInputElement>(null), scanRef = useRef<HTMLInputElement>(null), customerRef = useRef<HTMLInputElement>(null), paymentRef = useRef<HTMLButtonElement>(null);
-  const customerNameRef = useRef<HTMLInputElement>(null);
-  const customerPickerRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null), scanRef = useRef<HTMLInputElement>(null);
   useEffect(() => { if (!signedIn && loginMode === 'scan') scanRef.current?.focus(); }, [signedIn, loginMode]);
-  useEffect(() => { if (customerCreateOpen) customerNameRef.current?.focus(); }, [customerCreateOpen]);
-  useEffect(() => {
-    if (!customerPickerOpen) return;
-    const close = (event: PointerEvent) => { if (!customerPickerRef.current?.contains(event.target as Node)) setCustomerPickerOpen(false); };
-    document.addEventListener('pointerdown', close);
-    return () => document.removeEventListener('pointerdown', close);
-  }, [customerPickerOpen]);
   const can = (permission: string) => permissions.includes(permission);
-  const paymentRows = tenders.map(tender => ({ methodId: tender.methodId, amountMinor: tender.amountMinor, kind: methods.find(method => method.id === tender.methodId)?.kind ?? '' }));
-  const cashPayment = paymentRows.some(row => row.kind === 'CASH');
+  const [lineEditId, setLineEditId] = useState(''), [receiptDiscount, setReceiptDiscount] = useState(0n);
+  const [catalogMode, setCatalogMode] = useState<'products' | 'categories'>('products'), [returnMode, setReturnMode] = useState(false);
+  const [success, setSuccess] = useState<{ totals: { subtotal: bigint; discount: bigint; total: bigint }; parts: PaymentPart[]; change: bigint; sale: PosSale | null } | null>(null);
+  const [settings, setSettings] = useState<PosSettingsState>(readSettings);
+  useEffect(() => { try { localStorage.setItem(settingsKey, JSON.stringify(settings)); } catch { /* Settings stay for this session only. */ } }, [settings]);
+  const clock = useClock();
+  const [shiftNumber, setShiftNumber] = useState(0);
+  useEffect(() => {
+    if (!shift || offlineSignedIn || !storeId) { setShiftNumber(0); return; }
+    let active = true;
+    client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts?limit=100`).then(page => { const index = page.items.findIndex(item => item.id === shift.id); if (active) setShiftNumber(index >= 0 ? page.total - index : 0); }).catch(() => undefined);
+    return () => { active = false; };
+  }, [client, shift?.id, storeId, offlineSignedIn]);
   const selectedCustomer = customers.find(customer => customer.id === customerId);
-  useEffect(() => { setPersonalDiscountDraft(selectedCustomer?.discountPercent ?? '0'); }, [selectedCustomer?.id, selectedCustomer?.discountPercent]);
-  const customerMatches = customers.filter(customer => !customerSearch.trim() || `${customer.firstName} ${customer.lastName ?? ''} ${customer.phone}`.toLocaleLowerCase('ru').includes(customerSearch.trim().toLocaleLowerCase('ru'))).slice(0, 8);
-  const customerDiscountPercent = selectedCustomer?.discountPercent ?? '0';
-  // Tier and promotion rules can apply even without a personal discount, so label the percent actually used.
-  const appliedDiscountPercent = (percents: string[]) => percents.length && percents.every(percent => percent === percents[0]) && Number(percents[0]) > 0 ? ` (${percents[0]}%)` : '';
   const cartSubtotal = cart.reduce((sum, line) => sum + BigInt(line.priceMinor) * BigInt(line.quantity), 0n);
   const cartPercents = loyalty ? cart.map(line => loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null, cartSubtotal)) : [];
   const cartLines = cart.map(line => ({ productId: line.product.id, quantity: line.quantity, available: line.available, priceMinor: line.priceMinor, discountMinor: line.discountMinor }));
   let cartTotal: ReturnType<typeof calculateCartWithDiscount> | null = null;
   let cartError = '';
-  try { if (cart.length && loyalty) cartTotal = calculateCartWithDiscount(cartLines, cartPercents); } catch { cartError = 'Проверьте количество товаров и скидку клиента.'; }
-  const paid = tenders.reduce((total, tender) => total + BigInt(validMinor(tender.amountMinor) ? tender.amountMinor : '0'), 0n);
+  // The whole-receipt discount is capped by what is left after line and loyalty discounts.
+  try { if (cart.length && loyalty) { const base = calculateCartWithDiscount(cartLines, cartPercents); cartTotal = calculateCartWithDiscount(cartLines, cartPercents, { kind: 'FIXED', value: (receiptDiscount > base.total ? base.total : receiptDiscount).toString() }); } } catch { cartError = 'Проверьте количество товаров и скидку клиента.'; }
+  useEffect(() => { if (!cart.length) setReceiptDiscount(0n); }, [cart.length]);
   // Manual line discounts above the store limit need a manager's account.
-  const manualDiscountMinor = cart.reduce((total, line) => total + BigInt(line.discountMinor), 0n);
+  const manualDiscountMinor = cart.reduce((total, line) => total + BigInt(line.discountMinor), 0n) + (cartTotal?.cartDiscountMinor ?? 0n);
   const discountLimitPercent = loyalty?.maxManualDiscountPercent ?? '100';
   const discountOverLimit = !can('sales.discount.unlimited') && cartSubtotal > 0n && manualDiscountMinor * 10000n > cartSubtotal * discountBasisPoints(discountLimitPercent);
-  const checkoutHint = discountOverLimit ? `Ручная скидка больше ${discountLimitPercent}%. Уменьшите её или попросите менеджера провести продажу.` : pending ? 'Сначала проверьте предыдущую продажу.' : !cart.length ? 'Сначала добавьте товар в чек.' : !deviceReady ? deviceError || 'Подождите, пока касса подключится.' : cartError ? 'Проверьте количество товаров и скидку клиента.' : cashPayment && !shift ? 'Для оплаты наличными нужна открытая кассовая смена. Откройте её до отключения связи.' : cartTotal && paid !== cartTotal.total ? 'Внесённая сумма должна совпадать с итогом чека.' : '';
-  const totalMinor = cartTotal?.total.toString() ?? '0';
-  // A single payment always covers the whole receipt; only split payments are typed by hand.
-  useEffect(() => { setTenders(current => current.length === 1 && current[0]!.amountMinor !== totalMinor ? [{ ...current[0]!, amountMinor: totalMinor }] : current); }, [totalMinor, tenders.length]);
-  const [cashReceived, setCashReceived] = useState(''), [discountLines, setDiscountLines] = useState<string[]>([]);
-  const [receiptChange, setReceiptChange] = useState<bigint | null>(null);
   const [sellers, setSellers] = useState<{ id: string; name: string }[]>([]), [sellerId, setSellerId] = useState('');
   const sellerKey = `koreacrm-pos-seller-v1:${storeId}:${deviceId}`;
   useEffect(() => { try { setSellerId(storeId && deviceId ? localStorage.getItem(sellerKey) ?? '' : ''); } catch { setSellerId(''); } }, [sellerKey, storeId, deviceId]);
@@ -188,8 +171,7 @@ export function App() {
     return () => { active = false; };
   }, [client, deviceReady, storeId, offlineSignedIn, permissions]);
   const chooseSeller = (id: string) => { setSellerId(id); try { if (id) localStorage.setItem(sellerKey, id); else localStorage.removeItem(sellerKey); } catch { /* Seller choice is a convenience only. */ } };
-  const [cardRrn, setCardRrn] = useState(''), [cardLast4, setCardLast4] = useState('');
-  const [parked, setParked] = useState<ParkedReceipt<Line, PosCustomer>[]>([]), [parkedOpen, setParkedOpen] = useState(false);
+  const [parked, setParked] = useState<ParkedReceipt<Line, PosCustomer>[]>([]);
   useEffect(() => { setParked(storeId && deviceId ? readParked<Line, PosCustomer>(localStorage, storeId, deviceId) : []); }, [storeId, deviceId]);
   const saveParked = (next: ParkedReceipt<Line, PosCustomer>[]) => { setParked(next); writeParked(localStorage, storeId, deviceId, next); };
   // Short confirmations disappear on their own so they do not follow the cashier to other screens.
@@ -199,23 +181,16 @@ export function App() {
     const customer = customers.find(value => value.id === customerId) ?? null;
     try { saveParked(parkReceipt(parked, { label: defaultParkedLabel(parked.length, customer ? `${customer.firstName} ${customer.lastName ?? ''}`.trim() : null), lines: cart, customer })); }
     catch (caught) { setError(message(caught)); return; }
-    setCart([]); setCustomerId(''); setStockNotice(''); flashNotice('Чек отложен. Откройте его из списка «Отложенные».');
+    setCart([]); setCustomerId(''); setStockNotice(''); setReceiptDiscount(0n); flashNotice('Чек отложен. Он в «Очереди чеков».');
     window.setTimeout(() => searchRef.current?.focus(), 0);
   }
   function restoreParked(receipt: ParkedReceipt<Line, PosCustomer>) {
     if (cart.length) { setError('В чеке есть товары. Оформите или отложите текущий чек, потом откройте отложенный.'); return; }
     if (receipt.customer) setCustomers(current => current.some(value => value.id === receipt.customer!.id) ? current : [receipt.customer!, ...current]);
-    setCart(receipt.lines); setCustomerId(receipt.customer?.id ?? ''); setParkedOpen(false);
+    setCart(receipt.lines); setCustomerId(receipt.customer?.id ?? '');
     saveParked(parked.filter(value => value.id !== receipt.id));
     flashNotice('Отложенный чек открыт. Проверьте цены и остатки перед оплатой.');
   }
-  const closeReceipt = () => { setReceipt(null); window.setTimeout(() => searchRef.current?.focus(), 0); };
-  useEffect(() => { if (!cart.length) { setCashReceived(''); setDiscountLines([]); } }, [cart.length]);
-  const singleMethod = tenders.length === 1 ? methods.find(method => method.id === tenders[0]!.methodId) : undefined;
-  // Change is due only on the cash part of the receipt, also when the payment is split.
-  const cashDue = cartTotal ? paymentRows.reduce((total, row) => total + (row.kind === 'CASH' && validMinor(row.amountMinor) ? BigInt(row.amountMinor) : 0n), 0n) : 0n;
-  const cashChange = cashDue > 0n ? changeDue(cashReceived, cashDue) : null;
-  const cartUnits = cart.reduce((sum, line) => sum + line.quantity, 0);
   const cartQuantities = Object.fromEntries(cart.map(line => [line.product.id, line.quantity]));
   const projectedShift = shift ? projectShiftCash(shift.expectedCashMinor, shift.id, methods.filter(method => method.kind === 'CASH').map(method => method.id), queueEntries) : null;
 
@@ -239,7 +214,7 @@ export function App() {
       }
       setLogin(me.login || identityLogin); setCashierName(me.name || me.login || identityLogin);
       setUserId(me.userId); setPermissions(me.permissions); setStores(available); setMethods(active); setStoreId(chosen.id);
-      setTenders([{ id: crypto.randomUUID(), methodId: active.find(method => method.kind === 'CASH')?.id ?? active[0]!.id, amountMinor: '0', reference: '' }]); setPassword(''); setScanCode(''); setOfflineSignedIn(false); setSignedIn(true);
+      setPassword(''); setScanCode(''); setOfflineSignedIn(false); setSignedIn(true);
   }
   async function finishOfflineSignIn(saved: OfflineSession, credential: string, mode: 'password' | 'scan', normalizedApiUrl: string) {
     const status = await readCatalogCacheStatus(saved.userId, saved.storeId);
@@ -257,7 +232,7 @@ export function App() {
     offlineCredentialModeRef.current = mode;
     localStorage.setItem(apiUrlKey, normalizedApiUrl); setApiUrl(normalizedApiUrl);
     setLogin(saved.login); setLoginMode(mode); setCashierName(saved.login); setUserId(saved.userId); setStoreId(saved.storeId); setStores([store]); setMethods(active); setPermissions(permissions); setShift(shift); setCustomers(customers); setDeviceReady(true); setCacheStatus(status);
-    setTenders([{ id: crypto.randomUUID(), methodId: active.find(method => method.kind === 'CASH')?.id ?? active[0]!.id, amountMinor: '0', reference: '' }]); setPassword(''); setScanCode(''); setServerReachable(false); setOfflineSignedIn(true); setSignedIn(true); setQueueNotice('Вы работаете без связи. Продажи сохранятся на кассе и отправятся позже.');
+    setPassword(''); setScanCode(''); setServerReachable(false); setOfflineSignedIn(true); setSignedIn(true); setQueueNotice('Вы работаете без связи. Продажи сохранятся на кассе и отправятся позже.');
   }
   async function signIn(event: FormEvent) {
     event.preventDefault(); setBusy(true); setError('');
@@ -302,7 +277,7 @@ export function App() {
   }
   function signInWithCode(event: FormEvent) { event.preventDefault(); void authenticateCode(scanCode); }
   const cameraDetected = useCallback((code: string) => { setCameraOpen(false); setScanCode(code); void authenticateCode(code); }, [client, apiUrl, pending]);
-  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* End this cashier session even if the server is unreachable. */ } finally { offlineCredentialRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setActiveScreen('sale'); setCart([]); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCashierName(''); setLogin(''); setPassword(''); setScanCode(''); setCustomerId(''); setCustomers([]); setShift(null); setDeviceReady(false); setDeviceError(''); setRegistrationRequested(false); setStores([]); setStoreId(''); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setLoginMode('scan'); setBusy(false); } }
+  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* End this cashier session even if the server is unreachable. */ } finally { offlineCredentialRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setOverlay(null); setSheet(null); setPayOpen(false); setSuccess(null); setReturnMode(false); setCart([]); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCashierName(''); setLogin(''); setPassword(''); setScanCode(''); setCustomerId(''); setCustomers([]); setShift(null); setDeviceReady(false); setDeviceError(''); setRegistrationRequested(false); setStores([]); setStoreId(''); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setLoginMode('scan'); setBusy(false); } }
   const refreshQueueSummary = useCallback(async () => {
     if (!hasDesktopCache() || !userId || !storeId) return;
     const [summary, entries] = await Promise.all([syncQueueSummary(userId, storeId), listSyncQueue(userId, storeId)]);
@@ -424,11 +399,11 @@ export function App() {
     return () => { window.clearInterval(timer); window.removeEventListener('online', online); };
   }, [signedIn, offlineSignedIn, offlineNetwork, deviceReady, userId, storeId, client, updateLocalCache]);
   useEffect(() => {
-    if (!signedIn || activeScreen !== 'sync' || !hasDesktopCache()) return;
+    if (!signedIn || sheet !== 'sync' || !hasDesktopCache()) return;
     let active = true;
     void readDatabaseHealth().then(health => { if (active) setDatabaseHealth(health); }).catch(() => { if (active) setDatabaseHealth({ integrity: 'error', journalMode: 'unknown' }); });
     return () => { active = false; };
-  }, [signedIn, activeScreen]);
+  }, [signedIn, sheet]);
   useEffect(() => {
     if (!signedIn || offlineSignedIn || !storeId || !registrationRequested) return;
     let active = true;
@@ -494,20 +469,28 @@ export function App() {
     const timer = window.setTimeout(() => { client.get<PosPage<PosCustomer>>(`/customers?search=${encodeURIComponent(customerSearch.trim())}&limit=100`).then(page => { if (active) setCustomers(previous => { const selected = previous.find(customer => customer.id === customerId); return selected && !page.items.some(customer => customer.id === selected.id) ? [selected, ...page.items] : page.items; }); }).catch(async caught => { if (!active) return; if (hasDesktopCache() && connectionFailed(caught)) { try { const rows = await readCachedCustomers(userId, storeId); const query = customerSearch.trim().toLocaleLowerCase('ru'); if (active) setCustomers(previous => { const matches = rows.filter(customer => `${customer.firstName} ${customer.lastName ?? ''} ${customer.phone}`.toLocaleLowerCase('ru').includes(query)); const selected = previous.find(customer => customer.id === customerId); return selected && !matches.some(customer => customer.id === selected.id) ? [selected, ...matches] : matches; }); } catch (cacheFailure) { if (active) setError(message(cacheFailure)); } } else setError(message(caught)); }); }, 200);
     return () => { active = false; window.clearTimeout(timer); };
   }, [signedIn, customerSearch, customerId, client, permissions, offlineSignedIn, offlineNetwork, userId, storeId]);
-  const parkShortcutRef = useRef<() => void>(() => undefined);
-  useEffect(() => { parkShortcutRef.current = () => { if (activeScreen === 'sale') parkCurrent(); }; });
+  const keysRef = useRef<(event: globalThis.KeyboardEvent) => void>(() => undefined);
+  useEffect(() => {
+    keysRef.current = event => {
+      if (hasOverlay() || sheet || payOpen || success) return;
+      const target = event.target as HTMLElement | null;
+      const typing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement;
+      const key = event.key.toLowerCase();
+      if (event.key === 'F8') { event.preventDefault(); parkCurrent(); return; }
+      if (event.key === 'Escape') { if (search) { setSearch(''); setCatalogPage(1); } (target as HTMLElement | null)?.blur?.(); return; }
+      if (typing) return;
+      if (key === 'f' || key === 'а') { event.preventDefault(); searchRef.current?.focus(); }
+      else if ((key === 'c' || key === 'с') && shift) { event.preventDefault(); setOverlay('customer'); }
+      else if (event.key === 'Enter' && cart.length) { event.preventDefault(); openPayment(); }
+      else if ((event.key === '+' || event.key === '-') && cart.length) { event.preventDefault(); const line = cart.at(-1)!; const next = line.quantity + (event.key === '+' ? 1 : -1); if (next <= 0) setCart(current => current.slice(0, -1)); else changeQuantity(line, String(next)); }
+    };
+  });
   useEffect(() => {
     if (!signedIn) return;
-    const handler = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'F2') { event.preventDefault(); setActiveScreen('sale'); window.setTimeout(() => searchRef.current?.focus(), 0); }
-      if (event.key === 'F3') { event.preventDefault(); setActiveScreen('sale'); setCustomerPickerOpen(true); window.setTimeout(() => customerRef.current?.focus(), 0); }
-      if (event.key === 'F8') { event.preventDefault(); parkShortcutRef.current(); }
-      if (event.key === 'F5') { event.preventDefault(); setActiveScreen('sale'); window.setTimeout(() => paymentRef.current?.focus(), 0); }
-      if (event.key === 'Escape' && activeScreen === 'sale') { setSearch(''); setProducts([]); setCustomerPickerOpen(false); }
-    };
+    const handler = (event: globalThis.KeyboardEvent) => keysRef.current(event);
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [signedIn, activeScreen]);
+  }, [signedIn]);
 
   async function addProduct(product: CatalogItem | PosProduct) {
     const existing = cart.find(line => line.product.id === product.id);
@@ -554,33 +537,52 @@ export function App() {
       else setError(message(caught));
     }
   }
-  async function savePersonalDiscount() {
-    if (!selectedCustomer || !can('customers.discount.edit') || offlineSignedIn || !serverReachable) return;
-    const discountPercent = personalDiscountDraft.trim().replace(',', '.');
-    if (!/^\d{1,3}(?:\.\d{1,2})?$/.test(discountPercent) || Number(discountPercent) > 100) { setError('Укажите скидку от 0 до 100%.'); return; }
-    setBusy(true); setError('');
+  async function createCustomer(data: NewCustomer): Promise<string | null> {
+    if (offlineSignedIn || !serverReachable || !can('customers.create')) return 'Для создания клиента нужна связь.';
     try {
-      const updated = await client.patch<PosCustomer>(`/customers/${selectedCustomer.id}/discount`, { discountPercent });
-      setCustomers(current => current.map(customer => customer.id === updated.id ? updated : customer));
-    } catch (caught) { setError(message(caught)); }
-    finally { setBusy(false); }
-  }
-  async function createCustomer(event: FormEvent) {
-    event.preventDefault();
-    if (creatingCustomer || pending || offlineSignedIn || !serverReachable || !can('customers.create')) return;
-    const firstName = customerFirstName.trim();
-    const phone = customerPhone.replace(/[\s()-]/g, '');
-    if (!firstName) { setCustomerCreateError('Укажите имя клиента.'); return; }
-    if (!/^\+[1-9]\d{7,14}$/.test(phone)) { setCustomerCreateError('Укажите телефон с кодом страны, например +992901234567.'); return; }
-    setCreatingCustomer(true); setCustomerCreateError('');
-    try {
-      const created = await client.post<PosCustomer>('/customers', { firstName, lastName: customerLastName.trim() || null, phone });
+      const created = await client.post<PosCustomer>('/customers', data);
       setCustomers(previous => [created, ...previous.filter(customer => customer.id !== created.id)]);
-      setCustomerSearch(''); setCustomerId(created.id); setCustomerPickerOpen(false);
-      setCustomerFirstName(''); setCustomerLastName(''); setCustomerPhone(''); setCustomerCreateOpen(false);
+      setCustomerSearch(''); setCustomerId(created.id);
+      return null;
     } catch (caught) {
-      setCustomerCreateError(caught instanceof ApiError && caught.status === 409 ? 'Клиент с таким телефоном уже есть. Найдите его через поиск.' : message(caught));
-    } finally { setCreatingCustomer(false); }
+      return caught instanceof ApiError && caught.status === 409 ? 'Клиент с таким телефоном уже есть. Найдите его через поиск.' : message(caught);
+    }
+  }
+  function openPayment() {
+    if (!cart.length || busy) return;
+    if (!deviceReady) { setError('Касса ещё подключается. Подождите немного.'); return; }
+    if (pending) { setError('Сначала проверьте предыдущую продажу.'); return; }
+    if (!shift) { setError('Откройте смену.'); return; }
+    if (cartError || !cartTotal) { setError(cartError || 'Проверьте чек.'); return; }
+    if (returnMode) { setOverlay('returnReason'); return; }
+    if (discountOverLimit) { setError(`Ручная скидка больше ${discountLimitPercent}%. Попросите менеджера провести продажу.`); return; }
+    setError(''); setPayOpen(true); setOverlay('pay');
+  }
+  async function returnWithoutReceipt(reason: string) {
+    if (!shift || !cartTotal) return;
+    setBusy(true); setError('');
+    let done = 0;
+    try {
+      for (const [index, line] of cart.entries()) {
+        const amountMinor = cartTotal.lines[index]!.totalMinor.toString();
+        if (amountMinor === '0') { done++; continue; }
+        await client.post(`/stores/${storeId}/sales/returns/no-receipt`, { operationId: crypto.randomUUID(), deviceId, cashShiftId: shift.id, productId: line.product.id, quantity: line.quantity, amountMinor, reason });
+        done++;
+      }
+      flashNotice(`Возврат оформлен. Выдайте ${formatMinor(cartTotal.total)} смн. наличными.`);
+      setCart([]); setReturnMode(false); setOverlay(null);
+    } catch (caught) {
+      setError(`${done ? `Оформлено позиций: ${done} из ${cart.length}. ` : ''}${message(caught)}`);
+      if (done) setCart(current => current.slice(done));
+    } finally {
+      setBusy(false);
+      void refreshShift().catch(caught => setError(message(caught)));
+    }
+  }
+  async function printSale(sale: PosSale) {
+    if (!printerHost.trim()) return;
+    try { await invoke('print_escpos', { host: printerHost.trim(), bytes: buildEscPosReceipt(sale) }); }
+    catch (caught) { setError(`Принтер не ответил: ${message(caught)}`); }
   }
   async function persistShift(value: PosShift | null) {
     const currentStore = stores.find(store => store.id === storeId);
@@ -591,10 +593,10 @@ export function App() {
     const updated = page.items.find(value => value.deviceId === deviceId && value.status === 'OPEN') ?? null;
     setShift(updated); await persistShift(updated);
   }
-  async function sendSale(payload: PendingSale) {
+  async function sendSale(payload: PendingSale): Promise<PosSale> {
     const sale = await client.post<PosSale>(`/stores/${payload.storeId}/sales`, payload.request);
     setServerReachable(true);
-    localStorage.removeItem(pendingKey); setPending(null); setReceipt(sale); setReceiptScreen('sale'); setCardRrn(''); setCardLast4(''); setCart([]); setCustomerId(''); setTenders(current => current.slice(0, 1).map(tender => ({ ...tender, id: crypto.randomUUID(), amountMinor: '0', reference: '' })));
+    localStorage.removeItem(pendingKey); setPending(null); setReceipt(sale); setReceiptScreen('sale'); setCart([]); setCustomerId(''); setReceiptDiscount(0n);
     setSalesRevision(value => value + 1);
     if (payload.request.payments.some(part => methods.find(method => method.id === part.paymentMethodId)?.kind === 'BONUS')) {
       try { const updated = await client.get<PosPage<PosCustomer>>('/customers?limit=100'); setCustomers(updated.items); }
@@ -609,58 +611,55 @@ export function App() {
         setQueueNotice(`Чек принят, но данные смены не обновились: ${message(caught)}`);
       }
     }
+    return sale;
   }
   function clearRejectedAttempt(caught: unknown) { if (caught instanceof ApiError && caught.status >= 400 && caught.status < 500 && caught.status !== 401 && caught.status !== 403) { localStorage.removeItem(pendingKey); setPending(null); } }
-  async function retryPending() { if (!pending) return; setBusy(true); setError(''); try { await sendSale(pending); } catch (caught) { clearRejectedAttempt(caught); setError(message(caught)); } finally { setBusy(false); } }
-  async function checkout(event: FormEvent) {
-    event.preventDefault(); if (!deviceReady) { setError('Касса ещё подключается. Подождите немного.'); return; } if (pending) { setError('Сначала проверьте предыдущую продажу.'); return; }
-    setReceiptChange(cashChange);
+  async function retryPending() { if (!pending) return; setBusy(true); setError(''); try { setSuccess({ totals: { subtotal: 0n, discount: 0n, total: BigInt(pending.request.payments.reduce((sum, part) => sum + BigInt(part.amountMinor), 0n)) }, parts: [], change: 0n, sale: await sendSale(pending) }); } catch (caught) { clearRejectedAttempt(caught); setError(message(caught)); } finally { setBusy(false); } }
+  async function completeSale(parts: PaymentPart[], change: bigint, print: boolean, comment = '') {
+    if (!deviceReady || busy) return;
+    const totals = cartTotal;
+    if (!totals) return;
+    const finish = (sale: PosSale | null) => { setSuccess({ totals: { subtotal: totals.subtotal, discount: totals.discount, total: totals.total }, parts, change, sale }); setPayOpen(false); setOverlay(null); if (sale && print) void printSale(sale); };
     try {
-      const totals = calculateCartWithDiscount(cartLines, cartPercents);
-      validatePayments(paymentRows, totals.total, customerId || null, cashPayment ? shift?.id ?? null : null, selectedCustomer?.bonusBalanceMinor ?? '0');
-      const request: SaleRequest = { operationId: crypto.randomUUID(), deviceId, ...(shift ? { cashShiftId: shift.id } : {}), ...(customerId ? { customerId } : {}), ...(sellerId && sellers.some(seller => seller.id === sellerId) ? { sellerId } : {}), items: cart.map((line, index) => ({ productId: line.product.id, quantity: line.quantity, priceMinor: String(line.priceMinor), discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: tenders.map(tender => { const reference = tender.reference || (tenders.length === 1 && methods.find(method => method.id === tender.methodId)?.kind === 'CARD' ? cardReference(cardRrn, cardLast4) : ''); return { paymentMethodId: tender.methodId, amountMinor: tender.amountMinor, ...(reference ? { reference } : {}) }; }) };
+      if (pending) { setBusy(true); setError(''); await sendSale(pending); finish(null); return; }
+      const rows = parts.map(part => ({ methodId: part.methodId, amountMinor: part.amountMinor.toString(), kind: part.kind }));
+      const cash = rows.some(row => row.kind === 'CASH');
+      validatePayments(rows, totals.total, customerId || null, cash ? shift?.id ?? null : null, selectedCustomer?.bonusBalanceMinor ?? '0');
+      const request: SaleRequest = { operationId: crypto.randomUUID(), deviceId, ...(shift ? { cashShiftId: shift.id } : {}), ...(customerId ? { customerId } : {}), ...(sellerId && sellers.some(seller => seller.id === sellerId) ? { sellerId } : {}), ...(comment ? { comment } : {}), items: cart.map((line, index) => ({ productId: line.product.id, quantity: line.quantity, priceMinor: String(line.priceMinor), discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: parts.map(part => ({ paymentMethodId: part.methodId, amountMinor: part.amountMinor.toString(), ...(part.reference ? { reference: part.reference } : {}) })) };
+      const clearSale = () => { setCart([]); setReceipt(null); setCustomerId(''); setReceiptDiscount(0n); };
       if (hasDesktopCache()) {
         setBusy(true); setError(''); setQueueNotice('');
         await enqueueSale(userId, storeId, request.operationId, request);
         await refreshQueueSummary().catch(caught => setQueueNotice(`Продажа сохранена, но её статус пока не обновился: ${message(caught)}`));
         if (offlineSignedIn || offlineNetwork) {
           setQueueNotice('Продажа сохранена на кассе. Отправим её, когда появится связь.');
-          setCart([]); setReceipt(null); setCustomerId('');
-          setTenders(current => current.slice(0, 1).map(tender => ({ ...tender, id: crypto.randomUUID(), amountMinor: '0', reference: '' })));
+          clearSale(); finish(null);
           return;
         }
         try {
           await setSyncStatus(userId, storeId, request.operationId, 'SYNCING');
-          await sendSale({ storeId, request });
+          const sale = await sendSale({ storeId, request });
           await setSyncStatus(userId, storeId, request.operationId, 'SYNCED');
           await refreshQueueSummary().catch(caught => setQueueNotice(`Чек оформлен, но его статус пока не обновился: ${message(caught)}`));
+          finish(sale);
         } catch (caught) {
           const conflict = caught instanceof ApiError && caught.status >= 400 && caught.status < 500 && caught.status !== 401 && caught.status !== 403;
           if (connectionFailed(caught)) setServerReachable(false);
           await setSyncStatus(userId, storeId, request.operationId, conflict ? 'CONFLICT' : 'ERROR', message(caught));
           await refreshQueueSummary().catch(() => undefined);
-          if (conflict) setQueueNotice('Продажу не удалось отправить. Проверьте её в разделе «Отправка продаж».');
-          else setQueueNotice('Продажа сохранена на кассе и ждёт отправки. Проверьте её в разделе «Отправка продаж».');
-          setCart([]); setReceipt(null); setCustomerId('');
-          setTenders(current => current.slice(0, 1).map(tender => ({ ...tender, id: crypto.randomUUID(), amountMinor: '0', reference: '' })));
+          if (conflict) setQueueNotice('Продажу не удалось отправить. Проверьте её в «Непроведённых».');
+          else setQueueNotice('Продажа сохранена на кассе и ждёт отправки.');
+          clearSale(); finish(null);
         }
         return;
       }
       const attempt = { storeId, request }; localStorage.setItem(pendingKey, JSON.stringify(attempt)); setPending(attempt); setBusy(true); setError('');
-      await sendSale(attempt);
+      finish(await sendSale(attempt));
     } catch (caught) {
       clearRejectedAttempt(caught);
       setError(message(caught));
     } finally { setBusy(false); }
   }
-  async function printEscPos() {
-    if (!receipt || !printerHost.trim()) return;
-    setBusy(true); setError('');
-    try { await invoke('print_escpos', { host: printerHost.trim(), bytes: buildEscPosReceipt(receipt) }); }
-    catch (caught) { setError(message(caught)); }
-    finally { setBusy(false); }
-  }
-
 if (!signedIn) return <main className="login"><div className="login-shell">
   <aside className="login-story">
     <div className="login-story-mark"><img src="/app-icon.svg" alt="" /></div>
@@ -696,115 +695,112 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     <button className="login-signup-button" type="button" onClick={() => { setCameraOpen(false); setShowSignup(true); setError(''); }}>Sign up <span>Подключить магазин ↗</span></button>
   </form>}
 </div></main>;
-  const screenTitle = activeScreen === 'sale' ? 'Продажа' : activeScreen === 'history' ? 'История чеков' : activeScreen === 'shift' ? 'Кассовая смена' : activeScreen === 'debts' ? 'Возврат долга' : 'Отправка продаж';
-  const navItem = (screen: PosScreen, label: string, icon: string) => <button type="button" className={activeScreen === screen ? 'active' : ''} aria-current={activeScreen === screen ? 'page' : undefined} onClick={() => setActiveScreen(screen)}><NavIcon path={icon} /><small>{label}</small></button>;
-  return <main className="pos">
-    <aside className="pos-sidebar" aria-label="Навигация кассы">
-      <img className="sidebar-mark" src="/app-icon.svg" alt="Korea CRM" />
-      <nav className="sidebar-nav">
-        {navItem('sale', 'Касса', 'M4 5h2l2.2 10.2a1 1 0 0 0 1 .8h8.6a1 1 0 0 0 1-.8L20 8H7M10 20h.01M17 20h.01')}
-        {navItem('history', 'Чеки', 'M7 3h10v18l-2.5-1.5L12 21l-2.5-1.5L7 21zM10 8h4M10 12h4')}
-        {navItem('shift', 'Смена', 'M12 7v5l3 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0z')}
-        {can('customers.view') && navItem('debts', 'Долги', 'M3 7h18v10H3zM3 10h18M7 14h3')}
-        {hasDesktopCache() && navItem('sync', 'Отправка', 'M20 11a8 8 0 0 0-14.7-4.4L4 8M4 4v4h4M4 13a8 8 0 0 0 14.7 4.4L20 16M20 20v-4h-4')}
-      </nav>
-      <span className="sidebar-avatar" title={cashierName || login}>{(cashierName || login).slice(0, 1).toUpperCase()}</span>
-    </aside>
-    <div className="pos-content"><header className="topbar">
-    <h1>{screenTitle}</h1>
-    <div className="topbar-store">{stores.length === 1 ? <strong className="assigned-store">{stores[0]!.name}</strong> : <select aria-label="Магазин" value={storeId} onChange={event => { setCategoryId('all'); setCatalogPage(1); setCategories([]); setStoreId(event.target.value); }} disabled={busy || deviceReady}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>}</div>
-    {!deviceReady && <button className="topbar-connect" disabled={busy} onClick={() => registrationRequested ? setRegisterNonce(value => value + 1) : setRegistrationRequested(true)}>{registrationRequested ? 'Повторить подключение' : 'Подключить кассу'}</button>}
-    <span className={connectionOffline ? 'connection-pill is-offline' : deviceReady ? 'connection-pill is-ready' : 'connection-pill'}><i aria-hidden="true" />{connectionOffline ? 'Нет связи · локальный режим' : deviceReady ? 'Касса готова' : 'Подключаем кассу'}</span>
-    {activeScreen === 'sale' && deviceReady && (shift ? <span className="connection-pill is-ready">Смена открыта</span> : <button type="button" className="topbar-shift" onClick={() => setActiveScreen('shift')}>Смена не открыта</button>)}
-    <div className="topbar-cashier"><span><small>Кассир</small><strong>{cashierName || login}</strong></span><button className="cashier-switch" disabled={busy || Boolean(pending)} onClick={() => void signOut()}>Сменить</button></div>
-  </header>
-    {error && <p role="alert" className="error">{error}</p>}
-    {!deviceReady && deviceError && <p role="alert" className="error">{deviceError}</p>}
-    {activeScreen === 'sync' && cacheError && <p role="status" className="cache-warning">Не удалось обновить товары: {cacheError}. Продажи при наличии связи доступны.</p>}
-    {activeScreen === 'sale' && stockNotice && <p role="status" className="stock-notice">{stockNotice}</p>}
-    {queueNotice && <p role="status" className="stock-notice">{queueNotice}</p>}
-    {activeScreen === 'sync' && hasDesktopCache() && <section id="sync" className="panel sync-screen"><div className="screen-heading"><p className="eyebrow">УПРАВЛЕНИЕ</p><h2>Отправка продаж</h2><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{offlineNetwork || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : (queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) > 0 ? `Ожидают повторной отправки: ${(queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0)} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales(true)} disabled={!deviceReady || offlineNetwork || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div><details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>}
-    {activeScreen === 'sync' && databaseHealth && <p role="status" className={databaseHealth.integrity === 'ok' ? 'stock-notice' : 'error'}>Локальная база: {databaseHealth.integrity === 'ok' ? 'исправна' : 'обнаружена ошибка, требуется восстановление из копии'} · режим записи: {databaseHealth.journalMode.toUpperCase()}</p>}
-    {activeScreen === 'sync' && cacheStatus?.lastSyncedAt && <p role="status" className="stock-notice">Товары и клиенты обновлены: {new Date(cacheStatus.lastSyncedAt).toLocaleString('ru-RU')} · клиентов: {cacheStatus.customerCount}</p>}
-    {pending && <section className="panel pending"><h2>Проверка предыдущей продажи</h2><p>Не удалось получить подтверждение. Нажмите «Проверить продажу», чтобы избежать повторного списания. Магазин: {stores.find(store => store.id === pending.storeId)?.name ?? 'другой магазин'}.</p><button disabled={busy || !deviceReady || storeId !== pending.storeId} onClick={() => void retryPending()} className="primary">Проверить продажу</button></section>}
-    {activeScreen === 'sale' && <div className="columns" id="workspace">
-      <section className="panel catalog-panel" aria-label="Каталог товаров">
-        <div className="catalog-toolbar">
-          <label className="catalog-search"><span className="sr-only">Поиск или штрихкод</span><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM20 20l-4-4" /></svg><input ref={searchRef} autoFocus value={search} onChange={event => { setCatalogPage(1); setSearch(event.target.value); }} onKeyDown={event => void scan(event)} placeholder="Название, артикул или штрихкод" disabled={Boolean(pending)} /><kbd>F2</kbd></label>
-          <span className="catalog-count">{catalogTotal} {russianCount(catalogTotal, 'товар', 'товара', 'товаров')}</span>
-        </div>
-        <div className="catalog-filters" role="group" aria-label="Категории товаров">
-          <button type="button" className={categoryId === 'all' ? 'active' : ''} aria-pressed={categoryId === 'all'} onClick={() => { setCatalogPage(1); setCategoryId('all'); }}>Все товары</button>
-          {categories.map(category => <button type="button" key={category.id} className={categoryId === category.id ? 'active' : ''} aria-pressed={categoryId === category.id} onClick={() => { setCatalogPage(1); setCategoryId(category.id); }}>{category.name}</button>)}
-        </div>
-        {categoryNotice && <p className="catalog-category-notice" role="status">{categoryNotice}</p>}
-        <div className="catalog-scroll">
-          {!catalogLoading && search.trim() && products.length === 0 && <div className="catalog-empty">По запросу «{search}» товары не найдены.</div>}
-          <ProductResults products={products} apiUrl={client.baseUrl()} quantities={cartQuantities} disabled={busy || Boolean(pending)} onAdd={product => void addProduct(product)} />
-          {products.length < catalogTotal && <button type="button" className="catalog-more" disabled={catalogLoading} onClick={() => setCatalogPage(page => page + 1)}>{catalogLoading ? 'Загрузка…' : `Показать ещё · осталось ${catalogTotal - products.length}`}</button>}
-        </div>
-      </section>
-      <section className="panel order-panel" aria-label="Текущий чек">
-        <div className="order-heading"><h2>Чек {cartUnits > 0 && <span>{cartUnits} {russianCount(cartUnits, 'товар', 'товара', 'товаров')}</span>}</h2><div className="order-heading-actions"><button type="button" className="park-order" disabled={!cart.length || Boolean(pending)} onClick={parkCurrent} title="Отложить чек · F8">Отложить</button><button type="button" className="parked-toggle" aria-expanded={parkedOpen} disabled={!parked.length} onClick={() => setParkedOpen(value => !value)}>Отложенные{parked.length ? ` (${parked.length})` : ''}</button><button type="button" className="reset-order" disabled={!cart.length || Boolean(pending)} onClick={() => { setCart([]); setStockNotice(''); }}>Очистить</button></div></div>
-        {parkedOpen && parked.length > 0 && <ul className="parked-list" aria-label="Отложенные чеки">{parked.map(receipt => <li key={receipt.id}><div><strong>{receipt.label}</strong><span>{new Date(receipt.createdAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} · {receipt.lines.reduce((total, line) => total + line.quantity, 0)} шт. · {formatMinor(receipt.lines.reduce((total, line) => total + BigInt(line.priceMinor) * BigInt(line.quantity) - BigInt(line.discountMinor), 0n))}</span></div><button type="button" onClick={() => restoreParked(receipt)}>Выбрать</button><button type="button" className="parked-delete" aria-label={`Удалить ${receipt.label}`} onClick={() => { if (window.confirm(`Удалить «${receipt.label}»?`)) saveParked(parked.filter(value => value.id !== receipt.id)); }}>Удалить</button></li>)}</ul>}
-        <div className="order-items">
-          {!cart.length && <div className="empty-cart"><NavIcon path="M4 5h2l2.2 10.2a1 1 0 0 0 1 .8h8.6a1 1 0 0 0 1-.8L20 8H7M10 20h.01M17 20h.01" /><strong>Чек пуст</strong><p>Нажмите на товар или отсканируйте штрихкод.</p></div>}
-          <ul className="cart">{cart.map((line, index) => <li key={line.product.id}>
-            <div className="cart-line-image"><ProductImage key={line.imageKey} storageKey={line.imageKey} apiUrl={client.baseUrl()} /></div>
-            <div className="item-name"><strong title={line.product.name}>{line.product.name}</strong><span>{formatMinor(line.priceMinor)} × {line.quantity}{line.discountMinor !== '0' ? ` · скидка ${formatMinor(line.discountMinor)}` : ''}</span></div>
-            <strong className="cart-line-total">{cartLineTotal(cartTotal?.lines[index]?.totalMinor)}</strong>
-            <button type="button" className="cart-remove" aria-label={`Убрать ${line.product.name}`} disabled={Boolean(pending)} onClick={() => setCart(current => current.filter(item => item.product.id !== line.product.id))}>×</button>
-            <div className="cart-line-controls"><div className="quantity-control"><button type="button" aria-label={`Уменьшить количество ${line.product.name}`} disabled={Boolean(pending) || line.quantity <= 1} onClick={() => changeQuantity(line, String(line.quantity - 1))}>−</button><input aria-label={`Количество ${line.product.name}`} type="number" min="1" max={line.available} value={line.quantity} disabled={Boolean(pending)} onChange={event => changeQuantity(line, event.target.value)} /><button type="button" aria-label={`Увеличить количество ${line.product.name}`} disabled={Boolean(pending) || line.quantity >= line.available} onClick={() => changeQuantity(line, String(line.quantity + 1))}>+</button></div>
-              {discountLines.includes(line.product.id) || line.discountMinor !== '0'
-                ? <label className="cart-manual-discount"><span>Скидка</span><MoneyInput aria-label={`Ручная скидка ${line.product.name}`} valueMinor={line.discountMinor} onMinorChange={minor => setCart(current => current.map(item => item.product.id === line.product.id ? { ...item, discountMinor: (BigInt(minor) > BigInt(item.priceMinor) * BigInt(item.quantity) ? BigInt(item.priceMinor) * BigInt(item.quantity) : BigInt(minor)).toString() } : item))} disabled={Boolean(pending)} /></label>
-                : <button type="button" className="cart-discount-toggle" disabled={Boolean(pending)} onClick={() => setDiscountLines(current => [...current, line.product.id])}>Скидка</button>}
-              <small className="cart-line-stock">в наличии {line.available}</small></div>
-          </li>)}</ul>
-        </div>
-        <form className="checkout-form" onSubmit={checkout}>
-          <div className="customer-picker" ref={customerPickerRef}>
-            <label htmlFor="checkout-customer">Клиент <span className="muted">F3</span></label>
-            <div className={`customer-picker-control${selectedCustomer ? ' has-customer' : ''}`}>
-              <input id="checkout-customer" ref={customerRef} role="combobox" aria-autocomplete="list" aria-expanded={customerPickerOpen} aria-controls="checkout-customer-options" autoComplete="off" value={customerSearch} onFocus={() => setCustomerPickerOpen(true)} onChange={event => { setCustomerSearch(event.target.value); setCustomerId(''); setCustomerPickerOpen(true); }} onKeyDown={event => { if (event.key === 'Escape') { setCustomerPickerOpen(false); event.currentTarget.blur(); } else if (event.key === 'Enter' && customerPickerOpen) { event.preventDefault(); if (customerSearch.trim() && customerMatches[0]) { setCustomerId(customerMatches[0].id); setCustomerSearch(''); } setCustomerPickerOpen(false); } }} placeholder={selectedCustomer ? `${selectedCustomer.firstName} ${selectedCustomer.lastName ?? ''} · ${selectedCustomer.phone}`.trim() : 'Без клиента · найдите по имени или телефону'} disabled={Boolean(pending)} />
-              {selectedCustomer ? <button type="button" className="customer-picker-clear" aria-label="Убрать клиента из чека" disabled={Boolean(pending)} onClick={() => { setCustomerId(''); setCustomerSearch(''); setCustomerPickerOpen(false); }}>×</button> : <button type="button" className="customer-picker-toggle" aria-label="Показать клиентов" aria-expanded={customerPickerOpen} disabled={Boolean(pending)} onClick={() => { if (customerPickerOpen) setCustomerPickerOpen(false); else { setCustomerPickerOpen(true); customerRef.current?.focus(); } }}>⌄</button>}
-            </div>
-            {customerPickerOpen && !pending && <div className="customer-picker-menu" id="checkout-customer-options" role="listbox" aria-label="Выбор клиента">
-              <button type="button" role="option" aria-selected={!customerId} onClick={() => { setCustomerId(''); setCustomerSearch(''); setCustomerPickerOpen(false); }}>Без клиента</button>
-              {can('customers.view') && customerMatches.map(customer => <button type="button" role="option" aria-selected={customer.id === customerId} key={customer.id} onClick={() => { setCustomerId(customer.id); setCustomerSearch(''); setCustomerPickerOpen(false); }}><strong>{customer.firstName} {customer.lastName ?? ''}</strong><span>{customer.phone}</span></button>)}
-              {can('customers.view') && customerSearch.trim() && customerMatches.length === 0 && <p>Клиент не найден</p>}
-              {can('customers.create') && <button type="button" className="customer-picker-create" disabled={creatingCustomer || offlineSignedIn || !serverReachable} onClick={() => { setCustomerCreateError(''); if (/^\+?\d[\d\s()-]*$/.test(customerSearch.trim())) setCustomerPhone(customerSearch.trim()); else setCustomerFirstName(customerSearch.trim()); setCustomerCreateOpen(true); setCustomerPickerOpen(false); }}>＋ Добавить нового клиента</button>}
-            </div>}
+  const storeName = stores.find(store => store.id === storeId)?.name ?? '';
+  const roleName = can('settings.edit') ? 'Владелец' : can('finance.view') ? 'Управляющий' : 'Кассир';
+  const openedAt = (shift as (PosShift & { openedAt?: string }) | null)?.openedAt;
+  const unsent = (queueSummary?.pending ?? 0) + (queueSummary?.syncing ?? 0) + (queueSummary?.errors ?? 0) + (queueSummary?.conflicts ?? 0);
+  const totalsView = cartTotal ? { subtotal: cartTotal.subtotal, discount: cartTotal.discount, total: cartTotal.total } : { subtotal: 0n, discount: 0n, total: 0n };
+  const discountPercentLabel = cartTotal && cartTotal.subtotal > 0n && cartTotal.discount > 0n ? `${(Number(cartTotal.discount * 10000n / cartTotal.subtotal) / 100).toLocaleString('ru-RU')}%` : '';
+  const editedLine = cart.find(line => line.product.id === lineEditId);
+  const seller = sellers.find(value => value.id === sellerId);
+  const syncPanel = <section id="sync" className="panel sync-screen"><div className="screen-heading"><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{offlineNetwork || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : unsent > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{unsent > 0 ? `Ожидают отправки: ${unsent} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales(true)} disabled={!deviceReady || offlineNetwork || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')} · клиентов: ${cacheStatus.customerCount}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div>{cacheError && <p className="cache-warning">Не удалось обновить товары: {cacheError}</p>}{databaseHealth && <p className="stock-notice">Локальная база: {databaseHealth.integrity === 'ok' ? 'исправна' : 'обнаружена ошибка, требуется восстановление из копии'}</p>}<details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>;
+  const notices = [error && { tone: 'error', text: error, clear: () => setError('') }, !deviceReady && deviceError && { tone: 'error', text: deviceError }, stockNotice && { tone: 'info', text: stockNotice, clear: () => setStockNotice('') }, queueNotice && { tone: 'info', text: queueNotice, clear: () => setQueueNotice('') }].filter(Boolean) as { tone: string; text: string; clear?: () => void }[];
+
+  return <main className="cs">
+    <section className="cs-left">
+      <header className="cs-bar">
+        <button type="button" className="cs-mode" aria-label="Режим каталога" onClick={() => setOverlay('catalogMode')}><Icon name={catalogMode === 'products' ? 'tiles' : 'layout'} size={28} /></button>
+        <label className="cs-search"><span className="sr-only">Поиск товара</span><input ref={searchRef} value={search} onChange={event => { setCatalogPage(1); setCatalogMode('products'); setSearch(event.target.value); }} onKeyDown={event => void scan(event)} placeholder="Поиск по наименованию, артикулу, штрихкоду, коду" disabled={Boolean(pending)} /><Kbd>F</Kbd></label>
+      </header>
+      {notices.length > 0 && <div className="cs-notices">{notices.map((notice, index) => <p key={index} className={`cs-notice is-${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}{notice.clear && <button type="button" aria-label="Скрыть" onClick={notice.clear}><Icon name="close" size={16} /></button>}</p>)}</div>}
+      {pending && <div className="cs-notices"><p className="cs-notice is-error">Не удалось получить подтверждение предыдущей продажи. Проверьте её, чтобы не провести дважды. <button type="button" className="cs-text-button is-accent" disabled={busy || !deviceReady || storeId !== pending.storeId} onClick={() => void retryPending()}>ПРОВЕРИТЬ ПРОДАЖУ</button></p></div>}
+      <div className="cs-catalog">
+        {catalogMode === 'categories' ? <ul className="cs-categories">
+          <li><button type="button" className={categoryId === 'all' ? 'is-on' : ''} onClick={() => { setCatalogPage(1); setCategoryId('all'); setCatalogMode('products'); }}>Все товары</button></li>
+          {categories.map(category => <li key={category.id}><button type="button" className={categoryId === category.id ? 'is-on' : ''} onClick={() => { setCatalogPage(1); setCategoryId(category.id); setCatalogMode('products'); }}>{category.name}</button></li>)}
+        </ul> : <>
+          {categoryId !== 'all' && <button type="button" className="cs-chip" onClick={() => { setCatalogPage(1); setCategoryId('all'); }}>{categories.find(category => category.id === categoryId)?.name ?? 'Категория'} <Icon name="close" size={14} /></button>}
+          {categoryNotice && <p className="cs-caption">{categoryNotice}</p>}
+          {!catalogLoading && search.trim() && products.length === 0 && <p className="cs-empty-search">По запросу «{search}» ничего не найдено</p>}
+          <ProductGrid products={products} apiUrl={client.baseUrl()} quantities={cartQuantities} view={settings} locked={busy || Boolean(pending) || !shift || !deviceReady} onAdd={product => void addProduct(product)} onStep={(product, quantity) => { const line = cart.find(item => item.product.id === product.id); if (!line) return; if (quantity <= 0) setCart(current => current.filter(item => item.product.id !== product.id)); else changeQuantity(line, String(quantity)); }} />
+          {products.length < catalogTotal && <button type="button" className="cs-more" disabled={catalogLoading} onClick={() => setCatalogPage(page => page + 1)}>{catalogLoading ? 'ЗАГРУЗКА…' : `ПОКАЗАТЬ ЕЩЁ · ${catalogTotal - products.length}`}</button>}
+        </>}
+      </div>
+      <footer className="cs-status">
+        <button type="button" className="cs-menu-button" onClick={() => setOverlay('menu')}><Icon name="menu" /> Меню</button>
+        <span className="cs-status-center">{storeName}{stores.length > 1 && !deviceReady && <select aria-label="Магазин" value={storeId} onChange={event => { setCategoryId('all'); setCatalogPage(1); setCategories([]); setStoreId(event.target.value); }} disabled={busy}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>} / {shift ? (shiftNumber ? `Смена #${shiftNumber}` : `Смена${openedAt ? ` с ${new Date(openedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ' открыта'}`) : 'Смена закрыта'}</span>
+        <span className="cs-status-right">{clock.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}, {clock.toLocaleDateString('ru-RU', { weekday: 'long' })} {clock.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}<span className={connectionOffline ? 'cs-net is-off' : 'cs-net'} title={connectionOffline ? 'Нет связи · локальный режим' : 'Связь есть'}><Icon name="wifi" size={20} /></span></span>
+      </footer>
+    </section>
+    <div className="cs-divider" />
+    <section className={`cs-right${returnMode ? ' is-return' : ''}`}>
+      <header className="cs-bar">
+        <button type="button" className="cs-customer" onClick={() => setOverlay('customer')} disabled={Boolean(pending)}><Icon name="search" /><span>{selectedCustomer ? `${selectedCustomer.firstName} ${selectedCustomer.lastName ?? ''}`.trim() : 'Розничный покупатель'}</span><Kbd>C</Kbd></button>
+        {can('customers.create') && <button type="button" className="cs-add-customer" aria-label="Новый покупатель" disabled={offlineSignedIn || !serverReachable || Boolean(pending)} onClick={() => setOverlay('customerCreate')}><Icon name="personAdd" size={28} /></button>}
+      </header>
+      {!deviceReady ? <div className="cs-locked"><Icon name="lock" size={72} /><p>{registrationRequested ? 'Подключаем кассу…' : 'Касса не подключена к магазину'}</p><button type="button" className="cs-action is-primary" disabled={busy} onClick={() => registrationRequested ? setRegisterNonce(value => value + 1) : setRegistrationRequested(true)}>{registrationRequested ? 'ПОВТОРИТЬ ПОДКЛЮЧЕНИЕ' : 'ПОДКЛЮЧИТЬ КАССУ'}</button></div>
+        : !shift ? <div className="cs-locked"><Icon name="lock" size={72} />{can('finance.cash') ? <button type="button" className="cs-action is-primary" disabled={offlineSignedIn} onClick={() => setOverlay('openShift')}>ОТКРЫТЬ СМЕНУ</button> : <p>Нет права открывать смену</p>}{offlineSignedIn && <p className="cs-caption">Для открытия смены нужна связь</p>}</div>
+        : <>
+          {returnMode && <p className="cs-return-banner">Возврат без чека · добавьте возвращаемые товары</p>}
+          {!cart.length && <div className="cs-section-row"><span>Рекомендации</span><Icon name="settings" size={18} /></div>}
+          <div className="cs-lines">
+            {!cart.length ? <p className="cs-empty">Выберите товары</p> : <><ul>{cart.map((line, index) => { const gross = BigInt(line.priceMinor) * BigInt(line.quantity); const total = cartTotal?.lines[index]?.totalMinor ?? gross; const discount = gross - total; return <li key={line.product.id}>
+              <button type="button" className="cs-line" onClick={() => setLineEditId(line.product.id)} disabled={Boolean(pending)}>
+                <span className="cs-line-thumb"><ProductImage key={line.imageKey} storageKey={line.imageKey} apiUrl={client.baseUrl()} /></span>
+                <span className="cs-line-main"><strong>{line.product.name}</strong><small>{discount > 0n && gross > 0n && <em className="cs-badge">{(Number(discount * 10000n / gross) / 100).toLocaleString('ru-RU')}% Скидка</em>}Цена: {formatMinor(line.priceMinor)}смн.</small></span>
+                <span className="cs-line-qty"><i>×</i>{line.quantity}</span>
+                <span className="cs-line-sum"><strong>{formatMinor(total)}</strong>{discount > 0n && <s>{formatMinor(gross)}</s>}</span>
+              </button>
+              <button type="button" className="cs-line-remove" aria-label={`Убрать ${line.product.name}`} disabled={Boolean(pending)} onClick={() => setCart(current => current.filter(item => item.product.id !== line.product.id))}><Icon name="close" size={18} /></button>
+            </li>; })}</ul><div className="cs-section-row"><span>Покупают вместе</span><Icon name="settings" size={18} /></div></>}
           </div>
-          {selectedCustomer && can('customers.discount.edit') && <div className="customer-personal-discount"><label>Персональная скидка, %<input inputMode="decimal" value={personalDiscountDraft} onChange={event => setPersonalDiscountDraft(event.target.value)} disabled={busy || offlineSignedIn || !serverReachable} /></label><button type="button" className="secondary" onClick={() => void savePersonalDiscount()} disabled={busy || offlineSignedIn || !serverReachable || personalDiscountDraft.replace(',', '.') === selectedCustomer.discountPercent}>Сохранить скидку</button></div>}
-          {customerId && customerDiscountPercent !== '0' && <p className="muted">Персональная скидка: {customerDiscountPercent}%.</p>}{selectedCustomer && methods.some(method => method.kind === 'BONUS') && <p className="muted">Доступно бонусов: {formatMinor(selectedCustomer.bonusBalanceMinor ?? '0')}</p>}
-          {sellers.length > 0 && <label className="checkout-seller"><span>Продавец</span><select value={sellers.some(seller => seller.id === sellerId) ? sellerId : ''} onChange={event => chooseSeller(event.target.value)} disabled={Boolean(pending)}><option value="">Без продавца (кассир)</option>{sellers.map(seller => <option key={seller.id} value={seller.id}>{seller.name}</option>)}</select></label>}
-          {cartError && <p role="alert" className="cart-discount-error">{cartError}</p>}
-          <div className="order-totals">{selectedCustomer && cartTotal && cartTotal.discount > 0n && <><div><span>Товары</span><strong>{formatMinor(cartTotal.subtotal)}</strong></div><div><span>Скидка клиента{appliedDiscountPercent(cartPercents)}</span><strong>− {formatMinor(cartTotal.discount)}</strong></div></>}<div className="order-total"><span>К оплате</span><strong>{formatMinor(cartTotal?.total ?? 0n)} <small>сомони</small></strong></div></div>
-          <div className="payments">
-            {tenders.length <= 1 ? <div className="payment-methods" role="radiogroup" aria-label="Способ оплаты · F5">{methods.map((method, index) => <button type="button" role="radio" key={method.id} ref={tenders[0]?.methodId === method.id || (!tenders[0] && index === 0) ? paymentRef : undefined} aria-checked={tenders[0]?.methodId === method.id} className={tenders[0]?.methodId === method.id ? 'selected' : ''} disabled={Boolean(pending)} onClick={() => setTenders(current => [{ ...(current[0] ?? { id: crypto.randomUUID(), reference: '' }), methodId: method.id, amountMinor: totalMinor }])}>{method.name}</button>)}</div>
-              : <div className="payment-split">{tenders.map((tender, index) => <div className="payment" key={tender.id}><select aria-label={`Способ оплаты ${index + 1}`} value={tender.methodId} onChange={event => setTenders(current => current.map(part => part.id === tender.id ? { ...part, methodId: event.target.value } : part))} disabled={Boolean(pending)}>{methods.map(method => <option key={method.id} value={method.id}>{method.name}</option>)}</select><MoneyInput required aria-label={`Сумма оплаты ${index + 1}`} valueMinor={tender.amountMinor} onMinorChange={minor => setTenders(current => current.map(part => part.id === tender.id ? { ...part, amountMinor: minor } : part))} disabled={Boolean(pending)} /><button type="button" className="payment-remove" aria-label="Убрать способ оплаты" onClick={() => setTenders(current => current.filter(part => part.id !== tender.id))} disabled={Boolean(pending)}>×</button></div>)}
-                <p className={cartTotal && paid !== cartTotal.total ? 'payment-balance is-off' : 'payment-balance'}>Внесено {formatMinor(paid)} из {formatMinor(cartTotal?.total ?? 0n)}{cartTotal && paid < cartTotal.total ? ` · осталось ${formatMinor(cartTotal.total - paid)}` : ''}</p></div>}
-            {cashDue > 0n && <div className="cash-received"><label>{tenders.length > 1 ? 'Получено наличными' : 'Получено'}<MoneyInput aria-label="Получено наличными" valueMinor={cashReceived || '0'} onMinorChange={setCashReceived} disabled={Boolean(pending)} /></label><div className="cash-quick">{quickCashAmounts(cashDue).map(amount => <button type="button" key={amount.toString()} className={cashReceived === amount.toString() ? 'selected' : ''} onClick={() => setCashReceived(amount.toString())}>{formatMinor(amount)}</button>)}</div>{cashChange !== null && <p className="cash-change">Сдача <strong>{formatMinor(cashChange)}</strong></p>}</div>}
-            {singleMethod?.kind === 'CARD' && <div className="card-details"><input aria-label="RRN операции" inputMode="numeric" maxLength={12} placeholder="RRN с чека терминала" value={cardRrn} onChange={event => setCardRrn(event.target.value.replace(/\D/g, ''))} disabled={Boolean(pending)} /><input aria-label="Последние 4 цифры карты" inputMode="numeric" maxLength={4} placeholder="4 цифры карты" value={cardLast4} onChange={event => setCardLast4(event.target.value.replace(/\D/g, ''))} disabled={Boolean(pending)} /></div>}
-            {singleMethod && singleMethod.kind !== 'CASH' && singleMethod.kind !== 'CARD' && <input className="payment-reference" aria-label="Номер операции" placeholder="Номер операции (необязательно)" value={tenders[0]!.reference} onChange={event => setTenders(current => current.map((part, index) => index === 0 ? { ...part, reference: event.target.value } : part))} disabled={Boolean(pending)} />}
-            <button type="button" className="payment-split-toggle" disabled={Boolean(pending) || !methods.length} onClick={() => setTenders(current => current.length > 1 ? current.slice(0, 1) : [...current, { id: crypto.randomUUID(), methodId: methods.find(method => method.id !== current[0]?.methodId)?.id ?? methods[0]!.id, amountMinor: '0', reference: '' }])}>{tenders.length > 1 ? 'Оплатить одним способом' : 'Разделить оплату'}</button>
+          <div className="cs-totals">
+            {cart.length > 0 && <><div><span>Подытог</span><strong>{formatMinor(totalsView.subtotal)}смн.</strong></div><div><span>Скидка {discountPercentLabel || '0,00%'}</span><button type="button" className="cs-link" onClick={() => setOverlay('discount')} disabled={Boolean(pending) || returnMode}>{formatMinor(totalsView.discount)}смн.</button></div></>}
+            {discountOverLimit && <p className="cs-error">Ручная скидка больше {discountLimitPercent}%. Нужен менеджер.</p>}
+            {cartError && <p className="cs-error">{cartError}</p>}
+            {(!cart.length || parked.length > 0 || unsent > 0) && <div className="cs-queue-chips"><button type="button" className="is-accent" onClick={() => setOverlay('queue')}>ОЧЕРЕДЬ ЧЕКОВ: {parked.length}</button><button type="button" onClick={() => setSheet('sync')} disabled={!hasDesktopCache()}>НЕПРОВЕДЁННЫЕ: {unsent}</button></div>}
           </div>
-          {checkoutHint && cart.length > 0 && <p className="checkout-guidance">{checkoutHint}</p>}
-          <Button variant="primary" type="submit" className="primary checkout-button" disabled={busy || !deviceReady || Boolean(pending) || !cartTotal || cartTotal.total <= 0n || cartTotal.total !== paid || (cashPayment && !shift) || discountOverLimit}>{busy ? 'Оформляем…' : <>Оплатить <span>{formatMinor(cartTotal?.total ?? 0n)} сомони</span></>}</Button>
-        </form>
-        {customerCreateOpen && <div className="customer-create-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !creatingCustomer) setCustomerCreateOpen(false); }}><section className="customer-create-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-create-title" onKeyDown={event => { if (event.key === 'Escape' && !creatingCustomer) { event.stopPropagation(); setCustomerCreateOpen(false); } }}>
-          <div className="customer-create-heading"><div><p className="eyebrow">КЛИЕНТЫ</p><h3 id="customer-create-title">Новый клиент</h3><p>После сохранения клиент будет выбран в текущем чеке.</p></div><button type="button" aria-label="Закрыть" disabled={creatingCustomer} onClick={() => setCustomerCreateOpen(false)}>×</button></div>
-          <form onSubmit={createCustomer}><label>Имя<input ref={customerNameRef} required maxLength={100} value={customerFirstName} onChange={event => setCustomerFirstName(event.target.value)} placeholder="Имя клиента" disabled={creatingCustomer} /></label><label>Фамилия <span className="muted">необязательно</span><input maxLength={100} value={customerLastName} onChange={event => setCustomerLastName(event.target.value)} placeholder="Фамилия" disabled={creatingCustomer} /></label><label>Телефон с кодом страны<input required type="tel" inputMode="tel" value={customerPhone} onChange={event => setCustomerPhone(event.target.value)} placeholder="+992901234567" disabled={creatingCustomer} /></label>
-            {customerCreateError && <p role="alert" className="customer-create-error">{customerCreateError}</p>}
-            <div className="customer-create-actions"><button type="button" disabled={creatingCustomer} onClick={() => setCustomerCreateOpen(false)}>Отмена</button><button type="submit" className="customer-create-save" disabled={creatingCustomer}>{creatingCustomer ? 'Сохраняем…' : 'Добавить в чек'}</button></div>
-          </form>
-        </section></div>}
-      </section>
-    </div>}
-    {activeScreen === 'history' && <div id="history"><SalesHistory client={client} storeId={storeId} enabled={deviceReady && !offlineSignedIn && can('sales.view')} revision={salesRevision} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} canReturnWithoutReceipt={can('sales.return_no_receipt') && !pending && !projectedShift?.queuedCashMinor} onReceiptlessReturned={() => void refreshShift().catch(caught => setError(message(caught)))} shift={shift} deviceId={deviceId} onReturned={sale => { setSalesRevision(value => value + 1); if (receipt?.id === sale.id) setReceipt(sale); void client.get<PosPage<PosShift>>(`/stores/${storeId}/finance/cash-shifts`).then(async result => { const updated = result.items.find(value => value.id === shift?.id) ?? null; setShift(updated); const currentStore = stores.find(store => store.id === storeId); if (currentStore && hasDesktopCache()) await markOfflineSessionReady(deviceId, apiUrl.trim().replace(/\/+$/, ''), login, currentStore, updated); }).catch(caught => setError(message(caught))); }} onPrint={sale => { setReceipt(sale); setReceiptScreen('history'); window.requestAnimationFrame(() => document.getElementById('receipt')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); }} /></div>}
-    {activeScreen === 'debts' && <DebtsPanel client={client} storeId={storeId} shift={shift} methods={methods} canPay={can('finance.customer_pay')} enabled={deviceReady && !offlineSignedIn && serverReachable && can('customers.view')} errorText={message} onPaid={cash => cash ? refreshShift().catch(caught => setError(message(caught))) : undefined} />}
-    {activeScreen === 'shift' && <ShiftPanel client={client} storeId={storeId} deviceId={deviceId} shift={shift} expectedCashMinor={projectedShift ? projectedShift.expectedCashMinor.toString() : null} queuedCashMinor={projectedShift?.queuedCashMinor ?? 0n} canManage={can('finance.cash')} canView={can('finance.cash_view')} disabled={busy || !deviceReady || Boolean(pending)} offline={offlineSignedIn} printerHost={printerHost} errorText={message} onOpened={async opened => { setShift(opened); await persistShift(opened); }} onClosed={async () => { setShift(null); await persistShift(null); }} onCashChanged={() => refreshShift().catch(caught => setError(message(caught)))} />}
-    {receipt && activeScreen === receiptScreen && <div className="receipt-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) closeReceipt(); }}><section id="receipt" className="panel receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title" onKeyDown={event => { if (event.key === 'Escape') closeReceipt(); }}><div className="receipt-heading"><div><h2 id="receipt-title">Чек {receipt.number}</h2><small>Не является фискальным чеком</small></div><div><button className="quiet" onClick={() => window.print()}>Печать</button><button disabled={busy || !printerHost.trim()} onClick={() => void printEscPos()}>На чековый принтер</button></div></div>{(receipt.returns?.length ?? 0) > 0 && <p className="receipt-returned">Возврат по этому чеку · возвращено {formatMinor(receipt.returns.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</p>}<p>{receipt.store.name} · {receipt.store.address ?? ''} · {receipt.store.phone ?? ''}</p><p>{new Date(receipt.createdAt).toLocaleString('ru-RU')} · кассир {receipt.employee.name}{receipt.seller ? ` · продавец ${receipt.seller.name}` : ''}</p>{receipt.customer && <p>{receipt.customer.firstName} {receipt.customer.phone}</p>}<ul>{receipt.items.map(item => <li key={item.id}><span>{item.product.name} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul><p>Скидка: {formatMinor(receipt.discountMinor)}</p><p className="total">Итого <strong>{formatMinor(receipt.totalMinor)}</strong></p>{receipt.payments.map(part => <p key={part.id}>{part.paymentMethod.name}: {formatMinor(part.amountMinor)}</p>)}{receiptScreen === 'sale' && receiptChange !== null && receiptChange > 0n && <p className="receipt-change">Сдача <strong>{formatMinor(receiptChange)}</strong></p>}<details className="printer-setting"><summary>Настроить чековый принтер</summary><label>Адрес принтера<input value={printerHost} onChange={event => { setPrinterHost(event.target.value); localStorage.setItem('koreacrm-pos-printer-host', event.target.value); }} placeholder="Например, 192.168.1.50" /></label></details><button type="button" className="primary receipt-close" autoFocus onClick={() => closeReceipt()}>{receiptScreen === 'sale' ? 'Новая продажа' : 'Закрыть'}</button></section></div>}
-    </div>
+        </>}
+      <footer className="cs-sale-bar">
+        <button type="button" className="cs-more-button" aria-label="Действия с чеком" onClick={() => setOverlay('more')} disabled={!shift || Boolean(pending)}><Icon name="more" size={28} /></button>
+        <button type="button" className={`cs-sale${returnMode ? ' is-return' : ''}`} disabled={!cart.length || !shift || busy || Boolean(pending) || !cartTotal || (returnMode ? false : discountOverLimit)} onClick={() => openPayment()}><span>{returnMode ? 'ВОЗВРАТ ПРОДАЖИ' : 'ПРОДАЖА'}</span><strong>{formatMinor(totalsView.total)}смн.</strong></button>
+      </footer>
+    </section>
+
+    {overlay === 'catalogMode' && <CatalogModePopover mode={catalogMode} onPick={setCatalogMode} onClose={() => setOverlay(null)} />}
+    {overlay === 'menu' && <PopoverMenu anchor="left" onClose={() => setOverlay(null)} header={<div className="cs-profile"><span className="cs-avatar">{(cashierName || login).slice(0, 1).toUpperCase()}</span><span><strong>{cashierName || login}</strong><small>{roleName}</small></span></div>} items={[
+      { label: 'Выйти', icon: 'logout', onClick: () => void signOut() },
+      'divider',
+      { label: returnMode ? 'Вернуться к продаже' : 'Создать возврат', icon: 'undo', hidden: !shift || !can('sales.return_no_receipt'), onClick: () => { setReturnMode(value => !value); setCart([]); setReceiptDiscount(0n); } },
+      { label: 'Закрыть смену', icon: 'lock', danger: true, hidden: !shift || !can('finance.cash'), onClick: () => setSheet('shift') },
+      'divider',
+      { label: 'Возврат долга', icon: 'debt', hidden: !can('customers.view'), onClick: () => setSheet('debts') },
+      { label: 'Журнал чеков', icon: 'receipt', hidden: !can('sales.view'), onClick: () => setSheet('history') },
+      { label: 'Смены', icon: 'clock', hidden: !can('finance.cash_view'), onClick: () => setSheet('shift') },
+      { label: 'Непроведённые продажи', icon: 'sync', hidden: !hasDesktopCache(), onClick: () => setSheet('sync') },
+      { label: 'Настройки', icon: 'settings', onClick: () => setSheet('settings') },
+    ]} />}
+    {overlay === 'more' && <PopoverMenu anchor="right" onClose={() => setOverlay(null)} header={<button type="button" className="cs-seller-row" disabled={!sellers.length} onClick={() => setOverlay('seller')}><span className="cs-avatar is-gray">{(seller?.name ?? cashierName ?? login).slice(0, 1).toUpperCase()}</span><strong>{seller?.name ?? cashierName ?? login}</strong><small>Продавец</small></button>} items={[
+      { label: 'Отложить чек', icon: 'history', hidden: !cart.length || returnMode, onClick: parkCurrent },
+      { label: 'Отменить чек', icon: 'close', danger: true, hidden: !cart.length, onClick: () => { setCart([]); setCustomerId(''); setReceiptDiscount(0n); setStockNotice(''); } },
+    ]} />}
+    {overlay === 'seller' && <SellerModal sellers={sellers} sellerId={seller ? sellerId : ''} onPick={id => { chooseSeller(id); setOverlay(null); }} onClose={() => setOverlay(null)} />}
+    {overlay === 'queue' && <QueueModal receipts={parked} onPick={receipt => { restoreParked(receipt); setOverlay(null); }} onDelete={receipt => saveParked(parked.filter(value => value.id !== receipt.id))} onClose={() => setOverlay(null)} />}
+    {overlay === 'customer' && <CustomerPickerModal customers={customers} search={customerSearch} onSearch={setCustomerSearch} onPick={customer => { setCustomerId(customer?.id ?? ''); setCustomerSearch(''); setOverlay(payOpen ? 'pay' : null); }} onClose={() => setOverlay(payOpen ? 'pay' : null)} />}
+    {overlay === 'customerCreate' && <CustomerCreateModal initial={customerSearch} canDiscount={can('customers.discount.edit')} loyaltyMode={loyalty?.mode ?? 'DISCOUNT'} onCreate={async data => { const problem = await createCustomer(data); if (!problem) setOverlay(payOpen ? 'pay' : null); return problem; }} onClose={() => setOverlay(payOpen ? 'pay' : null)} />}
+    {overlay === 'discount' && cartTotal && <ReceiptDiscountModal baseMinor={cartTotal.total + cartTotal.cartDiscountMinor} currentMinor={receiptDiscount} onApply={minor => { setReceiptDiscount(minor); setOverlay(null); }} onClose={() => setOverlay(null)} />}
+    {overlay === 'openShift' && <OpenShiftModal client={client} storeId={storeId} deviceId={deviceId} storeName={storeName} errorText={message} onOpened={opened => { setShift(opened); void persistShift(opened); setOverlay(null); flashNotice('Смена открыта.'); }} onClose={() => setOverlay(null)} />}
+    {overlay === 'returnReason' && <ReturnReasonModal totalMinor={totalsView.total} busy={busy} onConfirm={reason => void returnWithoutReceipt(reason)} onClose={() => setOverlay(null)} />}
+    {editedLine && <LineEditor name={editedLine.product.name} imageKey={editedLine.imageKey} apiUrl={client.baseUrl()} priceMinor={editedLine.priceMinor} quantity={editedLine.quantity} available={editedLine.available} discountMinor={editedLine.discountMinor} onApply={(quantity, discountMinor) => { setCart(current => current.map(item => item.product.id === editedLine.product.id ? { ...item, quantity, discountMinor } : item)); setLineEditId(''); }} onClose={() => setLineEditId('')} />}
+    {payOpen && overlay === 'pay' && <PaymentScreen totals={totalsView} methods={methods} customer={selectedCustomer ?? null} shiftOpen={Boolean(shift)} busy={busy} printDefault={settings.printByDefault} onChangeCustomer={() => setOverlay('customer')} onComplete={(parts, change, print, comment) => void completeSale(parts, change, print, comment)} onClose={() => { setPayOpen(false); setOverlay(null); }} />}
+    {success && <SaleSuccess totals={success.totals} methods={methods} parts={success.parts} change={success.change} onPrint={success.sale ? () => { if (printerHost.trim()) void printSale(success.sale!); else { setReceipt(success.sale); setReceiptScreen('history'); } } : undefined} onClose={() => { setSuccess(null); window.setTimeout(() => searchRef.current?.focus(), 0); }} />}
+
+    {sheet === 'history' && <JournalModal client={client} storeId={storeId} deviceId={deviceId} shift={shift} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} printerHost={printerHost} errorText={message} onPrint={sale => { setReceipt(sale); setReceiptScreen('history'); }} onReturned={() => { setSalesRevision(value => value + 1); void refreshShift().catch(caught => setError(message(caught))); }} onClose={() => setSheet(null)} />}
+    {sheet === 'debts' && <DebtsModal client={client} storeId={storeId} shift={shift} methods={methods} canPay={can('finance.customer_pay')} errorText={message} onPaid={cash => { if (cash) void refreshShift().catch(caught => setError(message(caught))); }} onClose={() => setSheet(null)} />}
+    {sheet === 'shift' && <Sheet title="Смены" onClose={() => setSheet(null)}><ShiftsScreen client={client} storeId={storeId} deviceId={deviceId} current={shift} canManage={can('finance.cash')} queuedCashMinor={projectedShift?.queuedCashMinor ?? 0n} printerHost={printerHost} errorText={message} onClosed={() => { setShift(null); setReturnMode(false); void persistShift(null); setSheet(null); flashNotice('Смена закрыта.'); }} onCashChanged={() => void refreshShift().catch(caught => setError(message(caught)))} /></Sheet>}
+    {sheet === 'sync' && <Sheet title="Непроведённые продажи" onClose={() => setSheet(null)}>{syncPanel}</Sheet>}
+    {sheet === 'settings' && <Sheet title="Настройки кассы" onClose={() => setSheet(null)}><SettingsPanel value={{ ...settings, printerHost }} version={appVersion} onChange={next => { setSettings(next); setPrinterHost(next.printerHost); localStorage.setItem('koreacrm-pos-printer-host', next.printerHost); }} /></Sheet>}
+
+    {receipt && receiptScreen === 'history' && <div className="receipt-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setReceipt(null); }}><section id="receipt" className="panel receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title" onKeyDown={event => { if (event.key === 'Escape') setReceipt(null); }}><div className="receipt-heading"><div><h2 id="receipt-title">Чек {receipt.number}</h2><small>Не является фискальным чеком</small></div><div><button className="quiet" onClick={() => window.print()}>Печать</button><button disabled={busy || !printerHost.trim()} onClick={() => void printSale(receipt)}>На чековый принтер</button></div></div>{(receipt.returns?.length ?? 0) > 0 && <p className="receipt-returned">Возврат по этому чеку · возвращено {formatMinor(receipt.returns.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</p>}<p>{receipt.store.name} · {receipt.store.address ?? ''} · {receipt.store.phone ?? ''}</p><p>{new Date(receipt.createdAt).toLocaleString('ru-RU')} · кассир {receipt.employee.name}{receipt.seller ? ` · продавец ${receipt.seller.name}` : ''}</p>{receipt.customer && <p>{receipt.customer.firstName} {receipt.customer.phone}</p>}<ul>{receipt.items.map(item => <li key={item.id}><span>{item.product.name} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul><p>Скидка: {formatMinor(receipt.discountMinor)}</p><p className="total">Итого <strong>{formatMinor(receipt.totalMinor)}</strong></p>{receipt.payments.map(part => <p key={part.id}>{part.paymentMethod.name}: {formatMinor(part.amountMinor)}</p>)}<button type="button" className="primary receipt-close" autoFocus onClick={() => setReceipt(null)}>Закрыть</button></section></div>}
   </main>;
 }
