@@ -18,7 +18,7 @@
 .crm-brand {
   min-height: 52px; height: 52px; padding: 0 20px;
   border-bottom: 1px solid var(--ks-color-border-brand);
-  background: var(--ks-color-brand);
+  background: var(--ks-color-surface);
   flex-shrink: 0;
 }
 .crm-brand-logo { width: 158px; height: 27px; }
