@@ -1,5 +1,13 @@
 // Russian wording for server rejections a cashier can fix on the spot.
 const knownErrors: Record<string, string> = {
+  'Store connection code not found': 'Точка с таким кодом не найдена или отключена. Проверьте код в ЛК.',
+  'Store connection code required': 'Сначала введите код точки, к которой подключается касса.',
+  'Employee is not assigned to this store': 'Вы не назначены в магазин этой кассы. Обратитесь к администратору.',
+  'POS sales permission required': 'У вас нет права работать в кассе. Обратитесь к администратору.',
+  'POS store connection is unavailable': 'Касса отвязана, отключена или магазин недоступен. Обратитесь к администратору.',
+  'Device is assigned to another store': 'Касса уже закреплена за другой точкой. Сначала отвяжите её в ЛК.',
+  'Device is disabled': 'Касса отключена в ЛК. Обратитесь к администратору.',
+  'Store is not active': 'Магазин отключён или перенесён в архив.',
   'Comment is required for opening cash discrepancy': 'Сумма отличается от остатка прошлой смены. Укажите причину.',
   'Comment is required for closing cash discrepancy': 'Есть расхождение. Укажите причину перед закрытием.',
   'Cash balance would be outside allowed range': 'В кассе недостаточно наличных для этой операции.',

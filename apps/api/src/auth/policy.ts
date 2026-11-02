@@ -5,6 +5,7 @@ export interface AccessContext {
   permissions: string[];
   allStores: boolean;
   storeIds: string[];
+  posDeviceId?: string;
 }
 
 export function hasPermission(context: AccessContext, permission: string): boolean {

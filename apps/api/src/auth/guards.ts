@@ -18,14 +18,14 @@ export class AccessGuard implements CanActivate {
     const request = executionContext.switchToHttp().getRequest<Request & { access?: AccessContext }>();
     const header = request.headers.authorization;
     if (!header?.startsWith('Bearer ')) throw new UnauthorizedException();
-    let payload: { sub?: string; typ?: string };
+    let payload: { sub?: string; typ?: string; posDeviceId?: string };
     try {
       payload = await this.jwt.verifyAsync(header.slice(7));
     } catch {
       throw new UnauthorizedException();
     }
     if (!payload.sub || payload.typ !== 'access') throw new UnauthorizedException();
-    const access = await this.auth.context(payload.sub);
+    const access = await this.auth.context(payload.sub, payload.posDeviceId);
     const permission = this.reflector.getAllAndOverride<string>(permissionKey, [executionContext.getHandler(), executionContext.getClass()]);
     if (permission && !hasPermission(access, permission)) throw new ForbiddenException();
     const anyPermissions = this.reflector.getAllAndOverride<string[]>(anyPermissionKey, [executionContext.getHandler(), executionContext.getClass()]);

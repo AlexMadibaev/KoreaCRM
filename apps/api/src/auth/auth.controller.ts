@@ -5,8 +5,9 @@ import { z } from 'zod';
 import { AuthService } from './auth.service';
 import { AccessGuard } from './guards';
 
-const loginSchema = z.object({ login: z.string().min(1), password: z.string().min(1), deviceId: z.string().min(1).optional() });
-const posCodeSchema = z.object({ code: z.string().trim().min(13).max(64), deviceId: z.string().min(1).max(150) });
+const storeCode = z.string().trim().min(2).max(40);
+const loginSchema = z.object({ login: z.string().min(1), password: z.string().min(1), deviceId: z.string().min(1).max(150).optional(), storeCode: storeCode.optional() });
+const posCodeSchema = z.object({ code: z.string().trim().min(13).max(64), deviceId: z.string().min(1).max(150), storeCode: storeCode.optional() });
 const refreshSchema = z.object({ refreshToken: z.string().min(1), deviceId: z.string().min(1).optional() });
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
@@ -20,16 +21,22 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 export class AuthController {
   constructor(private readonly auth: AuthService) {}
 
+  @Post('pos-store')
+  posStore(@Body() body: unknown) {
+    const input = parse(z.object({ storeCode, deviceId: z.string().trim().min(1).max(100).optional() }), body);
+    return this.auth.posStore(input.storeCode, input.deviceId);
+  }
+
   @Post('login')
   login(@Body() body: unknown) {
     const input = parse(loginSchema, body);
-    return this.auth.login(input.login, input.password, input.deviceId);
+    return this.auth.login(input.login, input.password, input.deviceId, input.storeCode);
   }
 
   @Post('pos-code')
   loginWithPosCode(@Body() body: unknown, @Req() request: Request) {
     const input = parse(posCodeSchema, body);
-    return this.auth.loginWithPosCode(input.code, input.deviceId, request.ip ?? 'unknown');
+    return this.auth.loginWithPosCode(input.code, input.deviceId, request.ip ?? 'unknown', input.storeCode);
   }
 
   @Post('refresh')
@@ -47,7 +54,7 @@ export class AuthController {
   @Get('me')
   @ApiBearerAuth()
   @UseGuards(AccessGuard)
-  me(@Req() request: Request & { access: { userId: string } }) {
-    return this.auth.context(request.access.userId);
+  me(@Req() request: Request & { access: { userId: string; posDeviceId?: string } }) {
+    return this.auth.context(request.access.userId, request.access.posDeviceId);
   }
 }

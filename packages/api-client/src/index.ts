@@ -1,4 +1,4 @@
-import type { HealthStatus } from '@koreacrm/types';
+import type { HealthStatus, PosStore } from '@koreacrm/types';
 
 function endpoint(baseUrl: string, path: string): URL {
   return new URL(`${baseUrl.replace(/\/+$/, '')}/${path.replace(/^\/+/, '')}`);
@@ -47,8 +47,9 @@ export function createApiClient(baseUrl: string, deviceId: string, requestTimeou
   }
   return {
     baseUrl: () => resolvedBaseUrl,
-    async login(login: string, password: string) { const tokens = await raw<{ accessToken: string; refreshToken: string }>('/auth/login', { login, password, deviceId }, 'POST', false); accessToken = tokens.accessToken; refreshToken = tokens.refreshToken; },
-    async loginWithPosCode(code: string) { const result = await raw<{ accessToken: string; refreshToken: string; login: string }>('/auth/pos-code', { code, deviceId }, 'POST', false); accessToken = result.accessToken; refreshToken = result.refreshToken; return result.login; },
+    async resolvePosStore(storeCode: string) { return raw<PosStore>('/auth/pos-store', { storeCode, deviceId }, 'POST', false); },
+    async login(login: string, password: string, storeCode?: string) { const tokens = await raw<{ accessToken: string; refreshToken: string }>('/auth/login', { login, password, deviceId, storeCode }, 'POST', false); accessToken = tokens.accessToken; refreshToken = tokens.refreshToken; },
+    async loginWithPosCode(code: string, storeCode?: string) { const result = await raw<{ accessToken: string; refreshToken: string; login: string }>('/auth/pos-code', { code, deviceId, storeCode }, 'POST', false); accessToken = result.accessToken; refreshToken = result.refreshToken; return result.login; },
     async get<T>(path: string): Promise<T> { try { return await raw<T>(path); } catch (error) { if (error instanceof ApiError && error.status === 401 && refreshToken) { await refresh(); return raw<T>(path); } throw error; } },
     async post<T>(path: string, body: unknown): Promise<T> { try { return await raw<T>(path, body, 'POST'); } catch (error) { if (error instanceof ApiError && error.status === 401 && refreshToken) { await refresh(); return raw<T>(path, body, 'POST'); } throw error; } },
     async patch<T>(path: string, body: unknown): Promise<T> { try { return await raw<T>(path, body, 'PATCH'); } catch (error) { if (error instanceof ApiError && error.status === 401 && refreshToken) { await refresh(); return raw<T>(path, body, 'PATCH'); } throw error; } },

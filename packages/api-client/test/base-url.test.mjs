@@ -2,6 +2,22 @@ import assert from 'node:assert/strict';
 import { test, mock } from 'node:test';
 import { createApiClient, getHealth } from '../src/index.ts';
 
+test('point setup and both cashier login modes send the selected store code', async () => {
+  const requests = [];
+  const fetchMock = mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ path: new URL(url).pathname, body: JSON.parse(options.body) });
+    return new Response(JSON.stringify({ id: 'store-a', name: 'Store A', code: 'SHOP_A', accessToken: 'test', refreshToken: 'test', login: 'cashier' }), { headers: { 'Content-Type': 'application/json' } });
+  });
+  try {
+    const client = createApiClient('https://shop.example/api', 'POS-device-a');
+    await client.resolvePosStore('SHOP_A');
+    await client.login('cashier', 'password', 'SHOP_A');
+    await client.loginWithPosCode('cashier-code', 'SHOP_A');
+    assert.deepEqual(requests.map(request => request.path), ['/api/auth/pos-store', '/api/auth/login', '/api/auth/pos-code']);
+    assert.ok(requests.every(request => request.body.storeCode === 'SHOP_A' && request.body.deviceId === 'POS-device-a'));
+  } finally { fetchMock.mock.restore(); }
+});
+
 test('POS login keeps the /api prefix of a public server address', async () => {
   const requests = [];
   const fetchMock = mock.method(globalThis, 'fetch', async (url) => {
