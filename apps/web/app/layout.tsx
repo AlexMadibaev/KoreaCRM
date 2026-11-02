@@ -3,6 +3,7 @@ import '../../../packages/ui/src/tokens.css';
 import '../../../packages/ui/src/components.css';
 import './globals.css';
 import './design-system.css';
+import './cabinet-workspace.css';
 import { PwaRegister } from '../components/pwa-register';
 
 export const metadata: Metadata = {

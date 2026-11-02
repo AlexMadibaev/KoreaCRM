@@ -1,5 +1,6 @@
 export const routePermission: Record<string, string> = {
   '/dashboard': 'finance.view',
+  '/reports': 'finance.view',
   '/products': 'products.view',
   '/stock': 'inventory.view',
   '/notifications': 'inventory.view',

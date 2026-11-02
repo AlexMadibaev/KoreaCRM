@@ -12,7 +12,7 @@ export function SalesTrend({ data }: { data: SalesTrendData }) {
   const span = highest - lowest || 1;
   const zeroBottom = -lowest / span * 100;
   const hasActivity = data.days.some(day => day.netMinor !== '0');
-  return <section className="crm-panel crm-trend" aria-label="Продажи по дням">
+  return <section id="sales-trend" className="crm-panel crm-trend" aria-label="Продажи по дням">
     <div className="crm-panel-heading"><div><span className="crm-eyebrow">ДИНАМИКА</span><h2>Продажи по дням</h2></div><span className="crm-trend-legend"><i /> Чистая выручка</span></div>
     {hasActivity ? <div className="crm-trend-chart" role="list" aria-label="Чистая выручка за каждый день">
       <div className="crm-trend-zero" style={{ bottom: `${zeroBottom}%` }} aria-hidden="true" />
