@@ -42,7 +42,7 @@ export class SalesService {
   }
   async list(storeId: string, query: z.infer<typeof saleListSchema>) {
     if (!await this.db.store.findFirst({ where: { id: storeId, deletedAt: null } })) throw new NotFoundException('Store not found');
-    const where: Prisma.SaleWhereInput = { storeId, ...(query.search ? { OR: [{ number: { contains: query.search, mode: 'insensitive' } }, { customer: { phone: { contains: query.search } } }] } : {}) };
+    const where: Prisma.SaleWhereInput = { storeId, ...(query.from || query.to ? { createdAt: { ...(query.from ? { gte: new Date(query.from) } : {}), ...(query.to ? { lt: new Date(query.to) } : {}) } } : {}), ...(query.search ? { OR: [{ number: { contains: query.search, mode: 'insensitive' } }, { customer: { phone: { contains: query.search } } }] } : {}) };
     const [items, total] = await this.db.$transaction([this.db.sale.findMany({ where, include: saleInclude, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }), this.db.sale.count({ where })]);
     return { items, total, ...query };
   }
@@ -282,7 +282,9 @@ export class SalesService {
           if (cash.gt(0) || !allowNegativeStock) throw new ConflictException('Device has no matching open cash shift');
           cashShiftId = undefined;
         }
-        const sale = await tx.sale.create({ data: { operationId: input.operationId, requestHash, number: `S-${input.operationId}`, storeId, deviceId: input.deviceId, cashShiftId, customerId: input.customerId, employeeId: actorId, sellerId: seller?.id ?? null, comment: input.comment || null, subtotalMinor: subtotal, discountMinor: discount, totalMinor: total, costMinor: cost, profitMinor: total.minus(cost), debtMinor: debt } });
+        // Receipts get the next number in their store; a concurrent sale makes the transaction retry.
+        const sequence = ((await tx.sale.aggregate({ where: { storeId }, _max: { sequence: true } }))._max.sequence ?? 0) + 1;
+        const sale = await tx.sale.create({ data: { operationId: input.operationId, requestHash, number: String(sequence), sequence, storeId, deviceId: input.deviceId, cashShiftId, customerId: input.customerId, employeeId: actorId, sellerId: seller?.id ?? null, comment: input.comment || null, subtotalMinor: subtotal, discountMinor: discount, totalMinor: total, costMinor: cost, profitMinor: total.minus(cost), debtMinor: debt } });
         for (const line of lines) {
           const saleItem = await tx.saleItem.create({ data: { saleId: sale.id, productId: line.productId, quantity: line.quantity, priceMinor: line.priceMinor, purchasePriceMinor: line.purchasePriceMinor, discountMinor: line.discountMinor, totalMinor: line.totalMinor, profitMinor: line.profitMinor, batchId: line.batchId } });
           if (allowNegativeStock && line.currentPriceMinor !== null && !line.priceMinor.eq(line.currentPriceMinor)) await tx.auditLog.create({ data: { userId: actorId, action: 'OFFLINE_PRICE_DIFFERENCE', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, quotedPriceMinor: line.priceMinor.toString(), currentPriceMinor: String(line.currentPriceMinor) } } });

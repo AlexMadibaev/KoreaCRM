@@ -646,6 +646,7 @@ model Sale {
   operationId    String        @unique @db.Uuid
   requestHash    String
   number         String
+  sequence       Int
   storeId        String        @db.Uuid
   store          Store         @relation(fields: [storeId], references: [id])
   deviceId       String
@@ -673,6 +674,7 @@ model Sale {
   syncedAt       DateTime?
 
   @@unique([storeId, number])
+  @@unique([storeId, sequence])
   @@index([storeId, createdAt])
   @@index([customerId, createdAt])
   @@index([sellerId, createdAt])

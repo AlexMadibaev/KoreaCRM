@@ -67,6 +67,7 @@ const icons = {
   folder: 'M3 6h6l2 2h10v11H3z',
   tiles: 'M4 4h7v7H4zM15 3l5 5-5 5-5-5zM4 15h7v6H4zM14 15h6v6h-6z',
   layout: 'M3 4h7v16H3zM12 4h9v7h-9zM12 13h9v7h-9z',
+  check: 'M5 12l5 5L20 7',
   userCircle: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM6.5 18a6 6 0 0 1 11 0',
 } as const;
 

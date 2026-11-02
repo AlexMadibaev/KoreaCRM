@@ -24,7 +24,7 @@ export function buildEscPosReceipt(sale: PosSale): number[] {
     sale.store.address ?? '',
     sale.store.phone ?? '',
     'НЕФИСКАЛЬНЫЙ ЧЕК',
-    `Чек ${sale.number}`,
+    `Чек № ${sale.number}`,
     new Date(sale.createdAt).toLocaleString('ru-RU'),
     `Кассир: ${sale.employee.name}`,
     sale.seller ? `Продавец: ${sale.seller.name}` : '',

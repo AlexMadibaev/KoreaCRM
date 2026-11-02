@@ -70,7 +70,7 @@ test('queued sale can create negative stock and records an alert while normal sa
   let manualCost: number | null = null;
   const quotedInput = { ...input, items: [{ ...input.items[0]!, priceMinor: '100' }] };
   const tx = {
-    sale: { findUnique: async () => null, create: async () => ({ id: 'sale-1' }), findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
+    sale: { findUnique: async () => null, aggregate: async () => ({ _max: { sequence: 4 } }), create: async () => ({ id: 'sale-1' }), findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
     store: { findFirst: async () => ({ id: storeId }) },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
     product: { findFirst: async () => ({ id: productId, sku: 'KR-1' }) },
@@ -110,7 +110,7 @@ test('bonus payment debits the selected customer once and rejects an insufficien
   let loyaltyMode: 'DISCOUNT' | 'BONUS' = 'BONUS';
   const bonusEntries: { deltaMinor: Prisma.Decimal; balanceAfterMinor: Prisma.Decimal; operationId: string }[] = [];
   const tx = {
-    sale: {
+    sale: { aggregate: async () => ({ _max: { sequence: 1 } }),
       findUnique: async () => savedSale,
       create: async ({ data }: { data: { requestHash: string; storeId: string; number: string } }) => { savedSale = { id: 'sale-bonus', number: data.number, requestHash: data.requestHash, storeId: data.storeId }; return savedSale; },
       findUniqueOrThrow: async () => savedSale,
@@ -302,7 +302,7 @@ test('return without receipt is capped by the current price and refunds cash wit
 test('manual discount above the configured limit needs the unlimited discount permission', async () => {
   let created = 0;
   const tx = {
-    sale: { findUnique: async () => null, create: async () => { created++; return { id: 'sale-1' }; }, findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
+    sale: { findUnique: async () => null, aggregate: async () => ({ _max: { sequence: null } }), create: async () => { created++; return { id: 'sale-1' }; }, findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
     store: { findFirst: async () => ({ id: storeId }) },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
     product: { findFirst: async () => ({ id: productId, sku: 'KR-1' }) },

@@ -509,3 +509,28 @@
 @media (max-width: 900px) { .cs-shifts, .cs-journal-body { grid-template-columns: 1fr; } .cs-shift-grid { grid-template-columns: 1fr; } }
 .cs-journal-list { display: flex; flex-direction: column; }
 .cs-journal-list > * { flex: none; }
+.cs-date-button { position: relative; display: flex; align-items: center; justify-content: center; gap: 8px; height: 36px; border-radius: var(--r-xs); background: rgba(25, 118, 210, 0.25); color: var(--pos-primary-2); font-size: 14px; font-weight: 600; cursor: pointer; }
+.cs-date-button input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+.cs-filter-day { display: inline-flex; align-items: center; gap: 6px; margin-left: 8px; color: var(--pos-text); }
+
+/* Settings */
+.cs-settings { display: grid !important; grid-template-columns: 248px minmax(0, 600px); gap: 16px; max-width: 880px; margin: 0; }
+.cs-set-tabs { align-self: start; display: grid; overflow: hidden; border-radius: var(--r-xs); background: var(--pos-raised); }
+.cs-legacy .cs-set-tabs button, .cs-set-tabs button { display: flex !important; align-items: center; gap: 22px; height: 48px; padding: 0 16px !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; text-align: left; font-size: 16px; }
+.cs-legacy .cs-set-tabs button.is-on { background: rgba(71, 145, 219, 0.25) !important; }
+.cs-set-page { display: grid; align-content: start; gap: 20px; padding: 20px 24px; border-radius: var(--r-xs); background: var(--pos-raised); }
+.cs-set-group { display: grid; gap: 10px; }
+.cs-set-group h3 { margin: 0; font-size: 24px; font-weight: 600; }
+.cs-set-box { display: grid; padding: 8px 0; border-radius: var(--r-xs); background: rgba(255, 255, 255, 0.06); }
+.cs-set-box.is-padded { gap: 16px; padding: 18px 16px; }
+.cs-legacy .cs-set-box > button { display: flex !important; align-items: center; gap: 22px; height: 40px; padding: 0 16px !important; border: 0 !important; background: transparent !important; text-align: left; font-size: 14px; }
+.cs-set-box > button i { width: 20px; height: 20px; border: 2px solid #fff; border-radius: 50%; }
+.cs-set-box > button.is-on i { box-shadow: inset 0 0 0 4px var(--pos-raised), inset 0 0 0 10px #fff; }
+.cs-set-box > button.is-check .cs-icon { visibility: hidden; }
+.cs-set-box > button.is-check.is-on .cs-icon { visibility: visible; }
+.cs-range { display: grid; grid-template-columns: 140px 1fr 40px; align-items: center; gap: 12px; font-size: 14px; }
+.cs-range input { accent-color: var(--pos-primary-2); }
+.cs-range em { font-style: normal; }
+.cs-set-box .cs-outlined > span { background: #333b58; }
+.cs-version { text-align: center; }
+.cs-settings .cs-set-group { padding: 0; background: transparent; }

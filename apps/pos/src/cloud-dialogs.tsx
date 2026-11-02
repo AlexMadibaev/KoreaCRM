@@ -149,24 +149,32 @@ export function PopoverMenu({ items, header, anchor, onClose }: { items: (MenuIt
 }
 
 export type PosSettingsState = CardView & { printByDefault: boolean; printerHost: string; sound: boolean };
+function RadioGroup<T extends string>({ title, value, options, onChange }: { title: string; value: T; options: [T, string][]; onChange: (value: T) => void }) {
+  return <section className="cs-set-group"><h3>{title}</h3><div className="cs-set-box">{options.map(([key, label]) => <button type="button" key={key} role="radio" aria-checked={value === key} className={value === key ? 'is-on' : ''} onClick={() => onChange(key)}><i />{label}</button>)}</div></section>;
+}
+
+/** Till settings with the same sections as the cloud POS: general, equipment and product display. */
 export function SettingsPanel({ value, onChange, version }: { value: PosSettingsState; onChange: (value: PosSettingsState) => void; version: string }) {
+  const [tab, setTab] = useState<'main' | 'equipment' | 'products'>('main');
   const set = <K extends keyof PosSettingsState>(key: K, next: PosSettingsState[K]) => onChange({ ...value, [key]: next });
   const sample = useMemo(() => ({ name: 'Пример товара', price: '150,00' }), []);
+  const tabs = [['main', 'Основные', 'menu'], ['equipment', 'Оборудование', 'print'], ['products', 'Отображение товаров', 'tiles']] as const;
   return <div className="cs-settings">
-    <section><h3>Основные</h3>
-      <label className="cs-check"><input type="checkbox" checked={value.printByDefault} onChange={event => set('printByDefault', event.target.checked)} />Печатать чек по умолчанию</label>
-      <label className="cs-input"><span>Адрес принтера чеков (IP)</span><input value={value.printerHost} onChange={event => set('printerHost', event.target.value)} placeholder="Например, 192.168.1.50" /></label>
-      <label className="cs-check"><input type="checkbox" checked={!value.hideEmpty} onChange={event => set('hideEmpty', !event.target.checked)} />Показывать товары с нулевым остатком</label>
-      <p className="cs-caption">Версия: {version}</p>
-    </section>
-    <section><h3>Отображение товаров</h3>
-      <div className="cs-segment">{(['grid', 'list'] as const).map(mode => <button type="button" key={mode} className={value.mode === mode ? 'is-on' : ''} onClick={() => set('mode', mode)}>{mode === 'grid' ? 'Сетка' : 'Список'}</button>)}</div>
-      <label className="cs-check"><input type="checkbox" checked={value.showStock} onChange={event => set('showStock', event.target.checked)} />Остаток</label>
-      <label className="cs-check"><input type="checkbox" checked={value.showImage} onChange={event => set('showImage', event.target.checked)} />Изображение</label>
-      <label className="cs-check"><input type="checkbox" checked={value.showSku} onChange={event => set('showSku', event.target.checked)} />Артикул</label>
-      <label className="cs-input"><span>Размер карточки: {value.size}px</span><input type="range" min={150} max={350} value={value.size} onChange={event => set('size', Number(event.target.value))} /></label>
-      <div className="cs-sample" style={{ width: value.size }}>{value.showStock && <span className="cs-card-stock">12 шт</span>}{value.showImage && <span className="cs-card-photo"><Icon name="image" size={40} /></span>}<span className="cs-card-name">{sample.name}</span><strong>{sample.price} смн.</strong></div>
-    </section>
+    <nav className="cs-set-tabs">{tabs.map(([key, label, icon]) => <button type="button" key={key} className={tab === key ? 'is-on' : ''} onClick={() => setTab(key)}><Icon name={icon} size={22} />{label}</button>)}</nav>
+    <div className="cs-set-page">
+      {tab === 'main' && <>
+        <RadioGroup title="Оформление" value="dark" options={[['dark', 'Тёмное']]} onChange={() => undefined} />
+        <RadioGroup title="Печать чека" value={value.printByDefault ? 'yes' : 'no'} options={[['yes', 'Печатать чек по умолчанию'], ['no', 'Не печатать']]} onChange={next => set('printByDefault', next === 'yes')} />
+        <RadioGroup title="Товары с нулевым остатком" value={value.hideEmpty ? 'hide' : 'show'} options={[['show', 'Показывать'], ['hide', 'Не показывать']]} onChange={next => set('hideEmpty', next === 'hide')} />
+      </>}
+      {tab === 'equipment' && <section className="cs-set-group"><h3>Принтер чеков</h3><div className="cs-set-box is-padded"><label className="cs-outlined"><span>IP-адрес принтера (ESC/POS, порт 9100)</span><input value={value.printerHost} onChange={event => set('printerHost', event.target.value)} placeholder="Например, 192.168.1.50" /></label><p className="cs-caption">Без адреса чек и отчёт смены печатаются через системный диалог печати Windows.</p></div></section>}
+      {tab === 'products' && <>
+        <RadioGroup title="Отображение товаров" value={value.mode} options={[['grid', 'Сетка'], ['list', 'Список']]} onChange={next => set('mode', next)} />
+        <section className="cs-set-group"><h3>Карточка товара</h3><div className="cs-set-box">{([['showStock', 'остаток на складе'], ['showImage', 'изображение'], ['showSku', 'артикул']] as const).map(([key, label]) => <button type="button" key={key} role="checkbox" aria-checked={value[key]} className={`is-check${value[key] ? ' is-on' : ''}`} onClick={() => set(key, !value[key])}><Icon name="check" size={20} />{label}</button>)}</div></section>
+        <section className="cs-set-group"><div className="cs-set-box is-padded"><label className="cs-range"><span>Размер карточки</span><input type="range" min={150} max={350} step={50} value={value.size} onChange={event => set('size', Number(event.target.value))} /><em>{value.size}</em></label><div className="cs-sample" style={{ width: value.size }}>{value.showStock && <span className="cs-card-stock">12 шт</span>}{value.showImage && <span className="cs-card-photo"><Icon name="tiles" size={48} /></span>}<span className="cs-card-name">{sample.name}</span><strong>{sample.price} смн.</strong></div></div></section>
+      </>}
+      <p className="cs-caption cs-version">Версия: {version}</p>
+    </div>
   </div>;
 }
 

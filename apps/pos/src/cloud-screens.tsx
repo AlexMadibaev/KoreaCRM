@@ -13,7 +13,8 @@ type Client = ReturnType<typeof createApiClient>;
 type ShiftRow = PosShift & { openedAt: string; closedAt: string | null };
 const sum = (values: string[]) => values.reduce((total, value) => total + BigInt(value), 0n);
 const dateTime = (value: string) => new Date(value).toLocaleString('ru-RU', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
-const shortNumber = (number: string) => number.replace(/^S-/, '').slice(0, 8).toUpperCase();
+// Older receipts carry an operation code instead of a store sequence number.
+const shortNumber = (number: string) => /^\d+$/.test(number) ? number : number.replace(/^S-/, '').slice(0, 8).toUpperCase();
 const methodIcon = (kind?: string) => kind === 'CASH' ? 'cash' : kind === 'DEBT' ? 'handshake' : 'card';
 const initials = (name: string) => name.split(/\s+/).map(part => part[0] ?? '').join('').slice(0, 2).toUpperCase();
 
@@ -129,28 +130,30 @@ function CloseShiftModal({ client, storeId, shiftId, expectedMinor, queuedCashMi
 
 /** Receipt journal: search, payment and item details, printing and returns. */
 export function JournalModal({ client, storeId, deviceId, shift, canReturn, printerHost, errorText, onPrint, onReturned, onClose }: { client: Client; storeId: string; deviceId: string; shift: PosShift | null; canReturn: boolean; printerHost: string; errorText: (caught: unknown) => string; onPrint: (sale: PosSale) => void; onReturned: () => void; onClose: () => void }) {
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(''), [day, setDay] = useState('');
   const [pages, setPages] = useState<{ items: PosSale[]; total: number; page: number }>({ items: [], total: 0, page: 1 });
   const [loading, setLoading] = useState(false), [error, setError] = useState('');
   const [open, setOpen] = useState<Record<string, 'pay' | 'items' | undefined>>({});
   const [returning, setReturning] = useState<PosSale | null>(null);
   const [revision, setRevision] = useState(0);
-  const load = useCallback(async (page: number, query: string) => {
+  const load = useCallback(async (page: number, query: string, date: string) => {
     setLoading(true);
+    // The day is taken in the till's local time zone.
+    const range = date ? `&from=${encodeURIComponent(new Date(`${date}T00:00:00`).toISOString())}&to=${encodeURIComponent(new Date(new Date(`${date}T00:00:00`).getTime() + 86_400_000).toISOString())}` : '';
     try {
-      const data = await client.get<PosPage<PosSale>>(`/stores/${storeId}/sales?limit=10&page=${page}${query.trim() ? `&search=${encodeURIComponent(query.trim())}` : ''}`);
+      const data = await client.get<PosPage<PosSale>>(`/stores/${storeId}/sales?limit=10&page=${page}${query.trim() ? `&search=${encodeURIComponent(query.trim())}` : ''}${range}`);
       setPages(current => ({ items: page === 1 ? data.items : [...current.items, ...data.items], total: data.total, page }));
     } catch (caught) { setError(errorText(caught)); }
     finally { setLoading(false); }
   }, [client, storeId, errorText]);
-  useEffect(() => { const timer = window.setTimeout(() => void load(1, search), search ? 300 : 0); return () => window.clearTimeout(timer); }, [load, search, revision]);
+  useEffect(() => { const timer = window.setTimeout(() => void load(1, search, day), search ? 300 : 0); return () => window.clearTimeout(timer); }, [load, search, day, revision]);
   useOverlayKeys({ escape: () => { if (!returning) onClose(); } });
   const toggle = (id: string, part: 'pay' | 'items') => setOpen(current => ({ ...current, [id]: current[id] === part ? undefined : part }));
   return <div className="cs-overlay" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <section className="cs-modal cs-journal" role="dialog" aria-modal="true" aria-label="Журнал чеков">
       <header className="cs-modal-head"><h2>Журнал чеков</h2><button type="button" className="cs-text-button" onClick={onClose}>ЗАКРЫТЬ <Kbd>ESC</Kbd></button></header>
       <div className="cs-journal-body">
-        <aside className="cs-journal-filter"><p><Icon name="search" size={16} /> Фильтр</p><label className="cs-outlined"><span>Номер чека или телефон</span><input value={search} onChange={event => setSearch(event.target.value)} placeholder="# Введите номер" /></label></aside>
+        <aside className="cs-journal-filter"><p><Icon name="search" size={16} /> Фильтр{day && <span className="cs-filter-day"><Icon name="calendar" size={16} /> {new Date(`${day}T00:00:00`).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' })}</span>}</p><label className="cs-date-button"><Icon name="calendar" size={18} /><span>{day ? 'ДРУГАЯ ДАТА' : 'ВЫБЕРИТЕ ДАТУ'}</span><input type="date" value={day} onClick={event => event.currentTarget.showPicker?.()} onChange={event => setDay(event.target.value)} /></label>{day && <button type="button" className="cs-text-button" onClick={() => setDay('')}>ВСЕ ДАТЫ</button>}<label className="cs-outlined"><span>Номер чека или телефон</span><input value={search} onChange={event => setSearch(event.target.value)} placeholder="# Введите номер" /></label></aside>
         <div className="cs-journal-list">
           {error && <p className="cs-notice is-error">{error}</p>}
           {!loading && !pages.items.length && <p className="cs-caption">Чеков не найдено.</p>}
@@ -170,7 +173,7 @@ export function JournalModal({ client, storeId, deviceId, shift, canReturn, prin
               {open[sale.id] === 'items' && <table className="cs-receipt-table"><tbody>{sale.items.map(item => <tr key={item.id}><td /><td>{item.product.name}{returnedQuantity(sale, item.id) ? <small> · возвращено {returnedQuantity(sale, item.id)}</small> : null}</td><td>{item.quantity} × {formatMinor(item.priceMinor)}</td><td>{formatMinor(item.totalMinor)}</td></tr>)}</tbody></table>}
             </article>;
           })}
-          {pages.items.length < pages.total && <button type="button" className="cs-more" disabled={loading} onClick={() => void load(pages.page + 1, search)}>{loading ? 'ЗАГРУЗКА…' : 'ЗАГРУЗИТЬ ЕЩЁ'}</button>}
+          {pages.items.length < pages.total && <button type="button" className="cs-more" disabled={loading} onClick={() => void load(pages.page + 1, search, day)}>{loading ? 'ЗАГРУЗКА…' : 'ЗАГРУЗИТЬ ЕЩЁ'}</button>}
         </div>
       </div>
     </section>
