@@ -1,6 +1,6 @@
 [package]
 name = "koreacrm-pos"
-version = "0.2.6"
+version = "0.2.7"
 description = "Korea CRM POS"
 edition = "2021"
 

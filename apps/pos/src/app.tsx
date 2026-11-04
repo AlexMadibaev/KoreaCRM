@@ -1,6 +1,7 @@
 import { FormEvent, KeyboardEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createApiClient, ApiError } from '@koreacrm/api-client';
 import { lookupBarcode } from './barcode-lookup';
+import { createScannerInput } from './scanner-input';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@koreacrm/ui';
 import type { PosCustomer, PosPage, PosPaymentMethod, PosProduct, PosSale, PosSettings, PosShift, PosStock, PosStore } from '@koreacrm/types';
@@ -517,6 +518,40 @@ export function App() {
     return () => { active = false; window.clearTimeout(timer); };
   }, [signedIn, customerSearch, customerId, client, permissions, offlineSignedIn, offlineNetwork, userId, storeId]);
   const keysRef = useRef<(event: globalThis.KeyboardEvent) => void>(() => undefined);
+  const scannerRef = useRef(createScannerInput());
+  const scanBusyRef = useRef(false);
+  const scanCodeRef = useRef<(code: string) => void>(() => undefined);
+  useEffect(() => {
+    scanCodeRef.current = code => {
+      if (!signedIn || busy || pending || hasOverlay() || sheet || payOpen || success) return;
+      setSearch('');
+      void scanProduct(code);
+    };
+  });
+  useEffect(() => {
+    if (!signedIn) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const handler = (event: globalThis.KeyboardEvent) => {
+      const target = event.target as HTMLElement | null;
+      const editing = target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement || target?.isContentEditable;
+      if (event.ctrlKey || event.altKey || event.metaKey || (editing && target !== searchRef.current)) {
+        scannerRef.current.reset(); return;
+      }
+      if (event.key === 'Enter' || event.key === 'Tab') {
+        clearTimeout(timer);
+        const code = scannerRef.current.take();
+        if (code) { event.preventDefault(); event.stopImmediatePropagation(); scanCodeRef.current(code); }
+      } else if (event.key.length === 1) {
+        scannerRef.current.push(event.key, performance.now());
+        clearTimeout(timer);
+        timer = setTimeout(() => { const code = scannerRef.current.take(); if (code) scanCodeRef.current(code); }, 150);
+      } else if (event.key !== 'Shift') {
+        clearTimeout(timer); scannerRef.current.reset();
+      }
+    };
+    window.addEventListener('keydown', handler, true);
+    return () => { clearTimeout(timer); scannerRef.current.reset(); window.removeEventListener('keydown', handler, true); };
+  }, [signedIn]);
   useEffect(() => {
     keysRef.current = event => {
       if (event.ctrlKey && (event.key.toLowerCase() === 'q' || event.key.toLowerCase() === 'й')) { event.preventDefault(); requestSignOut(); return; }
@@ -574,6 +609,11 @@ export function App() {
   async function scan(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key !== 'Enter') return;
     event.preventDefault(); const code = search.trim(); if (!code) return;
+    await scanProduct(code);
+  }
+  async function scanProduct(code: string) {
+    if (scanBusyRef.current) return;
+    scanBusyRef.current = true;
     setBusy(true); setError('');
     try {
       if (offlineSignedIn || offlineNetwork) throw new TypeError('Offline session');
@@ -585,6 +625,7 @@ export function App() {
       if ((caught instanceof ApiError && caught.status === 404) || (hasDesktopCache() && connectionFailed(caught))) { const cached = hasDesktopCache() && userId && storeId ? await readCachedProducts(userId, storeId) : []; const match = [...products, ...cached].find(product => product.sku.toLowerCase() === code.toLowerCase() || ('barcodes' in product && product.barcodes.some(barcode => (typeof barcode === 'string' ? barcode : barcode.value) === code))); if (match) { await addProduct(match); setSearch(''); } else setError('Штрихкод не найден. Выберите товар из списка.'); }
       else setError(message(caught));
     }
+    finally { scanBusyRef.current = false; }
   }
   async function createCustomer(data: NewCustomer): Promise<string | null> {
     if (offlineSignedIn || !serverReachable || !can('customers.create')) return 'Для создания клиента нужна связь.';
