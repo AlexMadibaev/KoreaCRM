@@ -577,7 +577,7 @@ export function App() {
 
   async function addProduct(product: CatalogItem | PosProduct) {
     const existing = cart.find(line => line.product.id === product.id);
-    if (existing) { if (existing.quantity >= existing.available) { setStockNotice(`Для «${product.name}» доступно только ${existing.available} шт. Количество оставлено без изменений.`); return; } setStockNotice(''); setCart(current => current.map(line => line.product.id === product.id ? { ...line, quantity: line.quantity + 1 } : line)); searchRef.current?.focus(); return; }
+    if (existing) { setStockNotice(''); setCart(current => current.map(line => line.product.id === product.id ? { ...line, quantity: Math.min(100000, line.quantity + 1) } : line)); searchRef.current?.focus(); return; }
     setBusy(true); setError('');
     try {
       let available: number, priceMinor: number;
@@ -586,12 +586,11 @@ export function App() {
         const [settings, stock] = await Promise.all([client.get<PosSettings>(`/stores/${storeId}/products/${product.id}/settings`), client.get<PosPage<PosStock>>(`/stores/${storeId}/stock?search=${encodeURIComponent(product.sku)}&limit=20`)]);
         const row = stock.items.find(item => item.productId === product.id);
         if (!settings?.active || settings.priceMinor === null) throw new Error('У товара нет активной цены');
-        if (!row || row.quantity - row.reservedQuantity < 1) throw new Error('Товар закончился');
-        available = row.quantity - row.reservedQuantity; priceMinor = settings.priceMinor; setServerReachable(true);
+        available = row ? row.quantity - row.reservedQuantity : 0; priceMinor = settings.priceMinor; setServerReachable(true);
       } catch (caught) {
         if (!hasDesktopCache() || !userId || !storeId || !connectionFailed(caught)) throw caught;
         const cached = (await readCachedProducts(userId, storeId)).find(item => item.id === product.id);
-        if (!cached?.active || cached.priceMinor === null || cached.availableQuantity < 1) throw new Error('Этот товар сейчас нельзя добавить в чек.');
+        if (!cached?.active || cached.priceMinor === null) throw new Error('Этот товар сейчас нельзя добавить в чек.');
         available = cached.availableQuantity; priceMinor = cached.priceMinor; setServerReachable(false);
         setQueueNotice('Нет связи. Цена и остаток взяты из сохранённых данных.');
       }
@@ -602,9 +601,9 @@ export function App() {
   function changeQuantity(line: Line, rawValue: string) {
     const requested = Number(rawValue);
     if (!Number.isFinite(requested)) return;
-    const quantity = Math.max(1, Math.min(Math.trunc(requested), line.available));
+    const quantity = Math.max(1, Math.min(Math.trunc(requested), 100000));
     setCart(current => current.map(item => item.product.id === line.product.id ? { ...item, quantity, discountMinor: (BigInt(item.discountMinor) > BigInt(item.priceMinor) * BigInt(quantity) ? BigInt(item.priceMinor) * BigInt(quantity) : BigInt(item.discountMinor)).toString() } : item));
-    setStockNotice(requested > line.available ? `Для «${line.product.name}» доступно только ${line.available} шт. Количество автоматически изменено на ${line.available}.` : '');
+    setStockNotice('');
   }
   async function scan(event: KeyboardEvent<HTMLInputElement>) {
     if (event.key !== 'Enter') return;

@@ -56,8 +56,6 @@ assert.equal(await stockQuantity(), 3);
 const deviceId = `db-test-${suffix}`;
 await request('POST', `/stores/${storeId}/pos-devices`, { deviceId, appVersion: 'db-test' }, 201);
 const saleBody = { operationId: randomUUID(), deviceId, items: [{ productId: product.id, quantity: 2, discountMinor: '0' }], payments: [{ paymentMethodId: cardId, amountMinor: '300000' }] };
-await request('POST', `/stores/${storeId}/sales`, { ...saleBody, items: [{ ...saleBody.items[0], quantity: 4 }], payments: [{ paymentMethodId: cardId, amountMinor: '600000' }] }, 409);
-assert.equal(await stockQuantity(), 3);
 const sale = await request('POST', `/stores/${storeId}/sales`, saleBody, 201);
 const repeatedSale = await request('POST', `/stores/${storeId}/sales`, saleBody, 201);
 assert.equal(repeatedSale.id, sale.id);
@@ -81,4 +79,10 @@ assert.equal(manualSale.costMinor, '10000');
 assert.equal(manualSale.profitMinor, '20000');
 assert.equal((await request('POST', `/stores/${storeId}/sales`, manualSaleBody, 201)).id, manualSale.id);
 
-console.log(JSON.stringify({ result: 'ok', checks: ['login', 'purchase', 'receipt idempotency', 'stock', 'oversell rejection', 'sale idempotency', 'write-off limit and idempotency', 'manual stock cost basis and replay'], storeId, productId: product.id, saleId: sale.id }));
+const negativeSaleBody = { ...manualSaleBody, operationId: randomUUID(), items: [{ ...manualSaleBody.items[0], quantity: 2 }], payments: [{ paymentMethodId: cardId, amountMinor: '60000' }] };
+const negativeSale = await request('POST', `/stores/${storeId}/sales`, negativeSaleBody, 201);
+assert.equal((await request('POST', `/stores/${storeId}/sales`, negativeSaleBody, 201)).id, negativeSale.id);
+const negativeStock = await request('GET', `/stores/${storeId}/stock?search=${manualProduct.sku}`);
+assert.equal(negativeStock.items[0].quantity, -1);
+
+console.log(JSON.stringify({ result: 'ok', checks: ['login', 'purchase', 'receipt idempotency', 'stock', 'negative stock sale and replay', 'sale idempotency', 'write-off limit and idempotency', 'manual stock cost basis and replay'], storeId, productId: product.id, saleId: sale.id }));

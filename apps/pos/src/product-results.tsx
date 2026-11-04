@@ -44,7 +44,7 @@ export function ProductImage({ storageKey, apiUrl }: { storageKey?: string | nul
 export function ProductResults({ products, apiUrl, quantities = {}, disabled, onAdd }: { products: CatalogItem[]; apiUrl: string; quantities?: Record<string, number>; disabled: boolean; onAdd: (product: CatalogItem) => void }) {
   return <ul className="results product-cards">{products.map(product => {
     const key = 'images' in product ? product.images[0]?.storageKey : product.imageKey;
-    const canAdd = product.active && product.priceMinor !== null && product.availableQuantity > 0;
+    const canAdd = product.active && product.priceMinor !== null;
     const inCart = quantities[product.id] ?? 0;
     return <li className={`product-card${inCart ? ' in-cart' : ''}${canAdd ? '' : ' is-unavailable'}`} key={product.id}>
       <button type="button" className="product-card-button" disabled={disabled || !canAdd} onClick={() => onAdd(product)} aria-label={canAdd ? `Добавить ${product.name} в чек` : `${product.name} недоступен`}>

@@ -11,7 +11,7 @@ export function posCatalogPath(storeId: string, search: string, categoryId: Cate
 
 export function filterCachedProducts<T extends { categoryId: string | null; name: string; sku: string; barcodes: string[]; active: boolean; priceMinor: number | null; availableQuantity: number }>(products: T[], search: string, categoryId: CategoryFilter): T[] {
   const query = search.trim().toLocaleLowerCase('ru');
-  return products.filter(product => product.active && product.priceMinor !== null && product.availableQuantity > 0
+  return products.filter(product => product.active && product.priceMinor !== null
     && (categoryId === 'all' || (categoryId === 'uncategorized' ? product.categoryId === null : product.categoryId === categoryId))
     && (!query || `${product.name} ${product.sku} ${product.barcodes.join(' ')}`.toLocaleLowerCase('ru').includes(query)));
 }

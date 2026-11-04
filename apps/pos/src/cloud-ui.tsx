@@ -106,7 +106,7 @@ export function ProductGrid({ products, apiUrl, quantities, view, locked, onAdd,
   const shown = view.hideEmpty ? products.filter(product => product.availableQuantity > 0) : products;
   return <ul className={`cs-grid is-${view.mode}`} style={{ ['--card-w' as string]: `${view.size}px` }}>{shown.map(product => {
     const key = 'images' in product ? product.images[0]?.storageKey : product.imageKey;
-    const sellable = product.active && product.priceMinor !== null && product.availableQuantity > 0;
+    const sellable = product.active && product.priceMinor !== null;
     const inCart = quantities[product.id] ?? 0;
     return <li key={product.id} className={`cs-card${inCart ? ' in-cart' : ''}${sellable ? '' : ' is-off'}`}>
       <button type="button" className="cs-card-hit" disabled={locked || !sellable} onClick={() => onAdd(product)} aria-label={`Добавить ${product.name}`}>
@@ -115,7 +115,7 @@ export function ProductGrid({ products, apiUrl, quantities, view, locked, onAdd,
         <span className="cs-card-name" title={product.name}>{product.name}</span>
         {view.showSku && <span className="cs-card-sku">{product.sku}</span>}
       </button>
-      <div className="cs-card-foot">{inCart > 0 && !locked ? <Stepper value={inCart} min={0} max={product.availableQuantity} onChange={value => onStep(product, value)} /> : <strong>{product.priceMinor === null ? 'Нет цены' : `${formatMinor(product.priceMinor)} смн.`}</strong>}</div>
+      <div className="cs-card-foot">{inCart > 0 && !locked ? <Stepper value={inCart} min={0} max={100000} onChange={value => onStep(product, value)} /> : <strong>{product.priceMinor === null ? 'Нет цены' : `${formatMinor(product.priceMinor)} смн.`}</strong>}</div>
     </li>;
   })}</ul>;
 }
@@ -131,7 +131,7 @@ export function DiscountFields({ baseMinor, discountMinor, onChange }: { baseMin
   </div>;
 }
 
-export function LineEditor({ name, imageKey, apiUrl, priceMinor, quantity, available, discountMinor, onApply, onClose }: { name: string; imageKey?: string; apiUrl: string; priceMinor: number; quantity: number; available: number; discountMinor: string; onApply: (quantity: number, discountMinor: string) => void; onClose: () => void }) {
+export function LineEditor({ name, imageKey, apiUrl, priceMinor, quantity, discountMinor, onApply, onClose }: { name: string; imageKey?: string; apiUrl: string; priceMinor: number; quantity: number; available: number; discountMinor: string; onApply: (quantity: number, discountMinor: string) => void; onClose: () => void }) {
   const [count, setCount] = useState(quantity);
   const gross = BigInt(priceMinor) * BigInt(count);
   const [discount, setDiscount] = useState(() => BigInt(discountMinor) > gross ? gross : BigInt(discountMinor));
@@ -139,7 +139,7 @@ export function LineEditor({ name, imageKey, apiUrl, priceMinor, quantity, avail
   return <Modal title={<span className="cs-line-title"><span className="cs-line-avatar">{imageKey ? <ProductImage storageKey={imageKey} apiUrl={apiUrl} /> : <Icon name="tiles" size={34} />}</span>{name}</span>} className="cs-line-modal" onClose={onClose} action={{ label: 'ПРИМЕНИТЬ', onClick: () => onApply(count, capped.toString()) }}>
     <label className="cs-outlined is-static"><span>Цена</span><input readOnly value={formatMinor(priceMinor)} /><em>смн.</em></label>
     <div className="cs-group"><p className="cs-group-label">Скидка</p><DiscountFields baseMinor={gross} discountMinor={capped} onChange={setDiscount} /></div>
-    <div className="cs-group is-center"><p className="cs-group-label">Количество</p><Stepper big value={count} max={available} onChange={setCount} /></div>
+    <div className="cs-group is-center"><p className="cs-group-label">Количество</p><Stepper big value={count} max={100000} onChange={setCount} /></div>
     <div className="cs-line-total"><span>Итог</span><strong>{formatMinor(gross - capped)}смн.</strong></div>
   </Modal>;
 }

@@ -14,6 +14,12 @@ test('offline category filter matches the selected category', () => {
   assert.deepEqual(filterCachedProducts(products, 'mask', 'uncategorized').map(product => product.name), ['Mask']);
 });
 
+test('offline catalog keeps zero and negative stock products sellable', () => {
+  const row = { categoryId: null, name: 'Cream', sku: 'A', barcodes: [], active: true, priceMinor: 100 };
+  const products = [{ ...row, availableQuantity: 0 }, { ...row, availableQuantity: -2 }, { ...row, active: false, availableQuantity: 0 }, { ...row, priceMinor: null, availableQuantity: 0 }];
+  assert.deepEqual(filterCachedProducts(products, '', 'all'), products.slice(0, 2));
+});
+
 test('category notice explains why only "all products" is shown', () => {
   assert.equal(categoryNotice({ rows: [{ id: 'category-a', name: 'Кремы' }] }), '');
   assert.match(categoryNotice({ rows: [] }), /не назначены/);

@@ -23,7 +23,7 @@ export function calculateCart(lines: CartLine[], customerDiscountPercent: string
   let subtotal = 0n;
   let discount = 0n;
   for (const [index, line] of lines.entries()) {
-    if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > line.available || !Number.isInteger(line.priceMinor) || line.priceMinor < 0 || !amount.test(line.discountMinor)) throw new Error('Invalid cart line');
+    if (!Number.isInteger(line.quantity) || line.quantity < 1 || line.quantity > 100000 || !Number.isInteger(line.priceMinor) || line.priceMinor < 0 || !amount.test(line.discountMinor)) throw new Error('Invalid cart line');
     const gross = BigInt(line.priceMinor) * BigInt(line.quantity);
     const lineDiscount = lineDiscountMinor(line, typeof customerDiscountPercent === 'string' ? customerDiscountPercent : customerDiscountPercent[index] ?? '0').total;
     subtotal += gross;

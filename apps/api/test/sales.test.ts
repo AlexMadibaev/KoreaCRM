@@ -61,7 +61,7 @@ test('reusing a sale operation ID for another payload is rejected before stock c
   assert.equal(stockChanged, false);
 });
 
-test('queued sale can create negative stock and records an alert while normal sale is rejected', async () => {
+test('online and queued sales can create negative stock while retaining their price rules', async () => {
   const alerts: string[] = [];
   let movements = 0;
   let recordedPrice = '';
@@ -86,8 +86,12 @@ test('queued sale can create negative stock and records an alert while normal sa
   const db = { $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
   const stock = { applyMovementInTransaction: async () => { movements += 1; return { newQuantity: -1 }; } } as unknown as StockService;
   const service = new SalesService(db, stock, {} as FinanceService, notifications);
-  await assert.rejects(service.create(storeId, quotedInput, 'actor'), ConflictException);
-  assert.equal(movements, 0);
+  await service.create(storeId, { ...quotedInput, payments: [{ paymentMethodId, amountMinor: '200' }] }, 'actor');
+  assert.equal(movements, 1);
+  assert.equal(recordedPrice, '200');
+  assert.ok(alerts.includes('NEGATIVE_STOCK'));
+  movements = 0;
+  alerts.length = 0;
   // A queued sale without a known purchase cost still goes through at zero cost and is flagged.
   await service.create(storeId, quotedInput, 'actor', true);
   assert.equal(movements, 1);

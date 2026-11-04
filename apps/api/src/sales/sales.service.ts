@@ -200,7 +200,7 @@ export class SalesService {
   async sellers(storeId: string) {
     return this.db.user.findMany({ where: { active: true, deletedAt: null, role: { permissions: { some: { permission: { code: 'sales.create' } } } }, OR: [{ primaryStoreId: storeId }, { stores: { some: { storeId } } }, { role: { code: { in: ['SUPERUSER', 'OWNER', 'DIRECTOR'] } } }] }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
   }
-  async create(storeId: string, input: SaleInput, actorId: string, allowNegativeStock = false, unlimitedDiscount = true) {
+  async create(storeId: string, input: SaleInput, actorId: string, offlineSale = false, unlimitedDiscount = true) {
     if (new Set(input.items.map(item => item.productId)).size !== input.items.length) throw new BadRequestException('Duplicate products in sale');
     const requestHash = createHash('sha256').update(JSON.stringify({ storeId, ...input })).digest('hex');
     for (let attempt = 0; attempt < 3; attempt++) {
@@ -222,10 +222,8 @@ export class SalesService {
           const product = await tx.product.findFirst({ where: { id: item.productId, deletedAt: null } });
           if (!product) throw new NotFoundException('Product not found');
           const settings = await tx.storeProductSettings.findUnique({ where: { storeId_productId: { storeId, productId: item.productId } } });
-          const quotedPrice = allowNegativeStock ? item.priceMinor : undefined;
+          const quotedPrice = offlineSale ? item.priceMinor : undefined;
           if (quotedPrice === undefined && (!settings?.active || settings.priceMinor === null || settings.priceMinor < 0)) throw new ConflictException(`Product ${product.sku} has no active store price`);
-          const stock = await tx.stock.findUnique({ where: { storeId_productId: { storeId, productId: item.productId } } });
-          if (!allowNegativeStock && (!stock || stock.quantity - stock.reservedQuantity < item.quantity)) throw new ConflictException(`Insufficient stock for ${product.sku}`);
           const batch = await tx.productBatch.findFirst({ where: { productId: item.productId, storeId }, orderBy: { receivedAt: 'desc' } });
           // A missing purchase cost must not stop the till; the sale is recorded at zero cost and flagged for the back office.
           const knownCost = batch?.purchasePriceMinor ?? (settings?.costBasisMinor == null ? null : new Prisma.Decimal(settings.costBasisMinor));
@@ -272,7 +270,7 @@ export class SalesService {
         if (debt.gt(0) && !customer) throw new BadRequestException('Customer is required for debt sale');
         if (bonus.gt(0)) {
           if (loyalty.mode !== 'BONUS') throw new BadRequestException('Bonus payments are disabled in discount mode');
-          if (allowNegativeStock) throw new BadRequestException('Bonus payments require an online sale');
+          if (offlineSale) throw new BadRequestException('Bonus payments require an online sale');
           if (!customer) throw new BadRequestException('Customer is required for bonus payment');
           if (bonus.gt(customer.bonusBalanceMinor)) throw new ConflictException('Customer bonus balance is insufficient');
           if (await tx.bonusTransaction.findUnique({ where: { operationId: input.operationId } })) throw new ConflictException('Operation ID was used for another bonus transaction');
@@ -281,7 +279,7 @@ export class SalesService {
         let cashShiftId = input.cashShiftId;
         if (cashShiftId && !await tx.cashShift.findFirst({ where: { id: cashShiftId, storeId, deviceId: input.deviceId, status: 'OPEN' } })) {
           // A queued non-cash sale may arrive after its shift was closed; it then stays outside any shift.
-          if (cash.gt(0) || !allowNegativeStock) throw new ConflictException('Device has no matching open cash shift');
+          if (cash.gt(0) || !offlineSale) throw new ConflictException('Device has no matching open cash shift');
           cashShiftId = undefined;
         }
         // Receipts get the next number in their store; a concurrent sale makes the transaction retry.
@@ -290,7 +288,7 @@ export class SalesService {
         for (const line of lines) {
           const saleItem = await tx.saleItem.create({ data: { saleId: sale.id, productId: line.productId, quantity: line.quantity, priceMinor: line.priceMinor, purchasePriceMinor: line.purchasePriceMinor, discountMinor: line.discountMinor, totalMinor: line.totalMinor, profitMinor: line.profitMinor, batchId: line.batchId } });
           if (line.costMissing) await tx.auditLog.create({ data: { userId: actorId, action: 'PURCHASE_COST_MISSING', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, sku: line.sku } } });
-          if (allowNegativeStock && line.currentPriceMinor !== null && !line.priceMinor.eq(line.currentPriceMinor)) await tx.auditLog.create({ data: { userId: actorId, action: 'OFFLINE_PRICE_DIFFERENCE', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, quotedPriceMinor: line.priceMinor.toString(), currentPriceMinor: String(line.currentPriceMinor) } } });
+          if (offlineSale && line.currentPriceMinor !== null && !line.priceMinor.eq(line.currentPriceMinor)) await tx.auditLog.create({ data: { userId: actorId, action: 'OFFLINE_PRICE_DIFFERENCE', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, quotedPriceMinor: line.priceMinor.toString(), currentPriceMinor: String(line.currentPriceMinor) } } });
           const movement = await this.stock.applyMovementInTransaction(tx, { storeId, productId: line.productId, type: 'SALE', delta: -line.quantity, sourceType: 'SALE_ITEM', sourceId: saleItem.id, actorId });
           if (movement.newQuantity < 0) await tx.auditLog.create({ data: { userId: actorId, action: 'NEGATIVE_STOCK', entityType: 'Stock', entityId: `${storeId}:${line.productId}`, newValue: { quantity: movement.newQuantity, saleId: sale.id, productId: line.productId } } });
         }

@@ -22,8 +22,10 @@ test('customer-only POS totals have no discount without a customer', () => {
   assert.equal(selectedCustomer.total, 1809n);
   assert.equal(selectedCustomer.lines[0].discountMinor, 201n);
 });
-test('cart rejects unavailable quantity and excessive discount', () => {
-  assert.throws(() => calculateCart([{ productId: 'a', quantity: 2, available: 1, priceMinor: 100, discountMinor: '0' }]));
+test('cart permits negative stock but rejects excessive discount', () => {
+  assert.equal(calculateCart([{ productId: 'a', quantity: 2, available: 0, priceMinor: 100, discountMinor: '0' }]).total, 200n);
+  assert.equal(calculateCart([{ productId: 'a', quantity: 2, available: -3, priceMinor: 100, discountMinor: '0' }]).total, 200n);
+  assert.throws(() => calculateCart([{ productId: 'a', quantity: 100001, available: 0, priceMinor: 100, discountMinor: '0' }]));
   assert.throws(() => calculateCart([{ productId: 'a', quantity: 1, available: 1, priceMinor: 100, discountMinor: '101' }]));
 });
 test('fixed cart discount is distributed exactly after manual and customer discounts', () => {
