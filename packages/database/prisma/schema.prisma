@@ -47,6 +47,7 @@ model User {
   customerComments CustomerComment[]
   bonusTransactions BonusTransaction[]
   rewardBalanceMinor Decimal @default(0) @db.Decimal(18, 0)
+  rewardPercent Decimal @default(0) @db.Decimal(5, 2)
   rewardTransactions EmployeeRewardTransaction[]
   notifications Notification[]
   createdAt     DateTime       @default(now())

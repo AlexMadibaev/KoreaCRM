@@ -20,16 +20,16 @@ test('employee creator cannot assign another store', async () => {
 });
 
 test('employee creation hashes the password and assigns stores in one transaction', async () => {
-  let created: { passwordHash: string } | undefined;
+  let created: { passwordHash: string; rewardPercent: string } | undefined;
   let assigned: { userId: string; storeId: string }[] = [];
   let audited = false;
   const tx = {
-    user: { create: async ({ data }: { data: { passwordHash: string } }) => { created = data; return { id: 'employee-1' }; } },
+    user: { create: async ({ data }: { data: { passwordHash: string; rewardPercent: string } }) => { created = data; return { id: 'employee-1' }; } },
     userStore: { createMany: async ({ data }: { data: typeof assigned }) => { assigned = data; } },
     auditLog: { create: async () => { audited = true; } },
   };
   const db = {
-    role: { findUnique: async () => ({ id: 'role-a', permissions: [{ permission: { code: 'sales.view' } }] }) },
+    role: { findUnique: async () => ({ id: 'role-a', code: 'MANAGER', permissions: [{ permission: { code: 'sales.view' } }] }) },
     store: { count: async () => 1, findFirst: async () => ({ id: 'store-a' }) },
     $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
     user: { findUniqueOrThrow: async () => ({ id: 'employee-1', name: input.name, login: input.login }) },
@@ -41,6 +41,29 @@ test('employee creation hashes the password and assigns stores in one transactio
   assert.equal(await verify(created.passwordHash, input.password), true);
   assert.deepEqual(assigned, [{ userId: 'employee-1', storeId: 'store-a' }]);
   assert.equal(audited, true);
+  assert.equal(created.rewardPercent, '3');
+  await new EmployeesService(db).create({ ...input, rewardPercent: '4.5' }, actor);
+  assert.equal(created.rewardPercent, '4.5');
+});
+
+test('employee percentage changes are persisted and audited without changing prior rewards', async () => {
+  const current = { id: 'employee', roleId: 'role-a', role: { code: 'MANAGER' }, active: true, allStores: false, primaryStoreId: null, stores: [{ storeId: 'store-a' }], rewardPercent: '3' };
+  let percent: string | undefined;
+  let audit: { oldValue: { rewardPercent: string }; newValue: { rewardPercent: string } } | undefined;
+  const tx = {
+    user: { update: async ({ data }: { data: { rewardPercent?: string } }) => { percent = data.rewardPercent; } },
+    auditLog: { create: async ({ data }: { data: NonNullable<typeof audit> }) => { audit = data; } },
+  };
+  const db = {
+    user: { findUnique: async () => current, findUniqueOrThrow: async () => current },
+    role: { findUnique: async () => ({ id: 'role-a', code: 'MANAGER', permissions: [] }) },
+    store: { count: async () => 1, findFirst: async () => ({ id: 'store-a' }) },
+    $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+  } as unknown as DatabaseService;
+  await new EmployeesService(db).update('employee', { rewardPercent: '7.25' }, actor);
+  assert.equal(percent, '7.25');
+  assert.equal(audit?.oldValue.rewardPercent, '3');
+  assert.equal(audit?.newValue.rewardPercent, '7.25');
 });
 
 test('employee editor cannot disable their own account', async () => {

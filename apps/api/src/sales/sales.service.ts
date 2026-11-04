@@ -320,11 +320,11 @@ export class SalesService {
             }
           }
         }
-        const rewardEarned = total.minus(debt).minus(bonus).mul(percentBasisPoints(loyalty.consultantEarnPercent).toString()).div(10000).floor();
+        const employee = await tx.user.findUniqueOrThrow({ where: { id: actorId } });
+        const rewardEarned = total.mul(employee.rewardPercent).div(100).floor();
         if (rewardEarned.gt(0)) {
-          // The consultant reward goes to the seller named on the receipt, or to the cashier.
+          // Reward is posted atomically with the successful receipt at the employee's current rate.
           const rewardedId = seller?.id ?? actorId;
-          const employee = await tx.user.findUniqueOrThrow({ where: { id: rewardedId } });
           const nextBalance = employee.rewardBalanceMinor.plus(rewardEarned);
           if (nextBalance.gt(maximum)) throw new ConflictException('Employee reward balance exceeds database range');
           await tx.user.update({ where: { id: rewardedId }, data: { rewardBalanceMinor: nextBalance } });

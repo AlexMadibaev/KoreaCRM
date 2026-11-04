@@ -86,6 +86,7 @@ test('online and queued sales can create negative stock while retaining their pr
     storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 200, costBasisMinor: manualCost }) },
     stock: { findUnique: async () => ({ quantity: 0, reservedQuantity: 0 }) },
     productBatch: { findFirst: async () => null },
+    user: { findUniqueOrThrow: async () => ({ id: 'actor', rewardPercent: new Prisma.Decimal(0) }) },
     salePaymentMethod: { findMany: async () => [{ id: paymentMethodId, kind: 'CARD', active: true }] },
     saleItem: { create: async ({ data }: { data: { priceMinor: Prisma.Decimal; purchasePriceMinor: Prisma.Decimal; batchId: string | null } }) => { recordedPrice = data.priceMinor.toString(); recordedCost = data.purchasePriceMinor.toString(); recordedBatchId = data.batchId; return { id: 'item-1' }; } },
     payment: { create: async () => ({ id: 'payment-1' }) },
@@ -144,6 +145,7 @@ test('bonus payment debits the selected customer once and rejects an insufficien
     storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 100 }) },
     stock: { findUnique: async () => ({ quantity: 5, reservedQuantity: 0 }) },
     productBatch: { findFirst: async () => ({ id: 'batch-1', purchasePriceMinor: new Prisma.Decimal(40) }) },
+    user: { findUniqueOrThrow: async () => ({ id: 'actor', rewardPercent: new Prisma.Decimal(0) }) },
     salePaymentMethod: { findMany: async () => [{ id: bonusMethodId, kind: 'BONUS', active: true }, { id: paymentMethodId, kind: 'CARD', active: true }] },
     bonusTransaction: {
       findUnique: async () => null,
@@ -327,7 +329,8 @@ test('manual discount above the configured limit needs the unlimited discount pe
     storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 1000, costBasisMinor: 400 }) },
     stock: { findUnique: async () => ({ quantity: 5, reservedQuantity: 0 }) },
     productBatch: { findFirst: async () => null },
-    user: { findFirst: async () => ({ id: 'seller-1' }) },
+    user: { findUniqueOrThrow: async () => ({ id: 'actor', rewardPercent: new Prisma.Decimal(0) }) },
+
     salePaymentMethod: { findMany: async () => [{ id: paymentMethodId, kind: 'CARD', active: true }] },
     saleItem: { create: async () => ({ id: 'item-1' }) },
     payment: { create: async () => ({ id: 'payment-1' }) },

@@ -7,7 +7,7 @@ import type { AccessContext } from '../auth/policy';
 import { hashPosCode, newPosCodes } from '../auth/pos-code';
 import { employeeActivitySchema, employeeCreateSchema, employeeListSchema, employeePatchSchema, roleCreateSchema, rolePatchSchema } from './employees.schemas';
 
-const userPublic = { id: true, name: true, login: true, active: true, deletedAt: true, allStores: true, primaryStoreId: true, createdAt: true, roleId: true, role: { select: { id: true, code: true, name: true, permissions: { select: { permission: { select: { code: true } } } } } }, stores: { select: { storeId: true } } } as const;
+const userPublic = { id: true, name: true, login: true, active: true, deletedAt: true, allStores: true, primaryStoreId: true, rewardPercent: true, createdAt: true, roleId: true, role: { select: { id: true, code: true, name: true, permissions: { select: { permission: { select: { code: true } } } } } }, stores: { select: { storeId: true } } } as const;
 const rolePublic = { id: true, code: true, name: true, system: true, deletedAt: true, permissions: { select: { permission: { select: { code: true } } } } } as const;
 const unique = (values: string[]) => [...new Set(values)];
 const isDuplicate = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
@@ -114,16 +114,16 @@ export class EmployeesService {
   }
 
   async create(input: z.infer<typeof employeeCreateSchema>, actor: AccessContext) {
-    await this.allowedRole(input.roleId, actor);
+    const role = await this.allowedRole(input.roleId, actor);
     const storeIds = await this.allowedScope(input.allStores, input.storeIds, actor);
     const primaryStoreId = await this.allowedPrimaryStore(input.primaryStoreId, input.allStores, storeIds, actor);
     const passwordHash = await hash(input.password);
     const pinHash = input.pin ? await hash(input.pin) : null;
     try {
       const id = await this.db.$transaction(async tx => {
-        const employee = await tx.user.create({ data: { name: input.name, login: input.login, passwordHash, pinHash, roleId: input.roleId, allStores: input.allStores, primaryStoreId } });
+        const employee = await tx.user.create({ data: { name: input.name, login: input.login, passwordHash, pinHash, roleId: input.roleId, allStores: input.allStores, primaryStoreId, rewardPercent: input.rewardPercent ?? (role.code === 'MANAGER' ? '3' : '0') } });
         if (storeIds.length) await tx.userStore.createMany({ data: storeIds.map(storeId => ({ userId: employee.id, storeId })) });
-        await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_CREATED', entityType: 'User', entityId: employee.id, newValue: { login: input.login, roleId: input.roleId, allStores: input.allStores, storeIds, primaryStoreId } } });
+        await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_CREATED', entityType: 'User', entityId: employee.id, newValue: { login: input.login, roleId: input.roleId, allStores: input.allStores, storeIds, primaryStoreId, rewardPercent: input.rewardPercent ?? (role.code === 'MANAGER' ? '3' : '0') } } });
         return employee.id;
       });
       return this.db.user.findUniqueOrThrow({ where: { id }, select: userPublic });
@@ -150,13 +150,13 @@ export class EmployeesService {
     const pinHash = input.pin === null ? null : input.pin ? await hash(input.pin) : undefined;
     try {
       await this.db.$transaction(async tx => {
-        await tx.user.update({ where: { id }, data: { name: input.name, login: input.login, active: input.active, roleId, allStores, primaryStoreId, passwordHash, pinHash } });
+        await tx.user.update({ where: { id }, data: { name: input.name, login: input.login, active: input.active, roleId, allStores, primaryStoreId, passwordHash, pinHash, rewardPercent: input.rewardPercent } });
         if (input.storeIds !== undefined || input.allStores !== undefined) {
           await tx.userStore.deleteMany({ where: { userId: id } });
           if (storeIds.length) await tx.userStore.createMany({ data: storeIds.map(storeId => ({ userId: id, storeId })) });
         }
         if (input.active === false || input.password) await tx.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
-        await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_UPDATED', entityType: 'User', entityId: id, oldValue: { roleId: current.roleId, allStores: current.allStores, primaryStoreId: current.primaryStoreId, active: current.active }, newValue: { roleId, allStores, primaryStoreId, active: input.active, name: input.name, login: input.login, passwordChanged: Boolean(input.password), pinChanged: input.pin !== undefined } } });
+        await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_UPDATED', entityType: 'User', entityId: id, oldValue: { roleId: current.roleId, allStores: current.allStores, primaryStoreId: current.primaryStoreId, active: current.active, rewardPercent: current.rewardPercent?.toString() }, newValue: { roleId, allStores, primaryStoreId, active: input.active, name: input.name, login: input.login, passwordChanged: Boolean(input.password), pinChanged: input.pin !== undefined, rewardPercent: input.rewardPercent } } });
       });
       return this.db.user.findUniqueOrThrow({ where: { id }, select: userPublic });
     } catch (error) { if (isDuplicate(error)) throw new ConflictException('Login already exists'); throw error; }
