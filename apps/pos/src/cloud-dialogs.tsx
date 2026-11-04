@@ -10,7 +10,6 @@ import { varianceLabel } from './shift-report';
 type Client = ReturnType<typeof createApiClient>;
 const fullName = (customer: PosCustomer) => `${customer.firstName} ${customer.lastName ?? ''}`.trim();
 const whole = (minor: bigint) => minor % 100n === 0n ? new Intl.NumberFormat('ru-RU').format(minor / 100n) : formatMinor(minor);
-const initials = (name: string) => name.split(/\s+/).map(part => part[0] ?? '').join('').slice(0, 2).toUpperCase();
 
 export function OpenShiftModal({ client, storeId, deviceId, storeName, errorText, onOpened, onClose }: { client: Client; storeId: string; deviceId: string; storeName: string; errorText: (caught: unknown) => string; onOpened: (shift: PosShift) => void; onClose: () => void }) {
   const [previous, setPrevious] = useState<PosLastClosedShift | undefined>(undefined);
@@ -95,18 +94,6 @@ export function QueueModal<Line extends { quantity: number; priceMinor: number; 
       {receipt.lines.map((line, index) => <div className="cs-queue-line" key={index}><span><i><Icon name="tiles" size={12} /></i>{line.product.name}</span><span>{line.quantity}</span><span>{whole(BigInt(line.priceMinor) * BigInt(line.quantity) - BigInt(line.discountMinor))}</span></div>)}
       <footer><button type="button" className="cs-action is-primary is-small" onClick={() => onPick(receipt)}><Icon name="logout" size={18} /> ВЫБРАТЬ</button><button type="button" className="cs-text-button is-danger" onClick={() => onDelete(receipt)}>УДАЛИТЬ</button></footer>
     </li>)}</ul>
-  </Modal>;
-}
-
-export function SellerModal({ sellers, sellerId, onPick, onClose }: { sellers: { id: string; name: string }[]; sellerId: string; onPick: (id: string) => void; onClose: () => void }) {
-  const [search, setSearch] = useState('');
-  const shown = sellers.filter(seller => seller.name.toLocaleLowerCase('ru').includes(search.trim().toLocaleLowerCase('ru')));
-  return <Modal title="Продавец" onClose={onClose}>
-    <label className="cs-input"><span>Поиск</span><input autoFocus value={search} onChange={event => setSearch(event.target.value)} /></label>
-    <ul className="cs-list">
-      <li><button type="button" className={!sellerId ? 'is-on' : ''} onClick={() => onPick('')}><span className="cs-avatar"><Icon name="person" /></span><span><strong>Без продавца</strong><small>продажа на кассира</small></span></button></li>
-      {shown.map(seller => <li key={seller.id}><button type="button" className={seller.id === sellerId ? 'is-on' : ''} onClick={() => onPick(seller.id)}><span className="cs-avatar">{initials(seller.name)}</span><span><strong>{seller.name}</strong></span></button></li>)}
-    </ul>
   </Modal>;
 }
 

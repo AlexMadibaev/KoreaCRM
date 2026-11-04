@@ -17,7 +17,7 @@ export class SalesController {
   @Post(':id/return') @RequirePermission('sales.return') returnSale(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.returnSale(storeId, id, parseInput(returnSaleSchema, body), req.access.userId); }
   @Post('sync') @RequirePermission('sales.create') sync(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.create(storeId, parseInput(saleSchema, body), req.access.userId, true, req.access.permissions.includes('sales.discount.unlimited')); }
   @Post() @RequirePermission('sales.create') create(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.create(storeId, parseInput(saleSchema, body), req.access.userId, false, req.access.permissions.includes('sales.discount.unlimited')); }
-  @Get('sellers/list') @RequirePermission('sales.create') sellers(@Param('storeId', ParseUUIDPipe) storeId: string) { return this.service.sellers(storeId); }
+  @Get('sellers/list') @RequirePermission('sales.create') sellers(@Param('storeId', ParseUUIDPipe) storeId: string, @Req() req: AuthorizedRequest) { return this.service.sellers(storeId, req.access.userId); }
 }
 
 @ApiTags('sales') @ApiBearerAuth() @UseGuards(AccessGuard) @Controller('sale-payment-methods')

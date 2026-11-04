@@ -22,12 +22,12 @@ import { defaultParkedLabel, parkReceipt, readParked, writeParked, type ParkedRe
 import { ProductImage, type CatalogItem, type PosCatalogProduct } from './product-results';
 import { Icon, Kbd, LineEditor, ProductGrid, Sheet, defaultCardView, hasOverlay } from './cloud-ui';
 import { PaymentScreen, SaleSuccess, type PaymentPart } from './cloud-payment';
-import { CatalogModePopover, CustomerCreateModal, CustomerPickerModal, OpenShiftModal, PopoverMenu, QueueModal, ReceiptDiscountModal, ReturnReasonModal, SellerModal, SettingsPanel, useClock, type NewCustomer, type PosSettingsState } from './cloud-dialogs';
+import { CatalogModePopover, CustomerCreateModal, CustomerPickerModal, OpenShiftModal, PopoverMenu, QueueModal, ReceiptDiscountModal, ReturnReasonModal, SettingsPanel, useClock, type NewCustomer, type PosSettingsState } from './cloud-dialogs';
 import { categoryNotice as categoryNoticeFor, filterCachedProducts, posCatalogPath, type PosCategory } from './catalog-filters';
 import { readStoreConnection, requireMatchingStore, saveStoreConnection } from './store-connection';
 
 const CameraCodeScanner = lazy(() => import('./camera-code-scanner').then(module => ({ default: module.CameraCodeScanner })));
-type Overlay = null | 'pay' | 'customer' | 'customerCreate' | 'queue' | 'seller' | 'discount' | 'openShift' | 'menu' | 'more' | 'catalogMode' | 'returnReason';
+type Overlay = null | 'pay' | 'customer' | 'customerCreate' | 'queue' | 'discount' | 'openShift' | 'menu' | 'more' | 'catalogMode' | 'returnReason';
 
 type Line = { product: Pick<PosProduct, 'id' | 'name' | 'sku' | 'brandId' | 'categoryId'>; imageKey?: string; quantity: number; available: number; priceMinor: number; discountMinor: string };
 type SaleRequest = { operationId: string; deviceId: string; cashShiftId?: string; customerId?: string; sellerId?: string; comment?: string; items: { productId: string; quantity: number; priceMinor: string; discountMinor: string }[]; payments: { paymentMethodId: string; amountMinor: string; reference?: string }[] };
@@ -171,16 +171,6 @@ export function App() {
   const manualDiscountMinor = cart.reduce((total, line) => total + BigInt(line.discountMinor), 0n) + (cartTotal?.cartDiscountMinor ?? 0n);
   const discountLimitPercent = loyalty?.maxManualDiscountPercent ?? '100';
   const discountOverLimit = !can('sales.discount.unlimited') && cartSubtotal > 0n && manualDiscountMinor * 10000n > cartSubtotal * discountBasisPoints(discountLimitPercent);
-  const [sellers, setSellers] = useState<{ id: string; name: string }[]>([]), [sellerId, setSellerId] = useState('');
-  const sellerKey = `koreacrm-pos-seller-v1:${storeId}:${deviceId}`;
-  useEffect(() => { try { setSellerId(storeId && deviceId ? localStorage.getItem(sellerKey) ?? '' : ''); } catch { setSellerId(''); } }, [sellerKey, storeId, deviceId]);
-  useEffect(() => {
-    if (!deviceReady || !storeId || offlineSignedIn || !permissions.includes('sales.create')) return;
-    let active = true;
-    client.get<{ id: string; name: string }[]>(`/stores/${storeId}/sales/sellers/list`).then(list => { if (active) setSellers(list); }).catch(() => { if (active) setSellers([]); });
-    return () => { active = false; };
-  }, [client, deviceReady, storeId, offlineSignedIn, permissions]);
-  const chooseSeller = (id: string) => { setSellerId(id); try { if (id) localStorage.setItem(sellerKey, id); else localStorage.removeItem(sellerKey); } catch { /* Seller choice is a convenience only. */ } };
   const [parked, setParked] = useState<ParkedReceipt<Line, PosCustomer>[]>([]);
   useEffect(() => { setParked(storeId && deviceId ? readParked<Line, PosCustomer>(localStorage, storeId, deviceId) : []); }, [storeId, deviceId]);
   const saveParked = (next: ParkedReceipt<Line, PosCustomer>[]) => { setParked(next); writeParked(localStorage, storeId, deviceId, next); };
@@ -720,7 +710,7 @@ export function App() {
       const rows = parts.map(part => ({ methodId: part.methodId, amountMinor: part.amountMinor.toString(), kind: part.kind }));
       const cash = rows.some(row => row.kind === 'CASH');
       validatePayments(rows, totals.total, customerId || null, cash ? shift?.id ?? null : null, selectedCustomer?.bonusBalanceMinor ?? '0');
-      const request: SaleRequest = { operationId: crypto.randomUUID(), deviceId, ...(shift ? { cashShiftId: shift.id } : {}), ...(customerId ? { customerId } : {}), ...(sellerId && sellers.some(seller => seller.id === sellerId) ? { sellerId } : {}), ...(comment ? { comment } : {}), items: cart.map((line, index) => ({ productId: line.product.id, quantity: line.quantity, priceMinor: String(line.priceMinor), discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: parts.map(part => ({ paymentMethodId: part.methodId, amountMinor: part.amountMinor.toString(), ...(part.reference ? { reference: part.reference } : {}) })) };
+      const request: SaleRequest = { operationId: crypto.randomUUID(), deviceId, ...(shift ? { cashShiftId: shift.id } : {}), ...(customerId ? { customerId } : {}), ...(comment ? { comment } : {}), items: cart.map((line, index) => ({ productId: line.product.id, quantity: line.quantity, priceMinor: String(line.priceMinor), discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: parts.map(part => ({ paymentMethodId: part.methodId, amountMinor: part.amountMinor.toString(), ...(part.reference ? { reference: part.reference } : {}) })) };
       const clearSale = () => { setCart([]); setReceipt(null); setCustomerId(''); setReceiptDiscount(0n); };
       if (hasDesktopCache()) {
         setBusy(true); setError(''); setQueueNotice('');
@@ -810,7 +800,6 @@ if (!signedIn) return <main className="login"><div className="login-shell">
   const totalsView = cartTotal ? { subtotal: cartTotal.subtotal, discount: cartTotal.discount, total: cartTotal.total } : { subtotal: 0n, discount: 0n, total: 0n };
   const discountPercentLabel = cartTotal && cartTotal.subtotal > 0n && cartTotal.discount > 0n ? `${(Number(cartTotal.discount * 10000n / cartTotal.subtotal) / 100).toLocaleString('ru-RU')}%` : '';
   const editedLine = cart.find(line => line.product.id === lineEditId);
-  const seller = sellers.find(value => value.id === sellerId);
   const syncPanel = <section id="sync" className="panel sync-screen"><div className="screen-heading"><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{offlineNetwork || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : unsent > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{unsent > 0 ? `Ожидают отправки: ${unsent} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales(true)} disabled={!deviceReady || offlineNetwork || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')} · клиентов: ${cacheStatus.customerCount}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div>{cacheError && <p className="cache-warning">Не удалось обновить товары: {cacheError}</p>}{databaseHealth && <p className="stock-notice">Локальная база: {databaseHealth.integrity === 'ok' ? 'исправна' : 'обнаружена ошибка, требуется восстановление из копии'}</p>}<details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>;
   const notices = [error && { tone: 'error', text: error, clear: () => setError('') }, !deviceReady && deviceError && { tone: 'error', text: deviceError }, stockNotice && { tone: 'info', text: stockNotice, clear: () => setStockNotice('') }, queueNotice && { tone: 'info', text: queueNotice, clear: () => setQueueNotice('') }].filter(Boolean) as { tone: string; text: string; clear?: () => void }[];
 
@@ -889,11 +878,10 @@ if (!signedIn) return <main className="login"><div className="login-shell">
       { label: 'Непроведённые продажи', icon: 'sync', hidden: !hasDesktopCache(), onClick: () => setSheet('sync') },
       { label: 'Настройки', icon: 'settings', onClick: () => setSheet('settings') },
     ]} />}
-    {overlay === 'more' && <PopoverMenu anchor="right" onClose={() => setOverlay(null)} header={<button type="button" className="cs-seller-row" disabled={!sellers.length} onClick={() => setOverlay('seller')}><span className="cs-avatar is-gray">{(seller?.name ?? cashierName ?? login).slice(0, 1).toUpperCase()}</span><strong>{seller?.name ?? cashierName ?? login}</strong><small>Продавец</small></button>} items={[
+    {overlay === 'more' && <PopoverMenu anchor="right" onClose={() => setOverlay(null)} header={<div className="cs-seller-row"><span className="cs-avatar is-gray">{(cashierName || login).slice(0, 1).toUpperCase()}</span><strong>{cashierName || login}</strong><small>Продавец</small></div>} items={[
       { label: 'Отложить чек', icon: 'history', hidden: !cart.length || returnMode, onClick: parkCurrent },
       { label: 'Отменить чек', icon: 'close', danger: true, hidden: !cart.length, onClick: () => { setCart([]); setCustomerId(''); setReceiptDiscount(0n); setStockNotice(''); } },
     ]} />}
-    {overlay === 'seller' && <SellerModal sellers={sellers} sellerId={seller ? sellerId : ''} onPick={id => { chooseSeller(id); setOverlay(null); }} onClose={() => setOverlay(null)} />}
     {overlay === 'queue' && <QueueModal receipts={parked} onPick={receipt => { restoreParked(receipt); setOverlay(null); }} onDelete={receipt => saveParked(parked.filter(value => value.id !== receipt.id))} onClose={() => setOverlay(null)} />}
     {overlay === 'customer' && <CustomerPickerModal customers={customers} search={customerSearch} onSearch={setCustomerSearch} onPick={customer => { setCustomerId(customer?.id ?? ''); setCustomerSearch(''); setOverlay(payOpen ? 'pay' : null); }} onClose={() => setOverlay(payOpen ? 'pay' : null)} />}
     {overlay === 'customerCreate' && <CustomerCreateModal initial={customerSearch} canDiscount={can('customers.discount.edit')} loyaltyMode={loyalty?.mode ?? 'DISCOUNT'} onCreate={async data => { const problem = await createCustomer(data); if (!problem) setOverlay(payOpen ? 'pay' : null); return problem; }} onClose={() => setOverlay(payOpen ? 'pay' : null)} />}

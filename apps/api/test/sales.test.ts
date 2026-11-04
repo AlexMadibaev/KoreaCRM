@@ -18,6 +18,14 @@ const productId = '33333333-3333-4333-8333-333333333333';
 const paymentMethodId = '44444444-4444-4444-8444-444444444444';
 const input = { operationId, deviceId: 'POS-1', items: [{ productId, quantity: 1, discountMinor: '0' }], payments: [{ paymentMethodId, amountMinor: '100' }] };
 
+test('legacy seller list only exposes the authenticated employee', async () => {
+  let where: unknown;
+  const db = { user: { findMany: async (query: { where: unknown }) => { where = query.where; return [{ id: 'actor', name: 'Cashier' }]; } } } as unknown as DatabaseService;
+  const service = new SalesService(db, {} as StockService, {} as FinanceService, notifications);
+  assert.deepEqual(await service.sellers(storeId, 'actor'), [{ id: 'actor', name: 'Cashier' }]);
+  assert.deepEqual(where, { id: 'actor', active: true, deletedAt: null });
+});
+
 test('sale search filters receipt number and customer phone within the selected store', async () => {
   let where: unknown;
   const db = {
@@ -68,9 +76,9 @@ test('online and queued sales can create negative stock while retaining their pr
   let recordedCost = '';
   let recordedBatchId: string | null = 'unexpected';
   let manualCost: number | null = null;
-  const quotedInput = { ...input, items: [{ ...input.items[0]!, priceMinor: '100' }] };
+  const quotedInput = { ...input, sellerId: 'another-employee', items: [{ ...input.items[0]!, priceMinor: '100' }] };
   const tx = {
-    sale: { findUnique: async () => null, aggregate: async () => ({ _max: { sequence: 4 } }), create: async () => ({ id: 'sale-1' }), findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
+    sale: { findUnique: async () => null, aggregate: async () => ({ _max: { sequence: 4 } }), create: async ({ data }: { data: { sellerId: string; employeeId: string } }) => { assert.equal(data.sellerId, 'actor'); assert.equal(data.employeeId, 'actor'); return { id: 'sale-1' }; }, findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
     store: { findFirst: async () => ({ id: storeId }) },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
     product: { findFirst: async () => ({ id: productId, sku: 'KR-1' }) },

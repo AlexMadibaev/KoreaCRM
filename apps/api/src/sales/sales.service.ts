@@ -196,9 +196,9 @@ export class SalesService {
     }
     throw new ConflictException('Return could not be completed');
   }
-  /** Active staff who may sell in this store, for the seller picker on the till. */
-  async sellers(storeId: string) {
-    return this.db.user.findMany({ where: { active: true, deletedAt: null, role: { permissions: { some: { permission: { code: 'sales.create' } } } }, OR: [{ primaryStoreId: storeId }, { stores: { some: { storeId } } }, { role: { code: { in: ['SUPERUSER', 'OWNER', 'DIRECTOR'] } } }] }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
+  /** Kept for older tills; only the authenticated employee can be the seller. */
+  async sellers(storeId: string, actorId: string) {
+    return this.db.user.findMany({ where: { id: actorId, active: true, deletedAt: null }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
   }
   async create(storeId: string, input: SaleInput, actorId: string, offlineSale = false, unlimitedDiscount = true) {
     if (new Set(input.items.map(item => item.productId)).size !== input.items.length) throw new BadRequestException('Duplicate products in sale');
@@ -245,8 +245,8 @@ export class SalesService {
           manualDiscount = manualDiscount.plus(line.discountMinor.minus(minimumDiscount));
         }
         if (!unlimitedDiscount && manualDiscount.mul(10000).gt(subtotal.mul(percentBasisPoints(loyalty.maxManualDiscountPercent).toString()))) throw new ForbiddenException('Manual discount exceeds limit');
-        const seller = input.sellerId ? await tx.user.findFirst({ where: { id: input.sellerId, active: true, deletedAt: null }, select: { id: true } }) : null;
-        if (input.sellerId && !seller) throw new NotFoundException('Seller not found');
+        // Ignore legacy seller choices, including queued receipts from older tills.
+        const seller = { id: actorId };
         const discount = sum(lines.map(line => line.discountMinor));
         const total = subtotal.minus(discount);
         const cost = sum(lines.map(line => line.cost));
