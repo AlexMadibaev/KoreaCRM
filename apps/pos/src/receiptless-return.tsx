@@ -3,6 +3,7 @@ import type { createApiClient } from '@koreacrm/api-client';
 import { MoneyInput } from '@koreacrm/ui';
 import type { PosProduct, PosSettings, PosShift } from '@koreacrm/types';
 import { formatMinor } from './calculations';
+import { lookupBarcode } from './barcode-lookup';
 
 type Client = ReturnType<typeof createApiClient>;
 type Found = { product: PosProduct; priceMinor: number };
@@ -20,7 +21,8 @@ export function ReceiptlessReturn({ client, storeId, deviceId, shift, errorText,
     const value = code.trim(); if (!value) return;
     setBusy(true); setError(''); setNotice(''); setFound(null);
     try {
-      const product = await client.get<PosProduct>(`/products/lookup/barcode/${encodeURIComponent(value)}`);
+      const product = await lookupBarcode(client, value);
+      if (!product) throw new Error('Штрихкод не найден.');
       const settings = await client.get<PosSettings>(`/stores/${storeId}/products/${product.id}/settings`);
       if (!settings || settings.priceMinor === null) throw new Error('У товара нет цены в этом магазине.');
       setFound({ product, priceMinor: settings.priceMinor }); setDraft(newDraft(settings.priceMinor));

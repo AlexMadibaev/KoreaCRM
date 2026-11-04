@@ -1,5 +1,6 @@
 import { FormEvent, KeyboardEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createApiClient, ApiError } from '@koreacrm/api-client';
+import { lookupBarcode } from './barcode-lookup';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@koreacrm/ui';
 import type { PosCustomer, PosPage, PosPaymentMethod, PosProduct, PosSale, PosSettings, PosShift, PosStock, PosStore } from '@koreacrm/types';
@@ -576,7 +577,8 @@ export function App() {
     setBusy(true); setError('');
     try {
       if (offlineSignedIn || offlineNetwork) throw new TypeError('Offline session');
-      const exact = await client.get<PosProduct>(`/products/lookup/barcode/${encodeURIComponent(code)}`);
+      const exact = await lookupBarcode(client, code);
+      if (!exact) throw new ApiError(404, 'Barcode not found');
       setBusy(false); await addProduct(exact); setSearch('');
     } catch (caught) {
       setBusy(false);
