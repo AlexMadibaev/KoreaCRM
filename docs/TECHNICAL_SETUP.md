@@ -80,6 +80,8 @@ corepack pnpm --filter @koreacrm/web dev
 
 ## Проверка после изменений
 
+Кнопка «Скачать кассу» использует постоянную ссылку `https://github.com/AlexMadibaev/KoreaCRM/releases/latest/download/KoreaCRM-POS-setup.exe`. **Новые релизы POS публикуйте через `tools/publish-pos-release.ps1`**, чтобы каждый Latest-релиз содержал файл с этим неизменным именем. После сборки выполните `powershell -NoProfile -ExecutionPolicy Bypass -File tools/publish-pos-release.ps1 -Title "Korea CRM POS — описание версии" -NotesFile "путь-к-описанию.txt"`: версия и путь EXE берутся из конфигурации Tauri. Команда сначала загружает установщики в черновик, затем публикует релиз как Latest. Для добавления постоянного имени в уже опубликованный текущий релиз используется `-ExistingRelease`.
+
 ```bash
 corepack pnpm typecheck
 corepack pnpm lint
