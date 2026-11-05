@@ -141,18 +141,43 @@ export class FinanceService {
       return shift;
     });
   }
+  private async shiftReward(tx: Prisma.TransactionClient, shiftId: string, employeeId: string) {
+    const employee = await tx.user.findUniqueOrThrow({ where: { id: employeeId }, select: { id: true, name: true, rewardBalanceMinor: true } });
+    const sales = await tx.sale.findMany({ where: { cashShiftId: shiftId, employeeId, status: 'COMPLETED' }, select: { id: true } });
+    const earned = await tx.employeeRewardTransaction.aggregate({ where: { employeeId, saleId: { in: sales.map(sale => sale.id) } }, _sum: { deltaMinor: true } });
+    const payout = await tx.employeeRewardPayout.findUnique({ where: { cashShiftId: shiftId } });
+    const earnedMinor = earned._sum.deltaMinor ?? new Prisma.Decimal(0);
+    // A reversal of a previously paid receipt reduces the available balance for later shifts.
+    const payableMinor = payout ? new Prisma.Decimal(0) : Prisma.Decimal.max(0, Prisma.Decimal.min(earnedMinor, employee.rewardBalanceMinor));
+    return { employee, earnedMinor, payableMinor, paidMinor: payout?.amountMinor ?? new Prisma.Decimal(0) };
+  }
   async closeShift(storeId: string, id: string, input: z.infer<typeof closeShiftSchema>, actorId: string) {
     return this.serializable(async (tx) => {
       const shift = await tx.cashShift.findFirst({ where: { id, storeId } });
       if (!shift) throw new NotFoundException('Cash shift not found');
-      if (shift.status !== 'OPEN') throw new ConflictException('Cash shift is already closed');
+      if (shift.status !== 'OPEN') {
+        // A retry of the same confirmed close must not withdraw cash twice.
+        const payout = await tx.employeeRewardPayout.findUnique({ where: { cashShiftId: id } });
+        if (shift.closedById === actorId && shift.actualCashMinor?.eq(input.actualCashMinor) && (shift.closingComment ?? '') === (input.comment ?? '') && money(input.rewardPayoutMinor ?? '0').eq(payout?.amountMinor ?? 0)) return shift;
+        throw new ConflictException('Cash shift is already closed');
+      }
+      const reward = await this.shiftReward(tx, id, shift.openedById);
+      if (!money(input.rewardPayoutMinor ?? '0').eq(reward.payableMinor)) throw new ConflictException('Reward changed or was not confirmed. Refresh the shift report and confirm the payout.');
       const actual = money(input.actualCashMinor);
+      if (actual.lt(reward.payableMinor)) throw new ConflictException('Insufficient counted cash for employee reward payout');
       const variance = actual.minus(shift.expectedCashMinor);
       if (!variance.isZero() && !input.comment) throw new BadRequestException('Comment is required for closing cash discrepancy');
       // The shortage or surplus is booked inside the shift being closed, so the next shift starts clean.
       if (!variance.isZero()) await this.postCashInTransaction(tx, { storeId, shiftId: id, actorId, type: 'CORRECTION', amount: variance, sourceType: 'SHIFT_CLOSE_VARIANCE', sourceId: id, comment: input.comment });
-      const updated = await tx.cashShift.update({ where: { id }, data: { status: 'CLOSED', actualCashMinor: actual, closingCashMinor: actual, closingComment: input.comment || null, closedById: actorId, closedAt: new Date() } });
-      await tx.auditLog.create({ data: { userId: actorId, action: 'CASH_SHIFT_CLOSED', entityType: 'CashShift', entityId: id, newValue: { expectedCashMinor: shift.expectedCashMinor.toString(), actualCashMinor: actual.toString(), varianceMinor: variance.toString(), comment: input.comment ?? null } } });
+      if (reward.payableMinor.gt(0)) {
+        const balance = reward.employee.rewardBalanceMinor.minus(reward.payableMinor);
+        await tx.employeeRewardPayout.create({ data: { cashShiftId: id, employeeId: shift.openedById, amountMinor: reward.payableMinor, balanceAfterMinor: balance } });
+        await tx.user.update({ where: { id: shift.openedById }, data: { rewardBalanceMinor: balance } });
+        await this.postCashInTransaction(tx, { storeId, shiftId: id, actorId, type: 'WITHDRAWAL', amount: reward.payableMinor.neg(), sourceType: 'EMPLOYEE_REWARD_PAYOUT', sourceId: id, comment: `Вознаграждение: ${reward.employee.name}` });
+      }
+      const closingCash = actual.minus(reward.payableMinor);
+      const updated = await tx.cashShift.update({ where: { id }, data: { status: 'CLOSED', actualCashMinor: actual, closingCashMinor: closingCash, closingComment: input.comment || null, closedById: actorId, closedAt: new Date() } });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'CASH_SHIFT_CLOSED', entityType: 'CashShift', entityId: id, newValue: { expectedCashMinor: shift.expectedCashMinor.toString(), actualCashMinor: actual.toString(), varianceMinor: variance.toString(), rewardPayoutMinor: reward.payableMinor.toString(), rewardEmployeeId: shift.openedById, closingCashMinor: closingCash.toString(), comment: input.comment ?? null } } });
       return updated;
     });
   }
@@ -160,6 +185,7 @@ export class FinanceService {
     const shift = await this.db.cashShift.findFirst({ where: { id, storeId }, include: { store: { select: { name: true, address: true } }, openedBy: { select: { name: true } }, closedBy: { select: { name: true } } } });
     if (!shift) throw new NotFoundException('Cash shift not found');
     const zero = new Prisma.Decimal(0);
+    const reward = await this.shiftReward(this.db, id, shift.openedById);
     const [sales, salePayments, returns, refunds, customerPayments, operations, methods, receiptless, bySeller] = await Promise.all([
       this.db.sale.aggregate({ where: { cashShiftId: id, status: 'COMPLETED' }, _count: { id: true }, _sum: { subtotalMinor: true, discountMinor: true, totalMinor: true, debtMinor: true } }),
       this.db.payment.groupBy({ by: ['paymentMethodId'], where: { sale: { cashShiftId: id, status: 'COMPLETED' } }, _sum: { amountMinor: true } }),
@@ -186,7 +212,8 @@ export class FinanceService {
     const manual = (operation: (typeof operations)[number]) => ['DEPOSIT', 'WITHDRAWAL', 'EXPENSE', 'CORRECTION'].includes(operation.type) && !refundSource(operation.sourceType);
     const closingVariance = operations.find(operation => operation.sourceType === 'SHIFT_CLOSE_VARIANCE')?.amountMinor ?? zero;
     return {
-      shift: { id: shift.id, deviceId: shift.deviceId, status: shift.status, openedAt: shift.openedAt, closedAt: shift.closedAt, openedBy: shift.openedBy.name, closedBy: shift.closedBy?.name ?? null, store: shift.store, openingCashMinor: shift.openingCashMinor.toString(), openingVarianceMinor: shift.openingVarianceMinor.toString(), openingComment: shift.openingComment, expectedCashMinor: shift.expectedCashMinor.toString(), actualCashMinor: shift.actualCashMinor?.toString() ?? null, closingVarianceMinor: closingVariance.toString(), closingComment: shift.closingComment },
+      reward: { employeeId: shift.openedById, employeeName: reward.employee.name, earnedMinor: reward.earnedMinor.toString(), payableMinor: shift.status === 'OPEN' ? reward.payableMinor.toString() : '0', paidMinor: reward.paidMinor.toString(), balanceMinor: reward.employee.rewardBalanceMinor.toString() },
+      shift: { id: shift.id, deviceId: shift.deviceId, status: shift.status, openedAt: shift.openedAt, closedAt: shift.closedAt, openedBy: shift.openedBy.name, closedBy: shift.closedBy?.name ?? null, store: shift.store, openingCashMinor: shift.openingCashMinor.toString(), openingVarianceMinor: shift.openingVarianceMinor.toString(), openingComment: shift.openingComment, expectedCashMinor: shift.expectedCashMinor.toString(), actualCashMinor: shift.actualCashMinor?.toString() ?? null, closingCashMinor: shift.closingCashMinor?.toString() ?? null, closingVarianceMinor: closingVariance.toString(), closingComment: shift.closingComment },
       sales: { count: sales._count.id, subtotalMinor: toString(sales._sum.subtotalMinor), discountMinor: toString(sales._sum.discountMinor), totalMinor: toString(sales._sum.totalMinor), debtMinor: toString(sales._sum.debtMinor), byMethod: byMethod(salePayments), bySeller: bySeller.map(row => ({ sellerId: row.sellerId!, name: sellerNames.get(row.sellerId!) ?? 'Сотрудник', count: row._count._all, totalMinor: toString(row._sum.totalMinor) })) },
       returns: { count: returns.length + receiptless._count.id, amountMinor: returns.reduce((total, record) => total.plus(record.amountMinor), receiptlessAmount).toString(), byMethod: byMethod(refunds, legacyCashRefunds.plus(receiptlessAmount)), receiptlessCount: receiptless._count.id, receiptlessMinor: receiptlessAmount.toString() },
       customerPayments: { count: customerPayments.reduce((total, row) => total + row._count._all, 0), amountMinor: customerPayments.reduce((total, row) => total.plus(row._sum.amountMinor ?? zero), zero).toString(), byMethod: byMethod(customerPayments) },

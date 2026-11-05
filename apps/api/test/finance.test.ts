@@ -204,6 +204,10 @@ test('closing books the shortage inside the same shift before closing it', async
   const operations: { type: string; amountMinor: Prisma.Decimal; sourceType: string }[] = [];
   let closed: { status: string; closingComment: string | null } | null = null;
   const tx = {
+    user: { findUniqueOrThrow: async () => ({ id: 'user-1', name: 'Cashier', rewardBalanceMinor: new Prisma.Decimal(0) }) },
+    sale: { findMany: async () => [] },
+    employeeRewardTransaction: { aggregate: async () => ({ _sum: { deltaMinor: null } }) },
+    employeeRewardPayout: { findUnique: async () => null },
     cashShift: { findFirst: async () => shift, update: async ({ data }: { data: Record<string, unknown> }) => { if (data.status) closed = data as never; else Object.assign(shift, data); return { ...shift, ...data }; } },
     cashOperation: { findUnique: async () => null, create: async ({ data }: { data: (typeof operations)[number] }) => { operations.push(data); return { id: 'operation-1', ...data }; } },
     auditLog: { create: async () => ({}) },

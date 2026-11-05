@@ -34,12 +34,14 @@ export class EmployeesService {
     const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, name: true, rewardBalanceMinor: true, allStores: true, stores: { select: { storeId: true } } } });
     if (!employee) throw new NotFoundException('Employee not found');
     if (id !== actor.userId && !actor.allStores && (employee.allStores || !employee.stores.length || employee.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
-    const [sales, returns, transactions] = await Promise.all([
+    const [sales, returns, transactions, payouts] = await Promise.all([
       this.db.sale.aggregate({ where: { employeeId: id }, _count: { id: true }, _sum: { totalMinor: true } }),
       this.db.saleReturn.aggregate({ where: { sale: { employeeId: id } }, _count: { id: true }, _sum: { amountMinor: true } }),
       this.db.employeeRewardTransaction.findMany({ where: { employeeId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100, select: { id: true, saleId: true, deltaMinor: true, balanceAfterMinor: true, reason: true, createdAt: true } }),
+      this.db.employeeRewardPayout.findMany({ where: { employeeId: id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100 }),
     ]);
-    return { employeeId: id, employeeName: employee.name, balanceMinor: employee.rewardBalanceMinor, saleCount: sales._count.id, returnCount: returns._count.id, salesTotalMinor: (sales._sum.totalMinor ?? new Prisma.Decimal(0)).minus(returns._sum.amountMinor ?? 0), transactions };
+    const history = [...transactions, ...payouts.map(payout => ({ id: payout.id, saleId: null, deltaMinor: payout.amountMinor.neg(), balanceAfterMinor: payout.balanceAfterMinor, reason: `Выплата при закрытии смены ${payout.cashShiftId}`, createdAt: payout.createdAt }))].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id)).slice(0, 100);
+    return { employeeId: id, employeeName: employee.name, balanceMinor: employee.rewardBalanceMinor, saleCount: sales._count.id, returnCount: returns._count.id, salesTotalMinor: (sales._sum.totalMinor ?? new Prisma.Decimal(0)).minus(returns._sum.amountMinor ?? 0), transactions: history };
   }
 
   async activity(id: string, actor: AccessContext, query: z.infer<typeof employeeActivitySchema>) {

@@ -25,7 +25,7 @@ function Rows({ rows }: { rows: [string, string][] }) {
 const byKind = (rows: PosMethodTotal[]) => rows.map(row => [row.name, row.amountMinor] as [string, string]);
 
 /** Shift list with a card per shift: totals, cash movement, deposits/withdrawals and closing. */
-export function ShiftsScreen({ client, storeId, deviceId, current, canManage, queuedCashMinor, printerHost, errorText, onClosed, onCashChanged }: { client: Client; storeId: string; deviceId: string; current: PosShift | null; canManage: boolean; queuedCashMinor: bigint; printerHost: string; errorText: (caught: unknown) => string; onClosed: () => void; onCashChanged: () => void }) {
+export function ShiftsScreen({ client, storeId, deviceId, current, canManage, queuedCashMinor, hasQueuedSales = false, printerHost, errorText, onClosed, onCashChanged }: { client: Client; storeId: string; deviceId: string; current: PosShift | null; canManage: boolean; queuedCashMinor: bigint; hasQueuedSales?: boolean; printerHost: string; errorText: (caught: unknown) => string; onClosed: () => void; onCashChanged: () => void }) {
   const [list, setList] = useState<{ items: ShiftRow[]; total: number } | null>(null);
   const [selected, setSelected] = useState(current?.id ?? '');
   const [report, setReport] = useState<PosShiftReport | null>(null);
@@ -56,6 +56,11 @@ export function ShiftsScreen({ client, storeId, deviceId, current, canManage, qu
     try { await invoke('print_escpos', { host: printerHost.trim(), bytes: buildEscPosShiftReport(report) }); } catch (caught) { setError(errorText(caught)); }
   }
   const refresh = async () => { await load(); onCashChanged(); };
+  const beginClose = async () => {
+    if (!report) return;
+    try { const fresh = await client.get<PosShiftReport>(`/stores/${storeId}/finance/cash-shifts/${report.shift.id}/report`); setReport(fresh); setDialog('close'); }
+    catch (caught) { setError(errorText(caught)); }
+  };
   let lastDay = '';
   return <div className="cs-shifts">
     <aside className="cs-shift-list">{list?.items.map((item, position) => {
@@ -66,7 +71,7 @@ export function ShiftsScreen({ client, storeId, deviceId, current, canManage, qu
     <section className="cs-shift-main">
       {error && <p className="cs-notice is-error">{error}</p>}
       {report && <>
-        <header className="cs-shift-head"><div><h2>Смена #{number}</h2><p>{report.shift.openedBy} • {dateTime(report.shift.openedAt)}{report.shift.closedAt ? ` — ${dateTime(report.shift.closedAt)}` : ''}</p>{mine && canManage && <button type="button" className="cs-danger-soft" onClick={() => setDialog('close')}>ЗАКРЫТЬ СМЕНУ</button>}</div><button type="button" className="cs-text-button is-accent" onClick={() => void print()}><Icon name="print" size={20} /> ПЕЧАТЬ</button></header>
+        <header className="cs-shift-head"><div><h2>Смена #{number}</h2><p>{report.shift.openedBy} • {dateTime(report.shift.openedAt)}{report.shift.closedAt ? ` — ${dateTime(report.shift.closedAt)}` : ''}</p>{mine && canManage && <button type="button" className="cs-danger-soft" onClick={() => void beginClose()}>ЗАКРЫТЬ СМЕНУ</button>}</div><button type="button" className="cs-text-button is-accent" onClick={() => void print()}><Icon name="print" size={20} /> ПЕЧАТЬ</button></header>
         <div className="cs-shift-card">
           {mine && canManage && <div className="cs-shift-ops"><p>Финансовые операции</p><button type="button" onClick={() => setDialog('WITHDRAWAL')}><Icon name="chevronUp" size={18} /> ВЫДАЧА</button><button type="button" onClick={() => setDialog('DEPOSIT')}><Icon name="chevronDown" size={18} /> ПРИЁМ</button></div>}
           <div className="cs-shift-info"><span><Icon name="layout" size={20} /><span><strong>{report.shift.store.name}</strong><small>Магазин</small></span></span><span><Icon name="terminal" size={20} /><span><strong>{report.shift.deviceId.slice(0, 18)}</strong><small>Касса</small></span></span></div>
@@ -77,13 +82,18 @@ export function ShiftsScreen({ client, storeId, deviceId, current, canManage, qu
             <section className="is-wide"><header><h3>Долги</h3></header><Rows rows={[['Выдано в долг', report.sales.debtMinor], ['Погашено долгов', report.customerPayments.amountMinor]]} /></section>
           </div>
           <p className="cs-shift-revenue">Выручка с учетом возвратов <strong>{formatMinor(BigInt(report.sales.totalMinor) - BigInt(report.returns.amountMinor))}смн.</strong></p>
+          {report.reward && <div className="cs-note"><strong>Вознаграждение: {report.reward.employeeName}</strong><Rows rows={[
+            ['Начислено по чекам этой смены с учётом возвратов', report.reward.earnedMinor],
+            [open ? 'К выплате при закрытии' : 'Выплачено из кассы', open ? report.reward.payableMinor : report.reward.paidMinor],
+            ...(!open ? [['Осталось наличных для следующей смены', report.shift.closingCashMinor ?? report.cash.expectedMinor] as [string, string]] : []),
+          ]} />{!open && BigInt(report.reward.paidMinor) > 0n && <p>К выдаче сотруднику: {formatMinor(report.reward.paidMinor)} смн. Эта сумма уже вычтена из кассы.</p>}</div>}
           {(report.shift.openingVarianceMinor !== '0' || report.shift.closedAt) && <div className="cs-note">{report.shift.openingVarianceMinor !== '0' && <p>При открытии: {varianceLabel(BigInt(report.shift.openingVarianceMinor))}{report.shift.openingComment ? ` · ${report.shift.openingComment}` : ''}</p>}{report.shift.closedAt && <p>Пересчёт при закрытии: {formatMinor(report.shift.actualCashMinor ?? '0')}смн. · {varianceLabel(BigInt(report.shift.closingVarianceMinor))}{report.shift.closingComment ? ` · ${report.shift.closingComment}` : ''}</p>}</div>}
         </div>
         {report.operations.length > 0 && <div className="cs-shift-card"><h3 className="cs-shift-sub">Движение денег</h3>{report.operations.map(operation => <article key={operation.id} className="cs-money-row"><div><strong>{operation.sourceType === 'SHIFT_CLOSE_VARIANCE' ? 'Расхождение' : operation.type === 'DEPOSIT' ? 'Приём' : operation.type === 'WITHDRAWAL' ? 'Выдача' : operation.type === 'EXPENSE' ? 'Расход' : 'Корректировка'}</strong><small><Icon name="calendar" size={14} /> {dateTime(operation.createdAt)} · {operation.employee}{operation.comment ? ` · ${operation.comment}` : ''}</small></div><span className={BigInt(operation.amountMinor) < 0n ? 'is-minus' : ''}>{formatMinor(operation.amountMinor)}смн.</span></article>)}</div>}
       </>}
     </section>
     {(dialog === 'DEPOSIT' || dialog === 'WITHDRAWAL') && report && <CashOperationModal client={client} storeId={storeId} shiftId={report.shift.id} type={dialog} expectedMinor={report.cash.expectedMinor} errorText={errorText} onDone={() => { setDialog(null); void refresh(); }} onClose={() => setDialog(null)} />}
-    {dialog === 'close' && report && <CloseShiftModal client={client} storeId={storeId} shiftId={report.shift.id} expectedMinor={report.cash.expectedMinor} queuedCashMinor={queuedCashMinor} errorText={errorText} onClosed={() => { setDialog(null); onClosed(); void load(); }} onClose={() => setDialog(null)} />}
+    {dialog === 'close' && report && <CloseShiftModal client={client} storeId={storeId} shiftId={report.shift.id} expectedMinor={report.cash.expectedMinor} reward={report.reward} hasQueuedSales={hasQueuedSales} queuedCashMinor={queuedCashMinor} errorText={errorText} onClosed={() => { setDialog(null); onClosed(); void load(); void client.get<PosShiftReport>(`/stores/${storeId}/finance/cash-shifts/${report.shift.id}/report`).then(setReport).catch(caught => setError(errorText(caught))); }} onClose={() => setDialog(null)} />}
   </div>;
 }
 
@@ -107,24 +117,30 @@ function CashOperationModal({ client, storeId, shiftId, type, expectedMinor, err
   </Modal>;
 }
 
-function CloseShiftModal({ client, storeId, shiftId, expectedMinor, queuedCashMinor, errorText, onClosed, onClose }: { client: Client; storeId: string; shiftId: string; expectedMinor: string; queuedCashMinor: bigint; errorText: (caught: unknown) => string; onClosed: () => void; onClose: () => void }) {
+function CloseShiftModal({ client, storeId, shiftId, expectedMinor, reward, hasQueuedSales, queuedCashMinor, errorText, onClosed, onClose }: { client: Client; storeId: string; shiftId: string; expectedMinor: string; reward: PosShiftReport['reward']; hasQueuedSales: boolean; queuedCashMinor: bigint; errorText: (caught: unknown) => string; onClosed: () => void; onClose: () => void }) {
   const [counted, setCounted] = useState(expectedMinor), [comment, setComment] = useState('');
   const [busy, setBusy] = useState(false), [error, setError] = useState('');
   const variance = cashVariance(counted || '0', expectedMinor) ?? 0n;
+  const [confirmed, setConfirmed] = useState(false);
+  const payout = BigInt(reward?.payableMinor ?? '0');
+  const remaining = BigInt(counted || '0') - payout;
   async function close() {
-    if (queuedCashMinor > 0n) { setError('Сначала отправьте сохранённые продажи.'); return; }
+    if (hasQueuedSales || queuedCashMinor > 0n) { setError('Сначала отправьте все сохранённые продажи, включая безналичные.'); return; }
+    if (!reward || !confirmed || remaining < 0n) return;
     if (variance !== 0n && !comment.trim()) { setError('Есть расхождение. Укажите причину.'); return; }
     setBusy(true); setError('');
-    try { await client.post(`/stores/${storeId}/finance/cash-shifts/${shiftId}/close`, { actualCashMinor: counted || '0', ...(comment.trim() ? { comment: comment.trim() } : {}) }); onClosed(); }
+    try { await client.post(`/stores/${storeId}/finance/cash-shifts/${shiftId}/close`, { actualCashMinor: counted || '0', rewardPayoutMinor: payout.toString(), ...(comment.trim() ? { comment: comment.trim() } : {}) }); onClosed(); }
     catch (caught) { setError(errorText(caught)); }
     finally { setBusy(false); }
   }
-  return <Modal title="Вы действительно хотите закрыть смену?" onClose={onClose} action={{ label: 'ЗАКРЫТЬ СМЕНУ', tone: 'danger', disabled: busy, onClick: () => void close() }}>
+  return <Modal title="Сверка и закрытие смены" onClose={onClose} action={{ label: 'ПОДТВЕРДИТЬ И ЗАКРЫТЬ', tone: 'danger', disabled: busy || !reward || !confirmed || remaining < 0n || hasQueuedSales || queuedCashMinor > 0n, onClick: () => void close() }}>
     <p className="cs-caption">Пересчитайте наличные в кассе. Расхождение будет проведено в этой смене.</p>
     <div className="cs-field"><span>Расчётная сумма</span><strong>{formatMinor(expectedMinor)}смн.</strong></div>
-    <label className="cs-outlined"><span>Пересчитанные наличные</span><MoneyInput autoFocus valueMinor={counted} onMinorChange={setCounted} /><em>смн.</em></label>
+    <label className="cs-outlined"><span>Пересчитанные наличные до выплаты %</span><MoneyInput autoFocus valueMinor={counted} onMinorChange={value => { setCounted(value); setConfirmed(false); }} /><em>смн.</em></label>
     <p className={variance === 0n ? 'cs-ok' : 'cs-error'}>{varianceLabel(variance)}</p>
     {variance !== 0n && <label className="cs-outlined is-area is-required"><span>Причина расхождения *</span><textarea value={comment} onChange={event => setComment(event.target.value)} maxLength={1000} /></label>}
+    {reward ? <><p>Вознаграждение сотруднику <strong>{reward.employeeName}</strong>: <strong>{formatMinor(payout)} смн.</strong></p><p>Останется для следующей смены: <strong>{formatMinor(remaining)} смн.</strong></p>{remaining < 0n && <p className="cs-error">Наличных недостаточно для выплаты. Пополните кассу перед закрытием.</p>}<label><input type="checkbox" checked={confirmed} onChange={event => setConfirmed(event.target.checked)} /> Наличные пересчитаны, выплату и остаток подтверждаю.</label><p className="cs-caption">Заберите вознаграждение после успешного закрытия. Повторно выплата не проводится.</p></> : <p className="cs-error">Обновите сервер для расчёта вознаграждения при закрытии.</p>}
+    {(hasQueuedSales || queuedCashMinor > 0n) && <p className="cs-error">Перед закрытием отправьте все сохранённые чеки.</p>}
     {error && <p className="cs-error">{error}</p>}
   </Modal>;
 }

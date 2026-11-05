@@ -1,5 +1,7 @@
 // Russian wording for server rejections a cashier can fix on the spot.
 const knownErrors: Record<string, string> = {
+  'Reward changed or was not confirmed. Refresh the shift report and confirm the payout.': 'Сумма вознаграждения изменилась. Заново откройте отчёт смены, сверьте суммы и подтвердите выплату.',
+  'Insufficient counted cash for employee reward payout': 'В кассе недостаточно пересчитанных наличных для выплаты вознаграждения. Пополните кассу перед закрытием.',
   'Store connection code not found': 'Точка с таким кодом не найдена или отключена. Проверьте код в ЛК.',
   'Store connection code required': 'Сначала введите код точки, к которой подключается касса.',
   'Employee is not assigned to this store': 'Вы не назначены в магазин этой кассы. Обратитесь к администратору.',

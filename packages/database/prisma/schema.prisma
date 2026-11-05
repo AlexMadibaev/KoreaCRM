@@ -49,6 +49,7 @@ model User {
   rewardBalanceMinor Decimal @default(0) @db.Decimal(18, 0)
   rewardPercent Decimal @default(0) @db.Decimal(5, 2)
   rewardTransactions EmployeeRewardTransaction[]
+  rewardPayouts EmployeeRewardPayout[]
   notifications Notification[]
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
@@ -503,6 +504,7 @@ model CashShift {
   operations        CashOperation[]
   sales             Sale[]
   saleReturns       SaleReturn[]
+  rewardPayout EmployeeRewardPayout?
   receiptlessReturns ReceiptlessReturn[]
 
   @@index([storeId, status, openedAt])
@@ -610,6 +612,19 @@ model EmployeeRewardTransaction {
 
   @@index([employeeId, createdAt])
   @@index([saleId])
+}
+
+model EmployeeRewardPayout {
+  id                String @id @default(uuid()) @db.Uuid
+  cashShiftId       String @unique @db.Uuid
+  cashShift         CashShift @relation(fields: [cashShiftId], references: [id])
+  employeeId        String @db.Uuid
+  employee          User @relation(fields: [employeeId], references: [id])
+  amountMinor       Decimal @db.Decimal(18, 0)
+  balanceAfterMinor Decimal @db.Decimal(18, 0)
+  createdAt         DateTime @default(now())
+
+  @@index([employeeId, createdAt])
 }
 
 enum SalePaymentKind {

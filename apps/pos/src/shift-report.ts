@@ -51,6 +51,7 @@ export function shiftReportLines(report: PosShiftReport): string[] {
     ...(cash.correctionsMinor !== '0' ? [`  Корректировки: ${formatMinor(cash.correctionsMinor)}`] : []),
     `  ${closed ? 'Итого' : 'Сейчас'}: ${formatMinor(cash.expectedMinor)}`,
     ...(openingVariance !== 0n ? [`При открытии: ${varianceLabel(openingVariance)}`, shift.openingComment ? `  ${shift.openingComment}` : ''] : []),
-    ...(closed ? [`Пересчёт: ${formatMinor(shift.actualCashMinor ?? '0')} (${varianceLabel(closingVariance)})`, shift.closingComment ? `  ${shift.closingComment}` : ''] : []),
+    ...(closed ? [`Пересчёт до выплаты: ${formatMinor(shift.actualCashMinor ?? '0')} (${varianceLabel(closingVariance)})`, shift.closingComment ? `  ${shift.closingComment}` : ''] : []),
+    ...(report.reward ? [`Вознаграждение: ${report.reward.employeeName}`, `${closed ? 'Выплачено' : 'К выплате'}: ${formatMinor(closed ? report.reward.paidMinor : report.reward.payableMinor)}`, ...(closed ? [`Остаток следующей смене: ${formatMinor(shift.closingCashMinor ?? cash.expectedMinor)}`] : [])] : []),
   ].filter(Boolean);
 }

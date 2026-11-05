@@ -11,7 +11,8 @@ export type PosLastClosedShift = { id: string; closedAt: string | null; closingC
 export type PosCashOperationType = 'DEPOSIT' | 'WITHDRAWAL' | 'EXPENSE' | 'CORRECTION';
 export type PosMethodTotal = { paymentMethodId: string; name: string; kind: PosPaymentMethod['kind']; amountMinor: string };
 export type PosShiftReport = {
-  shift: { id: string; deviceId: string; status: 'OPEN' | 'CLOSED'; openedAt: string; closedAt: string | null; openedBy: string; closedBy: string | null; store: { name: string; address: string | null }; openingCashMinor: string; openingVarianceMinor: string; openingComment: string | null; expectedCashMinor: string; actualCashMinor: string | null; closingVarianceMinor: string; closingComment: string | null };
+  reward?: { employeeId: string; employeeName: string; earnedMinor: string; payableMinor: string; paidMinor: string; balanceMinor: string };
+  shift: { id: string; deviceId: string; status: 'OPEN' | 'CLOSED'; openedAt: string; closedAt: string | null; openedBy: string; closedBy: string | null; store: { name: string; address: string | null }; openingCashMinor: string; openingVarianceMinor: string; openingComment: string | null; expectedCashMinor: string; actualCashMinor: string | null; closingCashMinor?: string | null; closingVarianceMinor: string; closingComment: string | null };
   sales: { count: number; subtotalMinor: string; discountMinor: string; totalMinor: string; debtMinor: string; byMethod: PosMethodTotal[]; bySeller?: { sellerId: string; name: string; count: number; totalMinor: string }[] };
   returns: { count: number; amountMinor: string; byMethod: PosMethodTotal[]; receiptlessCount?: number; receiptlessMinor?: string };
   customerPayments: { count: number; amountMinor: string; byMethod: PosMethodTotal[] };

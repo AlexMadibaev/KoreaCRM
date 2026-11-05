@@ -24,6 +24,6 @@ test('closed shift report lists sales, refunds, debt and the closing recount', (
   assert.ok(lines.includes('Продажи: 2 на 345,00'));
   assert.ok(lines.includes('  В долг выдано: 170,00'));
   assert.ok(lines.includes('Погашение долгов: 1 на 70,00'));
-  assert.ok(lines.includes('Пересчёт: 290,00 (Недостача 10,00)'));
+  assert.ok(lines.includes('Пересчёт до выплаты: 290,00 (Недостача 10,00)'));
   assert.ok(lines.includes('  Ошибка сдачи'));
 });
