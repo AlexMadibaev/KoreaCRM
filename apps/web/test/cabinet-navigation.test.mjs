@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { cabinetGroups, cabinetLinkActive, createLinks, visibleCabinetLinks } from '../lib/cabinet-navigation.ts';
+import { firstCabinetPath } from '../lib/access.ts';
+
+test('an employee restricted to orders lands on the orders page', () => {
+  assert.equal(firstCabinetPath(['orders.view']), '/orders');
+  const links = cabinetGroups.flatMap(group => visibleCabinetLinks(group.links, ['orders.view'], 'ORDER_VIEWER'));
+  assert.deepEqual(links.map(link => link.href), ['/orders']);
+});
 
 test('cash-view-only employee can reach shifts without finance report permission', () => {
   const groups = cabinetGroups.flatMap(group => visibleCabinetLinks(group.links, ['finance.cash_view'], 'CASHIER'));

@@ -37,7 +37,7 @@ type ReportDefinition = {
 
 const raw = Prisma.raw;
 const localDay = (column: string) => raw(`to_char((${column} AT TIME ZONE 'UTC') AT TIME ZONE '${REPORT_TIME_ZONE}', 'YYYY-MM-DD')`);
-const inPeriod = (ctx: ReportContext, column: string) => ctx.range ? Prisma.sql`AND ${raw(column)} >= ${ctx.range.gte} AND ${raw(column)} < ${ctx.range.lt}` : Prisma.empty;
+const inPeriod = (ctx: ReportContext, column: string) => ctx.range ? Prisma.sql`AND (${raw(column)} AT TIME ZONE 'UTC') >= ${ctx.range.gte} AND (${raw(column)} AT TIME ZONE 'UTC') < ${ctx.range.lt}` : Prisma.empty;
 const inStores = (ctx: ReportContext, column: string) => ctx.storeIds ? Prisma.sql`AND ${raw(column)} IN (${Prisma.join(ctx.storeIds.map(id => Prisma.sql`${id}::uuid`))})` : Prisma.empty;
 const seller = (ctx: ReportContext, saleAlias = 's') => ctx.employeeId ? Prisma.sql`AND COALESCE(${raw(`${saleAlias}."sellerId"`)}, ${raw(`${saleAlias}."employeeId"`)}) = ${ctx.employeeId}::uuid` : Prisma.empty;
 const inCategories = (ctx: ReportContext, column: string) => ctx.categoryIds ? Prisma.sql`AND ${raw(column)} IN (${Prisma.join(ctx.categoryIds.map(id => Prisma.sql`${id}::uuid`))})` : Prisma.empty;
@@ -180,7 +180,7 @@ export const reportDefinitions: Record<ReportKey, ReportDefinition> = {
     build: ctx => Prisma.sql`WITH ${saleAggregates(ctx, localDay('s."createdAt"'), localDay('r."createdAt"'))},
       e_agg AS (
         SELECT to_char(e.date, 'YYYY-MM-DD') AS k, SUM(e."amountMinor") AS expenses FROM "Expense" e
-        WHERE e.date >= ${ctx.utcDays!.gte} AND e.date < ${ctx.utcDays!.lt} ${inStores(ctx, 'e."storeId"')} GROUP BY 1
+        WHERE (e.date AT TIME ZONE 'UTC') >= ${ctx.utcDays!.gte} AND (e.date AT TIME ZONE 'UTC') < ${ctx.utcDays!.lt} ${inStores(ctx, 'e."storeId"')} GROUP BY 1
       ),
       days AS (SELECT k FROM agg UNION SELECT k FROM e_agg)
       SELECT days.k AS "day", COALESCE(agg.sales - agg.returns, 0) AS "netMinor", COALESCE(agg.sales - agg.returns - agg.profit, 0) AS "costMinor",
@@ -275,8 +275,13 @@ export const reportDefinitions: Record<ReportKey, ReportDefinition> = {
         SELECT ${localDay('s."createdAt"')} AS day, s."storeId" AS store_id, 'Выручка' AS kind, 'Оплата чеков: ' || COUNT(DISTINCT s.id) || ' шт.' AS details,
                pm.name AS method, NULL::text AS employee, SUM(p."amountMinor") AS amount
         FROM "Payment" p JOIN "Sale" s ON s.id = p."saleId" JOIN "SalePaymentMethod" pm ON pm.id = p."paymentMethodId"
-        WHERE s.status = 'COMPLETED' AND pm.kind NOT IN ('BONUS', 'DEBT') ${inPeriod(ctx, 's."createdAt"')} ${inStores(ctx, 's."storeId"')}
+        WHERE s.status = 'COMPLETED' AND pm.kind NOT IN ('BONUS', 'DEBT') AND NOT EXISTS (SELECT 1 FROM "CustomerOrder" o WHERE o."saleId" = s.id) ${inPeriod(ctx, 's."createdAt"')} ${inStores(ctx, 's."storeId"')}
         GROUP BY 1, 2, pm.name
+        UNION ALL
+        SELECT ${localDay('op."createdAt"')}, o."storeId", CASE WHEN op."amountMinor" > 0 THEN 'Предоплата заказа' ELSE 'Возврат предоплаты' END,
+               'Заказ №' || o.number, pm.name, u.name, op."amountMinor"
+        FROM "OrderPayment" op JOIN "CustomerOrder" o ON o.id = op."orderId" JOIN "SalePaymentMethod" pm ON pm.id = op."paymentMethodId" JOIN "User" u ON u.id = op."employeeId"
+        WHERE TRUE ${inPeriod(ctx, 'op."createdAt"')} ${inStores(ctx, 'o."storeId"')}
         UNION ALL
         SELECT ${localDay('r."createdAt"')}, r."storeId", 'Возврат покупателю', 'Чек ' || s.number || ': ' || r.reason, pm.name, u.name, -rp."amountMinor"
         FROM "SaleReturnPayment" rp JOIN "SaleReturn" r ON r.id = rp."saleReturnId" JOIN "Sale" s ON s.id = r."saleId"
@@ -289,7 +294,7 @@ export const reportDefinitions: Record<ReportKey, ReportDefinition> = {
         UNION ALL
         SELECT to_char(e.date, 'YYYY-MM-DD'), e."storeId", 'Расход', ec.name || COALESCE(': ' || e.description, ''), ${methodLabel('e."paymentMethod"')}, u.name, -e."amountMinor"
         FROM "Expense" e JOIN "ExpenseCategory" ec ON ec.id = e."categoryId" LEFT JOIN "User" u ON u.id = e."employeeId"
-        WHERE e.date >= ${ctx.utcDays?.gte ?? new Date(0)} AND e.date < ${ctx.utcDays?.lt ?? new Date(0)} ${inStores(ctx, 'e."storeId"')}
+        WHERE (e.date AT TIME ZONE 'UTC') >= ${ctx.utcDays?.gte ?? new Date(0)} AND (e.date AT TIME ZONE 'UTC') < ${ctx.utcDays?.lt ?? new Date(0)} ${inStores(ctx, 'e."storeId"')}
         UNION ALL
         SELECT ${localDay('sp."createdAt"')}, sp."storeId", 'Оплата поставщику', sup.name || ', закупка ' || pu.number, ${methodLabel('sp."paymentMethod"')}, u.name, -sp."amountMinor"
         FROM "SupplierPayment" sp JOIN "Purchase" pu ON pu.id = sp."purchaseId" JOIN "Supplier" sup ON sup.id = pu."supplierId" LEFT JOIN "User" u ON u.id = sp."employeeId"
