@@ -10,8 +10,8 @@ export const cabinetGroups: CabinetGroup[] = [
     { href: '/categories', label: 'Категории', permission: 'categories.view' },
   ] },
   { title: 'Кассы и смены', icon: 'tills', links: [
-    { href: '/finance#cash-shifts', label: 'Кассовые смены', permission: 'finance.cash_view' },
-    { href: '/stores', label: 'Магазины и устройства', permission: 'stores.view' },
+    { href: '/cash-shifts', label: 'Смены', permission: 'finance.cash_view' },
+    { href: '/stores', label: 'Кассы', permission: 'stores.view' },
   ] },
   { title: 'Движение товара', icon: 'movement', links: [
     { href: '/sales', label: 'Продажи и возвраты', permission: 'sales.view' },

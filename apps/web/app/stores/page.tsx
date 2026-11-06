@@ -80,7 +80,7 @@ export default function StoresPage() {
       if (removed) setNotice('Привязка удалена, но список не обновился. Обновите страницу.');
       else {
         const openShift = caught instanceof Error && caught.message === 'Close the open cash shift on this device first';
-        setUnbindError({ deviceId, openShift, message: openShift ? 'Отправьте сохранённые чеки и закройте смену этой кассы. Затем повторите отвязку. Закрыть смену можно в программе POS или в ЛК → «Кассовые смены».' : errorText(caught) });
+        setUnbindError({ deviceId, openShift, message: openShift ? 'Отправьте сохранённые чеки и закройте смену этой кассы. Затем повторите отвязку. Закрыть смену можно в программе POS или в ЛК → «Кассы и смены → Смены».' : errorText(caught) });
       }
     } finally { setBusy(false); }
   }
