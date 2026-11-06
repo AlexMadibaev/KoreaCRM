@@ -1,6 +1,7 @@
 export const routePermission: Record<string, string> = {
+  '/orders': 'orders.view',
   '/dashboard': 'finance.view',
-  '/reports': 'finance.view',
+  '/reports': 'reports.view',
   '/products': 'products.view',
   '/stock': 'inventory.view',
   '/notifications': 'inventory.view',
@@ -21,5 +22,5 @@ export const routePermission: Record<string, string> = {
 };
 
 export function firstCabinetPath(permissions: string[]) {
-  return ['/dashboard', '/sales', '/products', '/stock', '/customers', '/stores', '/employees', '/account'].find(path => !routePermission[path] || permissions.includes(routePermission[path])) ?? '/account';
+  return ['/dashboard', '/sales', '/orders', '/products', '/stock', '/customers', '/stores', '/employees', '/account'].find(path => !routePermission[path] || permissions.includes(routePermission[path])) ?? '/account';
 }

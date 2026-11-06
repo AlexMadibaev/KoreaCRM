@@ -7,7 +7,9 @@ import { importLegacyKorea } from './import-legacy-korea';
 config({ path: fileURLToPath(new URL('../../../.env', import.meta.url)) });
 
 const prisma = new PrismaClient();
+const orderPermissions = ['orders.view', 'orders.create', 'orders.edit', 'orders.confirm', 'orders.pay', 'orders.fulfill', 'orders.cancel'];
 const permissionCodes = [
+  ...orderPermissions,
   'products.view', 'products.create', 'products.edit', 'products.delete',
   'brands.view', 'brands.create', 'brands.edit', 'brands.delete',
   'categories.view', 'categories.create', 'categories.edit', 'categories.delete',
@@ -27,12 +29,12 @@ const roleGrants: Record<string, string[]> = {
   SUPERUSER: permissionCodes,
   OWNER: permissionCodes,
   DIRECTOR: permissionCodes.filter((code) => code !== 'settings.edit'),
-  MANAGER: ['customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'sales.return_no_receipt', 'sales.discount.unlimited', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay', 'reports.view', 'stores.view', 'stores.edit'],
-  ADMIN: ['customers.discount.edit', 'products.view', 'products.create', 'products.edit', 'brands.view', 'brands.create', 'brands.edit', 'categories.view', 'categories.create', 'categories.edit', 'sales.view', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'employees.create', 'employees.edit', 'inventory.view', 'inventory.adjust', 'reports.view', 'stores.view', 'stores.edit'],
-  ACCOUNTANT: ['sales.view', 'customers.view', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.supplier_pay', 'finance.customer_pay', 'suppliers.view', 'purchases.view', 'reports.view'],
+  MANAGER: [...orderPermissions, 'customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'sales.return_no_receipt', 'sales.discount.unlimited', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay', 'reports.view', 'stores.view', 'stores.edit'],
+  ADMIN: ['orders.view', 'orders.create', 'orders.edit', 'orders.confirm', 'customers.discount.edit', 'products.view', 'products.create', 'products.edit', 'brands.view', 'brands.create', 'brands.edit', 'categories.view', 'categories.create', 'categories.edit', 'sales.view', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'employees.create', 'employees.edit', 'inventory.view', 'inventory.adjust', 'reports.view', 'stores.view', 'stores.edit'],
+  ACCOUNTANT: ['orders.view', 'orders.pay', 'sales.view', 'customers.view', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.supplier_pay', 'finance.customer_pay', 'suppliers.view', 'purchases.view', 'reports.view'],
   WAREHOUSE: ['products.view', 'brands.view', 'categories.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'purchases.view', 'purchases.receive', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.send', 'transfers.receive', 'transfers.cancel'],
-  CASHIER: ['customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'finance.cash_view', 'finance.cash', 'finance.customer_pay'],
-  SELLER: ['customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'customers.view', 'customers.create'],
+  CASHIER: [...orderPermissions, 'customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'finance.cash_view', 'finance.cash', 'finance.customer_pay'],
+  SELLER: ['orders.view', 'orders.create', 'orders.edit', 'orders.confirm', 'customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'customers.view', 'customers.create'],
 };
 
 async function main() {
