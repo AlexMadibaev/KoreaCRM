@@ -35,7 +35,8 @@ export function parseCsv(input: string): string[][] {
 
 export function serializeCsv(rows: string[][]): string {
   const escape = (value: string) => {
-    const safe = /^[\s]*[=+\-@]/.test(value) ? `'${value}` : value;
+    // Plain numbers (including negative ones) cannot start a formula, so they stay numeric in Excel.
+    const safe = /^[\s]*[=+\-@]/.test(value) && !/^-?\d+(?:[.,]\d+)?$/.test(value) ? `'${value}` : value;
     return `"${safe.replaceAll('"', '""')}"`;
   };
   return '\uFEFF' + rows.map((row) => row.map(escape).join(';')).join('\r\n');

@@ -15,4 +15,5 @@ test('CSV reads comma-separated files and rejects open quotes', () => {
 
 test('CSV export escapes spreadsheet formulas', () => {
   assert.match(serializeCsv([['=1+1']]), /^\uFEFF"'=1\+1"$/);
+  assert.equal(serializeCsv([['-12,5', '-1+1']]), '\uFEFF"-12,5";"\'-1+1"');
 });

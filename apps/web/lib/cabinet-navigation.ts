@@ -23,7 +23,7 @@ export const cabinetGroups: CabinetGroup[] = [
     { href: '/finance', label: 'Финансы и расходы', permission: 'finance.view' },
     { href: '/finance/categories', label: 'Категории расходов', permission: 'finance.view' },
   ] },
-  { title: 'Отчёты', icon: 'overview', links: [{ href: '/reports', label: 'Отчёты', permission: 'finance.view' }] },
+  { title: 'Отчёты', icon: 'overview', links: [{ href: '/reports', label: 'Отчёты', permission: 'reports.view' }] },
   { title: 'Контрагенты', icon: 'people', links: [
     { href: '/customers', label: 'Клиенты и долги', permission: 'customers.view' },
     { href: '/suppliers', label: 'Поставщики', permission: 'suppliers.view' },
