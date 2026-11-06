@@ -7,7 +7,7 @@ import { CabinetDrawer } from './cabinet-drawer';
 import { amount } from './shift-card';
 import { queryString, api } from '../lib/api';
 
-export type Kind = 'SALE' | 'SALE_RETURN' | 'RECEIPTLESS_RETURN' | 'PURCHASE' | 'TRANSFER' | 'INVENTORY' | 'WRITE_OFF' | 'ADJUSTMENT';
+export type Kind = 'SALE' | 'SALE_RETURN' | 'RECEIPTLESS_RETURN' | 'PURCHASE' | 'TRANSFER' | 'INVENTORY' | 'WRITE_OFF' | 'ADJUSTMENT' | 'RECEIVE_IN';
 export type DocumentRow = { kind: Kind; id: string; number: string | null; occurredAt: string; status: string; positions: number; amountMinor: string | null; paidMinor: string | null; sender: string | null; receiver: string | null; author: string | null; comment: string | null };
 export type DocumentJournal = { items: DocumentRow[]; total: number; page: number; limit: number; kinds: Kind[] };
 type Line = { productId: string; name: string; sku: string; barcode: string | null; quantity: number | null; priceMinor: string | null; discountMinor: string; totalMinor: string | null; profitMinor: string | null; received?: number; expected?: number; before?: number; after?: number };
@@ -18,7 +18,7 @@ type Detail = {
   related: { kind: Kind; id: string; title: string; amountMinor: string | null; occurredAt: string | null; note: string | null }[];
 };
 
-export const kindTitle: Record<Kind, string> = { SALE: 'Продажа', SALE_RETURN: 'Возврат продажи', RECEIPTLESS_RETURN: 'Возврат без чека', PURCHASE: 'Закупка', TRANSFER: 'Перемещение', INVENTORY: 'Инвентаризация', WRITE_OFF: 'Списание', ADJUSTMENT: 'Корректировка' };
+export const kindTitle: Record<Kind, string> = { SALE: 'Продажа', SALE_RETURN: 'Возврат продажи', RECEIPTLESS_RETURN: 'Возврат без чека', PURCHASE: 'Закупка', TRANSFER: 'Перемещение', INVENTORY: 'Инвентаризация', WRITE_OFF: 'Списание', ADJUSTMENT: 'Корректировка', RECEIVE_IN: 'Оприходование' };
 const statusTitle: Record<string, string> = { COMPLETED: 'Документ проведён', VOIDED: 'Аннулирован', DRAFT: 'Черновик', ORDERED: 'Заказан', PARTIALLY_RECEIVED: 'Принят частично', RECEIVED: 'Принят', CANCELLED: 'Отменён', REQUESTED: 'Запрошен', APPROVED: 'Одобрен', IN_TRANSIT: 'В пути', IN_PROGRESS: 'Идёт подсчёт' };
 const done = new Set(['COMPLETED', 'RECEIVED']);
 const cancelled = new Set(['VOIDED', 'CANCELLED']);

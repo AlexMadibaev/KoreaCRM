@@ -42,12 +42,14 @@ export const cabinetGroups: CabinetGroup[] = [
 
 export const createLinks: CabinetLink[] = [
   { href: '/sales#new-sale', label: 'Продажа', permission: 'sales.create' },
-  { href: '/purchases', label: 'Закупка', permission: 'purchases.create' },
+  { href: '/documents/new?kind=PURCHASE', label: 'Закупка', permission: 'purchases.create' },
   { href: '/sales', label: 'Возврат продажи', permission: 'sales.return' },
-  { href: '/transfers', label: 'Перемещение', permission: 'transfers.create' },
-  { href: '/stock', label: 'Списание', permission: 'inventory.adjust' },
-  { href: '/finance', label: 'Расход', permission: 'finance.edit' },
   { href: '/inventories', label: 'Инвентаризация', permission: 'inventory.start' },
+  { href: '/documents/new?kind=RECEIVE_IN', label: 'Оприходование', permission: 'inventory.adjust' },
+  { href: '/documents/new?kind=WRITE_OFF', label: 'Списание', permission: 'inventory.adjust' },
+  { href: '/transfers', label: 'Перемещение', permission: 'transfers.create' },
+  { href: '/documents/new?kind=INCOME', label: 'Приход', permission: 'finance.cash' },
+  { href: '/documents/new?kind=EXPENSE', label: 'Расход', permission: 'finance.edit' },
   { href: '/products/new', label: 'Товар', permission: 'products.create' },
 ];
 

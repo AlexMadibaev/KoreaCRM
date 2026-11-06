@@ -21,6 +21,8 @@ const cachedMe = () => { const token = typeof window === 'undefined' ? null : ac
 export function CatalogShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [documentKind, setDocumentKind] = useState('');
+  useEffect(() => { setDocumentKind(new URLSearchParams(window.location.search).get('kind') ?? ''); }, [pathname]);
   // The cache is empty on a full page load, so the server render and hydration still agree.
   const [me, setMe] = useState<Me | null>(cachedMe);
   const [ready, setReady] = useState(() => cachedMe() !== null);
@@ -80,8 +82,9 @@ export function CatalogShell({ children }: { children: React.ReactNode }) {
   const permissions = me?.permissions ?? [];
   const role = me?.role ?? '';
   const visibleGroups = cabinetGroups.map(group => ({ ...group, links: visibleCabinetLinks(group.links, permissions, role) })).filter(group => group.links.length);
+  const documentTitle = () => ({ PURCHASE: 'Закупка', WRITE_OFF: 'Списание', RECEIVE_IN: 'Оприходование', EXPENSE: 'Расход', INCOME: 'Приход' } as Record<string, string>)[documentKind] ?? 'Новый документ';
   const currentGroup = visibleGroups.find(group => group.links.some(link => cabinetLinkActive(link.href, pathname, hash)));
-  const current = currentGroup?.links.find(link => cabinetLinkActive(link.href, pathname, hash))?.label ?? (pathname === '/account' ? 'Личный кабинет' : pathname === '/notifications' ? 'Уведомления' : 'Korea CRM');
+  const current = currentGroup?.links.find(link => cabinetLinkActive(link.href, pathname, hash))?.label ?? (pathname === '/account' ? 'Личный кабинет' : pathname === '/notifications' ? 'Уведомления' : pathname === '/documents/new' ? documentTitle() : 'Korea CRM');
   const actions = visibleCabinetLinks(createLinks, permissions, role);
   const followLink = (href: string) => { setMenuOpen(false); setHash(href.includes('#') ? `#${href.split('#')[1]}` : ''); if (createRef.current) createRef.current.open = false; };
   return <div className="crm-shell">
@@ -97,6 +100,6 @@ export function CatalogShell({ children }: { children: React.ReactNode }) {
       <Link href="/account" className={`crm-sidebar-account ${pathname === '/account' ? 'active' : ''}`} onClick={() => setMenuOpen(false)}><span className="crm-avatar">{(me?.name || 'П').slice(0, 1).toUpperCase()}</span><span><strong>{me?.name || 'Профиль'}</strong><small>Личный кабинет</small></span></Link>
     </aside>
     {menuOpen && <button className="crm-backdrop" aria-label="Закрыть меню" onClick={() => { setMenuOpen(false); requestAnimationFrame(() => menuButtonRef.current?.focus()); }} />}
-    <div className="crm-content" inert={menuOpen}><header className="crm-topbar"><button ref={menuButtonRef} type="button" className="crm-menu-button" aria-label={menuOpen ? 'Закрыть меню' : 'Открыть меню'} aria-expanded={menuOpen} aria-controls="crm-navigation" onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <X size={22} /> : <Menu size={22} />}</button><div className="crm-breadcrumb">{currentGroup?.title !== current && <small>{currentGroup?.title ?? 'Korea CRM'} /</small>}<strong>{current}</strong></div><div className="crm-topbar-actions"><a href="https://github.com/AlexMadibaev/KoreaCRM/releases/latest/download/KoreaCRM-POS-setup.exe" className="crm-pos-download" aria-label="Скачать кассу для Windows"><Download size={16} aria-hidden /><span>Скачать кассу</span></a>{(permissions.includes('inventory.view') || permissions.includes('sales.view')) && <Link href="/notifications" className="crm-notification-link" aria-label={`Уведомления${unreadCount ? `, непрочитанных: ${unreadCount}` : ''}`}><Bell size={19} aria-hidden />{unreadCount > 0 && <span>{unreadCount > 9 ? '9+' : unreadCount}</span>}</Link>}<Link href="/account" className="crm-topbar-avatar" aria-label="Личный кабинет">{(me?.name || 'П').slice(0, 1).toUpperCase()}</Link></div></header><main id="cabinet-content" tabIndex={-1} className="crm-main">{children}</main></div>
+    <div className="crm-content" inert={menuOpen}><header className="crm-topbar"><button ref={menuButtonRef} type="button" className="crm-menu-button" aria-label={menuOpen ? 'Закрыть меню' : 'Открыть меню'} aria-expanded={menuOpen} aria-controls="crm-navigation" onClick={() => setMenuOpen(value => !value)}>{menuOpen ? <X size={22} /> : <Menu size={22} />}</button><div className="crm-breadcrumb">{currentGroup?.title !== current && <small>{currentGroup?.title ?? (pathname === '/documents/new' ? 'Создание документа' : 'Korea CRM')} /</small>}<strong>{current}</strong></div><div className="crm-topbar-actions"><a href="https://github.com/AlexMadibaev/KoreaCRM/releases/latest/download/KoreaCRM-POS-setup.exe" className="crm-pos-download" aria-label="Скачать кассу для Windows"><Download size={16} aria-hidden /><span>Скачать кассу</span></a>{(permissions.includes('inventory.view') || permissions.includes('sales.view')) && <Link href="/notifications" className="crm-notification-link" aria-label={`Уведомления${unreadCount ? `, непрочитанных: ${unreadCount}` : ''}`}><Bell size={19} aria-hidden />{unreadCount > 0 && <span>{unreadCount > 9 ? '9+' : unreadCount}</span>}</Link>}<Link href="/account" className="crm-topbar-avatar" aria-label="Личный кабинет">{(me?.name || 'П').slice(0, 1).toUpperCase()}</Link></div></header><main id="cabinet-content" tabIndex={-1} className="crm-main">{children}</main></div>
   </div>;
 }

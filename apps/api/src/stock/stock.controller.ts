@@ -4,7 +4,7 @@ import type { Request } from 'express';
 import { AccessGuard, RequirePermission, StoreScopeGuard } from '../auth/guards';
 import { hasPermission, type AccessContext } from '../auth/policy';
 import { StockService } from './stock.service';
-import { adjustmentSchema, movementListSchema, parseStockInput, stockListSchema, writeOffSchema } from './stock.schemas';
+import { adjustmentSchema, movementListSchema, parseStockInput, stockListSchema, writeOffDocumentSchema, writeOffSchema } from './stock.schemas';
 
 type AuthorizedRequest = Request & { access: AccessContext };
 
@@ -45,6 +45,18 @@ export class StockController {
   @RequirePermission('inventory.adjust')
   adjust(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() request: AuthorizedRequest) {
     return this.stock.adjust(storeId, parseStockInput(adjustmentSchema, body), request.access.userId);
+  }
+
+  @Post('receive-documents')
+  @RequirePermission('inventory.adjust')
+  receiveDocument(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() request: AuthorizedRequest) {
+    return this.stock.receiveDocument(storeId, parseStockInput(writeOffDocumentSchema, body), request.access.userId);
+  }
+
+  @Post('write-off-documents')
+  @RequirePermission('inventory.adjust')
+  writeOffDocument(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() request: AuthorizedRequest) {
+    return this.stock.writeOffDocument(storeId, parseStockInput(writeOffDocumentSchema, body), request.access.userId);
   }
 
   @Post('write-offs')

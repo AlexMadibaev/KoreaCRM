@@ -5,11 +5,11 @@ import { DatabaseService } from '../database.service';
 import { canAccessStore, hasPermission, type AccessContext } from '../auth/policy';
 import { localPeriod } from '../reports/reports.service';
 
-export const documentKinds = ['SALE', 'SALE_RETURN', 'RECEIPTLESS_RETURN', 'PURCHASE', 'TRANSFER', 'INVENTORY', 'WRITE_OFF', 'ADJUSTMENT'] as const;
+export const documentKinds = ['SALE', 'SALE_RETURN', 'RECEIPTLESS_RETURN', 'PURCHASE', 'TRANSFER', 'INVENTORY', 'WRITE_OFF', 'ADJUSTMENT', 'RECEIVE_IN'] as const;
 export type DocumentKind = (typeof documentKinds)[number];
 const kindPermission: Record<DocumentKind, string> = {
   SALE: 'sales.view', SALE_RETURN: 'sales.view', RECEIPTLESS_RETURN: 'sales.view', PURCHASE: 'purchases.view',
-  TRANSFER: 'transfers.view', INVENTORY: 'inventory.view', WRITE_OFF: 'inventory.view', ADJUSTMENT: 'inventory.view',
+  TRANSFER: 'transfers.view', INVENTORY: 'inventory.view', WRITE_OFF: 'inventory.view', ADJUSTMENT: 'inventory.view', RECEIVE_IN: 'inventory.view',
 };
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const documentJournalSchema = z.object({
@@ -87,9 +87,9 @@ export class DocumentsService {
              NULL, 'Магазин ' || st.name, u.name, NULL
       FROM "Inventory" i JOIN "Store" st ON st.id = i."storeId" JOIN "User" u ON u.id = i."createdById"
       WHERE ${inStores('i."storeId"')} AND ${period('i."createdAt"')}`);
-    for (const [kind, sourceType] of [['WRITE_OFF', 'MANUAL_WRITE_OFF'], ['ADJUSTMENT', 'MANUAL_ADJUSTMENT']] as const) if (has(kind)) parts.push(sql`
+    for (const [kind, sourceType] of [['WRITE_OFF', 'MANUAL_WRITE_OFF'], ['ADJUSTMENT', 'MANUAL_ADJUSTMENT'], ['RECEIVE_IN', 'MANUAL_RECEIVE']] as const) if (has(kind)) parts.push(sql`
       SELECT ${kind}, MIN(sm."sourceId"), UPPER(LEFT(MIN(sm."sourceId"), 8)), MIN(sm."createdAt"), 'COMPLETED', COUNT(*)::int, NULL::numeric, NULL::numeric,
-             'Магазин ' || st.name, ${kind === 'WRITE_OFF' ? 'Списание' : 'Корректировка остатка'}, MIN(u.name), MIN(sm.comment)
+             ${kind === 'RECEIVE_IN' ? 'Оприходование' : sql`'Магазин ' || st.name`}, ${kind === 'WRITE_OFF' ? 'Списание' : kind === 'RECEIVE_IN' ? sql`'Магазин ' || st.name` : 'Корректировка остатка'}, MIN(u.name), MIN(sm.comment)
       FROM "StockMovement" sm JOIN "Store" st ON st.id = sm."storeId" LEFT JOIN "User" u ON u.id = sm."employeeId"
       WHERE sm."sourceType" = ${sourceType} AND ${inStores('sm."storeId"')} AND ${period('sm."createdAt"')}
       GROUP BY sm."sourceId", st.name`);
@@ -200,8 +200,9 @@ export class DocumentsService {
         };
       }
       case 'WRITE_OFF':
-      case 'ADJUSTMENT': {
-        const movements = await this.db.stockMovement.findMany({ where: { sourceType: documentKind === 'WRITE_OFF' ? 'MANUAL_WRITE_OFF' : 'MANUAL_ADJUSTMENT', sourceId: id }, include: { product: { select: { id: true, name: true, sku: true } }, store: { select: { name: true } }, employee: { select: { name: true } } } });
+      case 'ADJUSTMENT':
+      case 'RECEIVE_IN': {
+        const movements = await this.db.stockMovement.findMany({ where: { sourceType: documentKind === 'WRITE_OFF' ? 'MANUAL_WRITE_OFF' : documentKind === 'RECEIVE_IN' ? 'MANUAL_RECEIVE' : 'MANUAL_ADJUSTMENT', sourceId: id }, include: { product: { select: { id: true, name: true, sku: true } }, store: { select: { name: true } }, employee: { select: { name: true } } } });
         if (!movements.length) throw new NotFoundException('Document not found');
         guard(movements[0]!.storeId);
         const codes = await barcodes(movements.map(item => item.productId));
