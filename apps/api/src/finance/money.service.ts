@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { DatabaseService } from '../database.service';
 import { canAccessStore, type AccessContext } from '../auth/policy';
 import { localPeriod } from '../reports/reports.service';
+import { CashShiftsService } from './cash-shifts.service';
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 export const moneyJournalSchema = z.object({
@@ -24,17 +25,11 @@ const plain = (value: unknown) => value === null || value === undefined ? null :
 /** Money journal shaped after CloudShop "Движение денег": every receipt and payout with account, counterparty and category. */
 @Injectable()
 export class MoneyService {
-  constructor(private readonly db: DatabaseService) {}
+  constructor(private readonly db: DatabaseService, private readonly shifts: CashShiftsService) {}
 
-  async journal(query: MoneyJournalQuery, access: AccessContext) {
-    if (query.storeId && !canAccessStore(access, query.storeId)) throw new ForbiddenException('Store access denied');
-    const stores = query.storeId ? [query.storeId] : (await this.db.store.findMany({ where: { deletedAt: null, ...(access.allStores ? {} : { id: { in: access.storeIds } }) }, select: { id: true } })).map(store => store.id);
-    const empty = { items: [], total: 0, page: query.page, limit: query.limit, totals: { inMinor: '0', outMinor: '0' } };
-    if (!stores.length) return empty;
-    const { range } = localPeriod(query.from, query.to);
-    const scope = (column: string) => sql`${Prisma.raw(column)} IN (${Prisma.join(stores.map(id => sql`${id}::uuid`))})`;
-    // Numbers run per direction over the whole history of the visible stores, so "Приход #7" stays stable when filters change.
-    const ops = sql`
+  /** Every money movement in the visible stores; columns: source, id, at, store_id, amount, account, account_kind, counterparty, category, author, comment, doc_kind, doc_id, doc_title. */
+  private operations(scope: (column: string) => Prisma.Sql) {
+    return sql`
       SELECT 'SALE_PAYMENT' AS source, p.id::text AS id, s."createdAt" AS at, s."storeId" AS store_id, p."amountMinor" AS amount,
              CASE WHEN pm.kind = 'CASH' THEN 'Касса ' || UPPER(LEFT(REGEXP_REPLACE(s."deviceId", '^(WEB|POS)-', ''), 8)) ELSE pm.name END AS account, pm.kind::text AS account_kind,
              'Клиент ' || ${customer('c')} AS counterparty, 'Оплата от клиента' AS category, COALESCE(seller.name, e.name) AS author, NULL::text AS comment,
@@ -74,6 +69,17 @@ export class MoneyService {
              u.name, co.comment, NULL, NULL, NULL
       FROM "CashOperation" co JOIN "CashShift" cs ON cs.id = co."cashShiftId" JOIN "User" u ON u.id = co."employeeId"
       WHERE co."sourceType" IN ('MANUAL_CASH_OPERATION', 'SHIFT_CLOSE_VARIANCE', 'EMPLOYEE_REWARD_PAYOUT') AND ${scope('co."storeId"')}`;
+  }
+
+  async journal(query: MoneyJournalQuery, access: AccessContext) {
+    if (query.storeId && !canAccessStore(access, query.storeId)) throw new ForbiddenException('Store access denied');
+    const stores = query.storeId ? [query.storeId] : (await this.db.store.findMany({ where: { deletedAt: null, ...(access.allStores ? {} : { id: { in: access.storeIds } }) }, select: { id: true } })).map(store => store.id);
+    const empty = { items: [], total: 0, page: query.page, limit: query.limit, totals: { inMinor: '0', outMinor: '0' } };
+    if (!stores.length) return empty;
+    const { range } = localPeriod(query.from, query.to);
+    const scope = (column: string) => sql`${Prisma.raw(column)} IN (${Prisma.join(stores.map(id => sql`${id}::uuid`))})`;
+    // Numbers run per direction over the whole history of the visible stores, so "Приход #7" stays stable when filters change.
+    const ops = this.operations(scope);
     const where = sql`WHERE n.at >= ${range.gte} AND n.at < ${range.lt}
       ${query.direction === 'IN' ? sql`AND n.amount >= 0` : query.direction === 'OUT' ? sql`AND n.amount < 0` : Prisma.empty}
       ${query.q ? sql`AND (n.counterparty ILIKE ${`%${query.q}%`} OR n.comment ILIKE ${`%${query.q}%`} OR n.category ILIKE ${`%${query.q}%`} OR n.doc_title ILIKE ${`%${query.q}%`} OR n.number::text = ${query.q.replace(/^#/, '')})` : Prisma.empty}`;
@@ -96,5 +102,26 @@ export class MoneyService {
       total: rows.length ? Number(rows[0]!.__total) : 0, page: query.page, limit: query.limit,
       totals: { inMinor: String(totals[0]?.in_minor ?? 0), outMinor: String(totals[0]?.out_minor ?? 0) },
     };
+  }
+
+  /** Accounts like CloudShop "Счета": each register's drawer and each non-cash method's running balance per store. */
+  async accounts(access: AccessContext) {
+    const stores = (await this.db.store.findMany({ where: { deletedAt: null, ...(access.allStores ? {} : { id: { in: access.storeIds } }) }, select: { id: true, name: true }, orderBy: { name: 'asc' } }));
+    if (!stores.length) return { stores: [], totalMinor: '0' };
+    const scope = (column: string) => sql`${Prisma.raw(column)} IN (${Prisma.join(stores.map(store => sql`${store.id}::uuid`))})`;
+    const [registers, noncash] = await Promise.all([
+      this.shifts.registers(access),
+      this.db.$queryRaw<{ store_id: string; account: string; in_minor: unknown; out_minor: unknown; last_at: Date }[]>`
+        WITH o(source, id, at, store_id, amount, account, account_kind, counterparty, category, author, comment, doc_kind, doc_id, doc_title) AS (${this.operations(scope)})
+        SELECT store_id::text, account, COALESCE(SUM(amount) FILTER (WHERE amount >= 0), 0) AS in_minor, COALESCE(-SUM(amount) FILTER (WHERE amount < 0), 0) AS out_minor, MAX(at) AS last_at
+        FROM o WHERE account_kind <> 'CASH' GROUP BY store_id, account ORDER BY account`,
+    ]);
+    const result = stores.map(store => {
+      const cash = registers.items.filter(item => item.storeId === store.id).map(item => ({ kind: 'CASH' as const, name: `Касса ${String(item.deviceId).replace(/^(WEB|POS)-/, '').slice(0, 8).toUpperCase()}`, deviceId: item.deviceId, balanceMinor: item.balanceMinor, inMinor: null, outMinor: null, lastAt: item.lastActivityAt }));
+      const bank = noncash.filter(row => row.store_id === store.id).map(row => { const inMinor = String(row.in_minor), outMinor = String(row.out_minor); return { kind: 'NONCASH' as const, name: row.account, deviceId: null, balanceMinor: (BigInt(inMinor) - BigInt(outMinor)).toString(), inMinor, outMinor, lastAt: row.last_at.toISOString() }; });
+      const accounts = [...cash, ...bank];
+      return { id: store.id, name: store.name, accounts, balanceMinor: accounts.reduce((total, account) => total + BigInt(account.balanceMinor), 0n).toString() };
+    });
+    return { stores: result, totalMinor: result.reduce((total, store) => total + BigInt(store.balanceMinor), 0n).toString() };
   }
 }

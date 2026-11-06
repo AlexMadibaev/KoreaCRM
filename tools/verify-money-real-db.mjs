@@ -52,6 +52,16 @@ const outs = await request('GET', `/money?from=${today}&to=${today}&storeId=${st
 assert.ok(outs.items.every(item => item.direction === 'OUT') && outs.total === journal.items.filter(item => item.direction === 'OUT').length);
 assert.equal((await request('GET', `/money?from=${today}&to=${today}&storeId=${store.id}&q=${encodeURIComponent(`Уборка ${s}`)}`)).total, 1);
 checks.push('direction and search filters');
+const accounts = await request('GET', '/accounts');
+const storeAccounts = accounts.stores.find(item => item.id === store.id);
+const cardAccount = storeAccounts.accounts.find(account => account.name === 'Карта');
+const cardRefunds = journal.items.filter(item => item.account === 'Карта' && item.direction === 'OUT').reduce((total, item) => total + Number(item.amountMinor), 0);
+assert.equal(Number(cardAccount.balanceMinor), 3000 - cardRefunds);
+const report = await request('GET', `/stores/${store.id}/finance/cash-shifts/${shift.id}/report`);
+const cashAccount = storeAccounts.accounts.find(account => account.kind === 'CASH');
+assert.equal(cashAccount.balanceMinor, report.cash.expectedMinor, 'register balance equals the open drawer');
+assert.ok(storeAccounts.accounts.some(account => account.name === 'Перевод' && account.balanceMinor === '-6000'));
+checks.push('accounts: register drawer and non-cash balances');
 const roles = await request('GET', '/roles');
 const login = `money_admin_${s.toLowerCase()}`;
 await request('POST', '/employees', { name: 'Админ денег', login, password: 'money-test-password', roleId: roles.find(role => role.code === 'ADMIN').id, storeIds: [store.id], primaryStoreId: store.id }, 201);
