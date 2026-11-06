@@ -14,6 +14,7 @@ export const cabinetGroups: CabinetGroup[] = [
     { href: '/stores', label: 'Кассы', permission: 'stores.view' },
   ] },
   { title: 'Движение товара', icon: 'movement', links: [
+    { href: '/journal', label: 'Все документы', permission: 'sales.view' },
     { href: '/sales', label: 'Продажи и возвраты', permission: 'sales.view' },
     { href: '/purchases', label: 'Закупки', permission: 'purchases.view' },
     { href: '/transfers', label: 'Перемещения', permission: 'transfers.view' },

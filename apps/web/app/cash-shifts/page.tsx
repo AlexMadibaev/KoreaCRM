@@ -1,9 +1,10 @@
 'use client';
 
-import { FormEvent, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Lock, LockOpen, Plus, Settings2, X } from 'lucide-react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Lock, LockOpen, Plus, Settings2 } from 'lucide-react';
 import { MoneyInput } from '@koreacrm/ui';
 import { CatalogShell } from '../../components/catalog-shell';
+import { FilterChip, dushanbeDay as day } from '../../components/filter-chip';
 import { CabinetDrawer } from '../../components/cabinet-drawer';
 import { ShiftCard, amount, shiftMoment, type ShiftRow } from '../../components/shift-card';
 import { api, queryString, withDiscrepancyComment } from '../../lib/api';
@@ -22,7 +23,6 @@ const columns = Object.keys(columnLabels) as ColumnKey[];
 const numericColumns = new Set<ColumnKey>(['revenueMinor', 'salesCount', 'salesMinor', 'cashMinor', 'noncashMinor', 'returnsCount', 'returnsMinor', 'openingCashMinor', 'depositsMinor', 'outflowsMinor', 'closingCashMinor']);
 const COLUMNS_KEY = 'koreacrm.cash-shifts.columns';
 const PAGE_SIZE = 50;
-const day = (offset = 0) => new Date(Date.now() + 5 * 3_600_000 + offset * 86_400_000).toISOString().slice(0, 10);
 const chipDate = new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', timeZone: 'UTC' });
 
 function cell(row: ShiftRow, key: ColumnKey) {
@@ -38,9 +38,6 @@ function cell(row: ShiftRow, key: ColumnKey) {
   }
 }
 
-function Chip({ label, onClear, children }: { label: string; onClear?: () => void; children: ReactNode }) {
-  return <div className="crm-chip"><span className="crm-chip-label">{label}</span><div className="crm-chip-value">{children}{onClear && <button type="button" aria-label={`Сбросить: ${label}`} onClick={onClear}><X size={12} aria-hidden /></button>}</div></div>;
-}
 
 function CashShifts() {
   const [permissions, setPermissions] = useState<string[]>([]);
@@ -95,24 +92,24 @@ function CashShifts() {
   return <div className="crm-shifts">
     <div className="crm-shifts-toolbar">
       <div className="crm-chips" role="group" aria-label="Фильтры смен">
-        <Chip label="дата открытия">
+        <FilterChip label="дата открытия">
           <label className="crm-chip-dates"><span className="sr-only">С</span><input type="date" value={from} max={to} onChange={event => change(() => setFrom(event.target.value))} /></label>
           <span aria-hidden>—</span>
           <label className="crm-chip-dates"><span className="sr-only">По</span><input type="date" value={to} min={from} onChange={event => change(() => setTo(event.target.value))} /></label>
           <span className="sr-only">{from && chipDate.format(new Date(from))} — {to && chipDate.format(new Date(to))}</span>
-        </Chip>
-        <Chip label="кассир" onClear={employeeId ? () => change(() => setEmployeeId('')) : undefined}>
+        </FilterChip>
+        <FilterChip label="кассир" onClear={employeeId ? () => change(() => setEmployeeId('')) : undefined}>
           <select aria-label="Кассир" value={employeeId} onChange={event => change(() => setEmployeeId(event.target.value))}><option value="">введите</option>{journal?.filters.cashiers.map(cashier => <option key={cashier.id} value={cashier.id}>{cashier.name}</option>)}</select>
-        </Chip>
-        <Chip label="магазин" onClear={storeId ? () => change(() => { setStoreId(''); setDeviceId(''); }) : undefined}>
+        </FilterChip>
+        <FilterChip label="магазин" onClear={storeId ? () => change(() => { setStoreId(''); setDeviceId(''); }) : undefined}>
           <select aria-label="Магазин" value={storeId} onChange={event => change(() => { setStoreId(event.target.value); setDeviceId(''); })}><option value="">введите</option>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>
-        </Chip>
-        <Chip label="касса" onClear={deviceId ? () => change(() => setDeviceId('')) : undefined}>
+        </FilterChip>
+        <FilterChip label="касса" onClear={deviceId ? () => change(() => setDeviceId('')) : undefined}>
           <select aria-label="Касса" value={deviceId} onChange={event => change(() => setDeviceId(event.target.value))}><option value="">введите</option>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>Касса {shortDeviceCode(device.deviceId)}</option>)}</select>
-        </Chip>
-        <Chip label="статус" onClear={status ? () => change(() => setStatus('')) : undefined}>
+        </FilterChip>
+        <FilterChip label="статус" onClear={status ? () => change(() => setStatus('')) : undefined}>
           <select aria-label="Статус" value={status} onChange={event => change(() => setStatus(event.target.value))}><option value="">все</option><option value="OPEN">открытые</option><option value="CLOSED">закрытые</option></select>
-        </Chip>
+        </FilterChip>
       </div>
       <div className="crm-shifts-tools">
         {can('finance.cash') && <button type="button" className="crm-primary-button" onClick={() => setOpening(true)}><Plus size={14} aria-hidden /> Открыть смену</button>}

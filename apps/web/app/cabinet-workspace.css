@@ -337,3 +337,34 @@
   .crm-shift-tabs { justify-content: stretch; }
   .crm-shift-tabs button { flex: 1; padding: 10px 6px; }
 }
+
+/* Document journal and document card (CloudShop "Движение товара"). */
+.crm-chip.is-wide { min-width: 260px; }
+.crm-main .crm-chip.crm-chip.crm-chip .crm-chip-value input[type="search"] { width: 240px; }
+.crm-journal-table .crm-journal-day th { height: 38px; padding: 14px 9px 4px; font-size: 18px; font-weight: 400; text-transform: none; color: var(--ks-color-ink); background: var(--ks-color-canvas); vertical-align: bottom; }
+.crm-journal-table tbody tr:not(.crm-journal-day) td:first-child { border-left: 3px solid var(--ks-color-success); text-align: center; width: 56px; }
+.crm-journal-table tbody tr.is-out td:first-child { border-left-color: var(--ks-color-danger); }
+.crm-journal-table .is-done { color: var(--ks-color-success); }
+.crm-journal-table .is-cancelled, .crm-doc-status.is-cancelled { color: var(--ks-color-danger); }
+.crm-journal-table .is-pending, .crm-doc-status.is-pending { color: #b7791f; }
+.crm-journal-table .is-draft { color: var(--ks-color-text-muted); }
+.crm-doc-card { display: grid; gap: 6px; font-size: 13px; }
+.crm-doc-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: -8px; }
+.crm-doc-created { font-size: 12px; color: var(--ks-color-text-muted); }
+.crm-doc-status { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 3px; font-size: 12px; font-weight: 600; background: var(--ks-color-canvas); }
+.crm-doc-status.is-done { color: var(--ks-color-success); }
+.crm-doc-actions { display: inline-flex; gap: 8px; margin-left: auto; }
+.crm-doc-actions a { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.crm-doc-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-top: 10px; }
+.crm-doc-fields dl { margin: 0; display: grid; gap: 6px; align-content: start; }
+.crm-doc-fields dl > div { display: grid; grid-template-columns: 110px 1fr; gap: 10px; }
+.crm-doc-fields dt { color: var(--ks-color-text-muted); font-size: 12px; }
+.crm-doc-fields dd { margin: 0; font-weight: 500; }
+.crm-doc-search { display: block; max-width: 300px; margin-bottom: 8px; }
+.crm-main .crm-doc-search.crm-doc-search input { width: 100%; height: 34px; min-height: 34px; padding: 0 10px; border: 1px solid var(--ks-color-border); border-radius: 3px; font-size: 13px; }
+.crm-doc-comment { margin: 10px 0 0; color: var(--ks-color-text-muted); }
+.crm-doc-related { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.crm-doc-related li { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; }
+.crm-doc-related span { color: var(--ks-color-text-muted); font-size: 12px; }
+@media print { .crm-sidebar, .crm-topbar, .crm-shifts, .crm-document-drawer-head button, .crm-doc-actions, .crm-doc-search { display: none !important; } .crm-document-drawer { position: static; width: auto; box-shadow: none; } }
+@media (max-width: 760px) { .crm-doc-fields { grid-template-columns: 1fr; gap: 6px; } .crm-chip.is-wide, .crm-main .crm-chip.crm-chip.crm-chip .crm-chip-value input[type="search"] { min-width: 0; width: 100%; } }
