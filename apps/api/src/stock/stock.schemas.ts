@@ -29,6 +29,12 @@ export const writeOffSchema = z.object({
   comment: z.string().trim().min(3).max(1000),
 });
 
+export const writeOffDocumentSchema = z.object({
+  operationId: z.string().uuid(),
+  comment: z.string().trim().min(3).max(1000),
+  items: z.array(z.object({ productId: z.string().uuid(), quantity: z.number().int().min(1).max(2_147_483_647) })).min(1).max(500),
+});
+
 export function parseStockInput<T>(schema: z.ZodType<T>, input: unknown): T {
   const result = schema.safeParse(input);
   if (!result.success) throw new BadRequestException(result.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`));

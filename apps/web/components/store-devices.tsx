@@ -25,7 +25,7 @@ export function StoreDevices({ devices, busy, canUnbind, onUnbind, unbindError, 
   const pos = devices.filter(device => deviceKind(device.deviceId) === 'pos');
   const web = devices.filter(device => deviceKind(device.deviceId) === 'web');
   const other = devices.filter(device => deviceKind(device.deviceId) === 'other');
-  const rows = (items: StoreDevice[]) => items.map(device => <DeviceRow key={device.deviceId} device={device} busy={busy} canUnbind={canUnbind} onUnbind={onUnbind} error={unbindError?.deviceId === device.deviceId ? unbindError : undefined} shiftsHref={canViewShifts ? `/finance?storeId=${encodeURIComponent(storeId)}#cash-shifts` : undefined} />);
+  const rows = (items: StoreDevice[]) => items.map(device => <DeviceRow key={device.deviceId} device={device} busy={busy} canUnbind={canUnbind} onUnbind={onUnbind} error={unbindError?.deviceId === device.deviceId ? unbindError : undefined} shiftsHref={canViewShifts ? `/cash-shifts?storeId=${encodeURIComponent(storeId)}` : undefined} />);
   return <section className="crm-panel p-6" aria-label="Кассы и подключения личного кабинета">
     <h3 className="font-semibold">Кассы и личный кабинет</h3>
     <div className="crm-device-group"><h4><Monitor size={18} aria-hidden />Кассы POS <span>{pos.length}</span></h4><p>Установленная программа для продаж на Windows. Здесь показаны кассы, привязанные к этому магазину.</p>{pos.length ? rows(pos) : <p className="crm-device-empty">Кассы POS пока не подключены. Установите программу и войдите в магазин.</p>}</div>

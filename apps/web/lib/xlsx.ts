@@ -33,3 +33,24 @@ export async function writeXlsx(rows: string[][]): Promise<ArrayBuffer> {
   [20, 38, 24, 24, 26, 18, 16, 45].forEach((width, index) => { sheet.getColumn(index + 1).width = width; });
   return workbook.xlsx.writeBuffer();
 }
+
+export type SheetCell = string | number | null;
+/** Generic table export: bold header, frozen first row, autofilter and numeric cells kept as numbers. */
+export async function writeTableXlsx(sheetName: string, header: string[], rows: SheetCell[][], numberFormats: (string | null)[] = []): Promise<ArrayBuffer> {
+  const ExcelJS = (await import('exceljs')).default;
+  const workbook = new ExcelJS.Workbook();
+  const sheet = workbook.addWorksheet(sheetName.replace(/[\\/?*[\]:]/g, ' ').slice(0, 31) || 'Отчёт');
+  sheet.addRow(header);
+  for (const row of rows) sheet.addRow(row);
+  sheet.getRow(1).font = { bold: true };
+  sheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFEFF0' } };
+  sheet.views = [{ state: 'frozen', ySplit: 1 }];
+  sheet.autoFilter = { from: { row: 1, column: 1 }, to: { row: Math.max(1, rows.length + 1), column: Math.max(1, header.length) } };
+  header.forEach((title, index) => {
+    const column = sheet.getColumn(index + 1);
+    column.width = Math.min(48, Math.max(12, title.length + 4, ...rows.slice(0, 200).map(row => String(row[index] ?? '').length + 2)));
+    const format = numberFormats[index];
+    if (format) column.numFmt = format;
+  });
+  return workbook.xlsx.writeBuffer();
+}

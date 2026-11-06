@@ -4,12 +4,13 @@ import { Prisma, StockMovementType } from '@prisma/client';
 import type { z } from 'zod';
 import { DatabaseService } from '../database.service';
 import type { AccessContext } from '../auth/policy';
-import { adjustmentSchema, movementListSchema, stockListSchema, writeOffSchema } from './stock.schemas';
+import { adjustmentSchema, movementListSchema, stockListSchema, writeOffDocumentSchema, writeOffSchema } from './stock.schemas';
 
 type StockList = z.infer<typeof stockListSchema>;
 type MovementList = z.infer<typeof movementListSchema>;
 type Adjustment = z.infer<typeof adjustmentSchema>;
 type WriteOff = z.infer<typeof writeOffSchema>;
+type WriteOffDocument = z.infer<typeof writeOffDocumentSchema>;
 
 const inbound = new Set<StockMovementType>(['PURCHASE', 'RETURN', 'TRANSFER_IN']);
 const outbound = new Set<StockMovementType>(['SALE', 'TRANSFER_OUT', 'WRITE_OFF', 'SUPPLIER_RETURN']);
@@ -98,6 +99,58 @@ export class StockService {
 
   async writeOff(storeId: string, input: WriteOff, actorId: string) {
     return this.applyMovement({ storeId, productId: input.productId, type: 'WRITE_OFF', delta: -input.quantity, sourceType: 'MANUAL_WRITE_OFF', sourceId: input.operationId, actorId, comment: input.comment });
+  }
+
+  /**
+   * Several lines written off as one document (CloudShop "Списание"): every line shares the operation id as its source,
+   * all lines succeed or none do, and a replay with the same lines returns the stored movements.
+   */
+  async writeOffDocument(storeId: string, input: WriteOffDocument, actorId: string) {
+    return this.lineDocument(storeId, input, actorId, 'WRITE_OFF');
+  }
+
+  /** CloudShop "Оприходование": stock found or received without a purchase, several lines as one document. */
+  async receiveDocument(storeId: string, input: WriteOffDocument, actorId: string) {
+    return this.lineDocument(storeId, input, actorId, 'RECEIVE');
+  }
+
+  private async lineDocument(storeId: string, input: WriteOffDocument, actorId: string, kind: 'WRITE_OFF' | 'RECEIVE') {
+    const sourceType = kind === 'WRITE_OFF' ? 'MANUAL_WRITE_OFF' : 'MANUAL_RECEIVE';
+    const type: StockMovementType = kind === 'WRITE_OFF' ? 'WRITE_OFF' : 'CORRECTION';
+    const sign = kind === 'WRITE_OFF' ? -1 : 1;
+    await this.requireStore(storeId);
+    const lines = [...input.items.reduce((map, item) => map.set(item.productId, (map.get(item.productId) ?? 0) + item.quantity), new Map<string, number>())];
+    const products = await this.db.product.findMany({ where: { id: { in: lines.map(([productId]) => productId) }, deletedAt: null }, select: { id: true } });
+    if (products.length !== lines.length) throw new NotFoundException('Product not found');
+    const run = (tx: Prisma.TransactionClient) => (async () => {
+      const existing = await tx.stockMovement.findMany({ where: { sourceType, sourceId: input.operationId } });
+      if (existing.length) {
+        const same = existing.length === lines.length && existing.every(movement => movement.storeId === storeId && movement.comment === input.comment && lines.some(([productId, quantity]) => productId === movement.productId && sign * quantity === movement.quantity));
+        if (!same) throw new ConflictException('Movement source already used with different details');
+        return existing;
+      }
+      const movements = [];
+      for (const [productId, quantity] of lines) {
+        let stock = await tx.stock.findUnique({ where: { storeId_productId: { storeId, productId } } });
+        if (!stock) stock = await tx.stock.create({ data: { storeId, productId } });
+        if (kind === 'WRITE_OFF' && quantity > stock.quantity - stock.reservedQuantity) throw new ConflictException('Insufficient available stock for write-off');
+        const next = nextQuantity(stock.quantity, sign * quantity, type);
+        await tx.stock.update({ where: { storeId_productId: { storeId, productId } }, data: { quantity: next } });
+        const movement = await tx.stockMovement.create({ data: { storeId, productId, type, sourceType, sourceId: input.operationId, quantity: sign * quantity, previousQuantity: stock.quantity, newQuantity: next, employeeId: actorId, comment: input.comment } });
+        await tx.auditLog.create({ data: { userId: actorId, action: 'STOCK_CHANGED', entityType: 'Stock', entityId: `${storeId}:${productId}`, oldValue: { quantity: stock.quantity }, newValue: { quantity: next, movementId: movement.id, sourceType, sourceId: input.operationId } } });
+        movements.push(movement);
+      }
+      return movements;
+    })();
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await this.db.$transaction(run, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === 'P2034' || error.code === 'P2002') && attempt < 2) continue;
+        throw error;
+      }
+    }
+    throw new ConflictException('Could not update stock');
   }
 
   async applyMovement(input: MovementInput) {

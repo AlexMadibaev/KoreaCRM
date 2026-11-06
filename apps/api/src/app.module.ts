@@ -34,6 +34,14 @@ import { StoreManagementController } from './stores/stores.controller';
 import { StoresService } from './stores/stores.service';
 import { AuditController } from './audit/audit.controller';
 import { AuditService } from './audit/audit.service';
+import { ReportsController } from './reports/reports.controller';
+import { CashShiftsController } from './finance/cash-shifts.controller';
+import { CashShiftsService } from './finance/cash-shifts.service';
+import { MoneyService } from './finance/money.service';
+import { ProductsOverviewController, ProductsOverviewService } from './catalog/products-overview';
+import { DocumentsController } from './documents/documents.controller';
+import { DocumentsService } from './documents/documents.service';
+import { ReportsService } from './reports/reports.service';
 
 @Controller('health')
 class HealthController {
@@ -48,7 +56,7 @@ if (!jwtSecret || jwtSecret.length < 32) throw new Error('JWT_SECRET must have a
 
 @Module({
   imports: [JwtModule.register({ secret: jwtSecret })],
-  controllers: [LoyaltyController, HealthController, AuthController, AuditController, BrandController, CategoryController, ProductController, PosProductsController, ProductImagesController, ProductImageFilesController, StoreProductSettingsController, StoresController, StoreManagementController, StockController, SuppliersController, PurchasesController, InventoryController, TransfersController, ExpenseCategoriesController, FinanceSummaryController, StoreFinanceController, CustomersController, CustomerPaymentsController, SalesController, SalePaymentMethodsController, PosDevicesController, EmployeesController, RolesController, NotificationsController],
-  providers: [LoyaltyService, StoresService, AuditService, DatabaseService, AuthService, AccessGuard, StoreScopeGuard, CatalogService, ProductImagesService, StockService, PurchasesService, InventoryService, TransfersService, FinanceService, CustomersService, SalesService, PosDevicesService, EmployeesService, NotificationsService],
+  controllers: [LoyaltyController, HealthController, AuthController, AuditController, BrandController, CategoryController, ProductController, PosProductsController, ProductImagesController, ProductImageFilesController, StoreProductSettingsController, StoresController, StoreManagementController, StockController, SuppliersController, PurchasesController, InventoryController, TransfersController, ExpenseCategoriesController, FinanceSummaryController, StoreFinanceController, CustomersController, CustomerPaymentsController, SalesController, SalePaymentMethodsController, PosDevicesController, EmployeesController, RolesController, NotificationsController, ReportsController, CashShiftsController, DocumentsController, ProductsOverviewController],
+  providers: [LoyaltyService, StoresService, AuditService, DatabaseService, AuthService, AccessGuard, StoreScopeGuard, CatalogService, ProductImagesService, StockService, PurchasesService, InventoryService, TransfersService, FinanceService, CustomersService, SalesService, PosDevicesService, EmployeesService, NotificationsService, ReportsService, CashShiftsService, DocumentsService, MoneyService, ProductsOverviewService],
 })
 export class AppModule {}
