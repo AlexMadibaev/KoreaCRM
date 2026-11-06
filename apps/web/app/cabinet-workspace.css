@@ -377,3 +377,9 @@
 .crm-register-open { display: inline-flex; align-items: center; gap: 4px; color: var(--ks-color-success); }
 .crm-muted { display: inline-flex; align-items: center; gap: 4px; color: var(--ks-color-text-muted); }
 .crm-shifts-table a.crm-link-button { text-decoration: none; }
+.crm-list-total { font-size: 13px; color: var(--ks-color-text-muted); white-space: nowrap; }
+.crm-cell-clip { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.crm-customers-list { display: grid; gap: 12px; }
+.crm-customers-toolbar .crm-shifts-tools { flex-wrap: wrap; }
+.crm-shifts-table td a[href^="tel:"] { color: inherit; }
+.crm-main .crm-document-drawer.crm-document-drawer.crm-document-drawer .crm-supplier-form :is(input, select) { width: 100%; }
