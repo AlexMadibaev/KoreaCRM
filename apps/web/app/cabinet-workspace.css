@@ -399,3 +399,17 @@
 .crm-account-store li strong { font-variant-numeric: tabular-nums; white-space: nowrap; }
 .crm-account-empty { margin: 0; padding: 14px 16px; color: var(--ks-color-text-muted); font-size: 13px; }
 @media (max-width: 760px) { .crm-account-store li { grid-template-columns: 1fr auto; } .crm-account-meta { grid-column: 1 / -1; grid-row: 2; } }
+.crm-products-wide .sticky-name { position: sticky; left: 0; z-index: 1; min-width: 220px; max-width: 320px; white-space: normal; box-shadow: 1px 0 0 var(--ks-color-border); }
+.crm-products-wide td.sticky-name { padding-top: 6px; padding-bottom: 6px; }
+.crm-products-wide .crm-stock-zero { color: var(--ks-color-danger); }
+.crm-products-wide a:not(.crm-link-button) { color: var(--ks-color-brand-strong); }
+.crm-products-overview .crm-shifts-tools a { display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+@media (max-width: 760px) {
+  .crm-shifts-tools { flex-wrap: wrap; width: 100%; }
+  .crm-shifts-tools > a, .crm-shifts-tools > button:not(.crm-icon-button) { flex: 1 1 auto; justify-content: center; }
+  .crm-columns-popover { right: auto; left: 0; }
+}
+/* Long column titles wrap inside their own cell and never cross into the neighbour. */
+.crm-shifts-table th { overflow-wrap: anywhere; word-break: normal; hyphens: auto; }
+.crm-shifts-table th, .crm-shifts-table td { overflow: hidden; }
+.crm-shifts-table td.sticky-number, .crm-shifts-table td.sticky-status, .crm-shifts-table td.sticky-name { overflow: visible; }

@@ -1,81 +1,134 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
-import { formatCurrencyMinor } from '@koreacrm/ui';
+import { Plus, Settings2, Upload } from 'lucide-react';
 import { CategoryAutoAssign } from '../../components/category-auto-assign';
-import { api, productImageUrl, queryString, type Brand, type Category, type Page, type Product } from '../../lib/api';
+import { FilterChip } from '../../components/filter-chip';
+import { amount } from '../../components/shift-card';
+import { api, queryString, type Brand, type Category, type Page } from '../../lib/api';
 
 type Store = { id: string; name: string };
-type Settings = { priceMinor: number | null } | null;
+type Row = {
+  id: string; name: string; sku: string; unit: string; country: string | null; status: string; brand: string | null; category: string | null; barcode: string | null;
+  createdAt: string; supplier: string | null; priceMinor: string | null; minStock: number | null; costMinor: string | null; purchasePriceMinor: string | null;
+  marginPercent: string | null; markupPercent: string | null; stock: Record<string, number>;
+};
+type Overview = { stores: Store[]; priceStoreId: string | null; canSeeCost: boolean; total: number; page: number; limit: number; items: Row[] };
+const columnLabels = {
+  barcode: 'Штрих-код', sku: 'Артикул', unit: 'Ед. изм.', category: 'Категория', brand: 'Бренд', country: 'Страна', supplier: 'Поставщик',
+  priceMinor: 'Цена продажи', costMinor: 'Себестоимость', purchasePriceMinor: 'Цена закупки', marginPercent: 'Маржинальность', markupPercent: 'Наценка',
+  createdAt: 'Создан', minStock: 'Мин. ост.', status: 'Статус',
+} as const;
+type ColumnKey = keyof typeof columnLabels;
+const allColumns = Object.keys(columnLabels) as ColumnKey[];
+const costColumns = new Set<ColumnKey>(['costMinor', 'purchasePriceMinor', 'marginPercent', 'markupPercent']);
+const numeric = new Set<ColumnKey>(['priceMinor', 'costMinor', 'purchasePriceMinor', 'marginPercent', 'markupPercent', 'minStock']);
+const unitTitle: Record<string, string> = { pcs: 'шт.', kg: 'кг', g: 'г', l: 'л', ml: 'мл', m: 'м' };
+const created = new Intl.DateTimeFormat('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Dushanbe' });
+const COLUMNS_KEY = 'koreacrm.products.columns';
+const PAGE_SIZE = 50;
 
+function cell(row: Row, key: ColumnKey) {
+  switch (key) {
+    case 'priceMinor': case 'costMinor': case 'purchasePriceMinor': return row[key] === null ? '—' : amount(row[key]);
+    case 'marginPercent': case 'markupPercent': return row[key] === null ? '—' : `${row[key]!.replace('.', ',')} %`;
+    case 'createdAt': return created.format(new Date(row.createdAt));
+    case 'unit': return unitTitle[row.unit] ?? row.unit;
+    case 'status': return <span className={`crm-status-pill ${row.status === 'ACTIVE' ? 'on' : 'off'}`}>{row.status === 'ACTIVE' ? 'Активен' : 'Неактивен'}</span>;
+    case 'minStock': return row.minStock ?? '—';
+    default: return row[key] ?? '';
+  }
+}
+
+/** Product list laid out like CloudShop "Товары и услуги": wide configurable table with prices, cost and stock per store. */
 export default function ProductsPage() {
-  const [items, setItems] = useState<Product[]>([]);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
   const [storeId, setStoreId] = useState('');
-  const [prices, setPrices] = useState<Record<string, number | null>>({});
-  const [pricesLoading, setPricesLoading] = useState(false);
-  const [priceError, setPriceError] = useState('');
   const [search, setSearch] = useState('');
   const [appliedSearch, setAppliedSearch] = useState('');
   const [brandId, setBrandId] = useState('');
   const [categoryId, setCategoryId] = useState('');
+  const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
+  const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  useEffect(() => {
-    const timer = window.setTimeout(() => setAppliedSearch(search), 300);
-    return () => window.clearTimeout(timer);
-  }, [search]);
+  const [hidden, setHidden] = useState<ColumnKey[]>(['country', 'unit', 'createdAt']);
+  const [columnsOpen, setColumnsOpen] = useState(false);
   const [filtersRevision, setFiltersRevision] = useState(0);
+  const version = useRef(0);
+
+  useEffect(() => { const timer = window.setTimeout(() => { setAppliedSearch(search.trim()); setPage(1); }, 300); return () => window.clearTimeout(timer); }, [search]);
+  useEffect(() => {
+    try { const saved = JSON.parse(window.localStorage.getItem(COLUMNS_KEY) ?? 'null'); if (Array.isArray(saved)) setHidden(saved.filter((key): key is ColumnKey => allColumns.includes(key))); } catch { /* per-viewer setting */ }
+    api<Store[]>('/stores').then(setStores).catch(() => setStores([]));
+  }, []);
   useEffect(() => {
     Promise.all([api<Page<Brand>>('/brands?limit=100'), api<Page<Category>>('/categories?limit=100')])
       .then(([brandPage, categoryPage]) => { setBrands(brandPage.items); setCategories(categoryPage.items); })
       .catch(caught => setError(caught instanceof Error ? caught.message : 'Не удалось загрузить фильтры'));
   }, [filtersRevision]);
-  useEffect(() => {
-    api<Store[]>('/stores').then(available => { setStores(available); setStoreId(available[0]?.id ?? ''); })
-      .catch(caught => setPriceError(caught instanceof Error ? caught.message : 'Не удалось загрузить магазины'));
-  }, []);
   const load = useCallback(async () => {
+    const current = ++version.current;
     setLoading(true); setError('');
     try {
-      const result = await api<Page<Product>>(`/products?${queryString({ page, limit: 20, search: appliedSearch, brandId, categoryId })}`);
-      setItems(result.items); setTotal(result.total);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось загрузить товары'); }
-    finally { setLoading(false); }
-  }, [page, appliedSearch, brandId, categoryId]);
+      const result = await api<Overview>(`/products-overview?${queryString({ page, limit: PAGE_SIZE, search: appliedSearch, brandId, categoryId, status, storeId })}`);
+      if (current === version.current) setData(result);
+    } catch (caught) { if (current === version.current) setError(caught instanceof Error ? caught.message : 'Не удалось загрузить товары'); }
+    finally { if (current === version.current) setLoading(false); }
+  }, [page, appliedSearch, brandId, categoryId, status, storeId]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => {
-    setPrices({}); setPriceError('');
-    if (!storeId || !items.length) return;
-    let active = true;
-    setPricesLoading(true);
-    Promise.allSettled(items.map(item => api<Settings>(`/stores/${storeId}/products/${item.id}/settings`)))
-      .then(results => {
-        if (!active) return;
-        const next: Record<string, number | null> = {};
-        results.forEach((result, index) => { if (result.status === 'fulfilled') next[items[index]!.id] = result.value?.priceMinor ?? null; });
-        setPrices(next);
-        if (results.some(result => result.status === 'rejected')) setPriceError('Не удалось загрузить часть цен. Обновите страницу.');
-      })
-      .finally(() => { if (active) setPricesLoading(false); });
-    return () => { active = false; };
-  }, [items, storeId]);
-  const filtered = Boolean(search || brandId || categoryId);
-  return <section className="crm-products-page">
-    <div className="crm-page-head"><div><span className="crm-eyebrow">АССОРТИМЕНТ</span><h1>Товары</h1><p>Управляйте каталогом и находите нужные позиции.</p></div><div className="crm-import-actions"><Link className="crm-outline-button" href="/products/import">Импорт / экспорт</Link><Link className="crm-primary-button" href="/products/new">＋ Добавить товар</Link></div></div>
+
+  const toggleColumn = (key: ColumnKey) => setHidden(current => {
+    const next = current.includes(key) ? current.filter(item => item !== key) : [...current, key];
+    try { window.localStorage.setItem(COLUMNS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
+    return next;
+  });
+  const visible = allColumns.filter(key => !hidden.includes(key) && (!costColumns.has(key) || data?.canSeeCost));
+  const change = (apply: () => void) => { apply(); setPage(1); };
+  const filtered = Boolean(search || brandId || categoryId || status);
+  const pages = data ? Math.max(1, Math.ceil(data.total / data.limit)) : 1;
+
+  return <section className="crm-shifts crm-products-overview">
+    <div className="crm-shifts-toolbar">
+      <div className="crm-chips" role="group" aria-label="Фильтры товаров">
+        <FilterChip label="поиск" wide onClear={search ? () => setSearch('') : undefined}><input type="search" aria-label="Поиск товаров" enterKeyHint="search" autoComplete="off" placeholder="наименование, артикул или штрихкод" value={search} onChange={event => setSearch(event.target.value)} /></FilterChip>
+        <FilterChip label="категория" onClear={categoryId ? () => change(() => setCategoryId('')) : undefined}><select aria-label="Категория" value={categoryId} onChange={event => change(() => setCategoryId(event.target.value))}><option value="">все</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></FilterChip>
+        <FilterChip label="бренд" onClear={brandId ? () => change(() => setBrandId('')) : undefined}><select aria-label="Бренд" value={brandId} onChange={event => change(() => setBrandId(event.target.value))}><option value="">все</option>{brands.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></FilterChip>
+        <FilterChip label="статус" onClear={status ? () => change(() => setStatus('')) : undefined}><select aria-label="Статус" value={status} onChange={event => change(() => setStatus(event.target.value))}><option value="">все</option><option value="ACTIVE">активные</option><option value="INACTIVE">неактивные</option></select></FilterChip>
+        <FilterChip label="цены магазина"><select aria-label="Магазин для цен" value={storeId || data?.priceStoreId || ''} onChange={event => setStoreId(event.target.value)} disabled={!stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></FilterChip>
+      </div>
+      <div className="crm-shifts-tools">
+        <span className="crm-list-total">{loading && !data ? 'Загрузка…' : `Загружено ${data?.items.length ?? 0} из ${data?.total ?? 0}`}</span>
+        <Link className="crm-outline-button" href="/products/import"><Upload size={14} aria-hidden /> Импорт товаров</Link>
+        <Link className="crm-primary-button" href="/products/new"><Plus size={14} aria-hidden /> Создать товар</Link>
+        <div className="crm-columns-menu">
+          <button type="button" className="crm-icon-button" aria-label="Настроить колонки" title="Настроить колонки" aria-expanded={columnsOpen} onClick={() => setColumnsOpen(value => !value)}><Settings2 size={18} aria-hidden /></button>
+          {columnsOpen && <div className="crm-columns-popover" role="group" aria-label="Колонки таблицы">{allColumns.filter(key => !costColumns.has(key) || data?.canSeeCost).map(key => <label key={key}><input type="checkbox" checked={!hidden.includes(key)} onChange={() => toggleColumn(key)} /> {columnLabels[key]}</label>)}</div>}
+        </div>
+      </div>
+    </div>
     <CategoryAutoAssign onApplied={() => { setFiltersRevision(value => value + 1); void load(); }} />
-    <div className="crm-products-toolbar"><div className="crm-products-search"><span aria-hidden="true">⌕</span><input aria-label="Поиск товаров" type="search" enterKeyHint="search" autoComplete="off" placeholder="Поиск по названию, артикулу или штрихкоду" value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} /></div><select aria-label="Фильтр по бренду" value={brandId} onChange={event => { setBrandId(event.target.value); setPage(1); }}><option value="">Все бренды</option>{brands.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><select aria-label="Фильтр по категории" value={categoryId} onChange={event => { setCategoryId(event.target.value); setPage(1); }}><option value="">Все категории</option>{categories.map(item => <option value={item.id} key={item.id}>{item.name}</option>)}</select><select aria-label="Магазин для цен" value={storeId} onChange={event => setStoreId(event.target.value)} disabled={!stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select>{filtered && <button className="crm-clear-filters" onClick={() => { setSearch(''); setBrandId(''); setCategoryId(''); setPage(1); }}>Сбросить</button>}</div>
-    {error && <div className="crm-alert" role="alert">{error}</div>}
-    {priceError && <div className="crm-alert" role="alert">{priceError}</div>}
-    <div className="crm-products-card"><div className="crm-products-card-head"><div><h2>Каталог товаров</h2><span>{loading ? 'Загрузка…' : `${total} позиций`}</span></div><Link href="/brands">Бренды →</Link></div>
-      <div className="crm-products-table-wrap"><table className="crm-products-table crm-mobile-cards"><thead><tr><th>Товар</th><th>Артикул</th><th>Бренд</th><th>Категория</th><th>Цена продажи</th><th>Статус</th><th><span className="sr-only">Открыть</span></th></tr></thead><tbody>{!loading && items.map(item => <tr key={item.id}><td><Link className="crm-product-name" href={`/products/${item.id}`}><span className="crm-product-thumbnail">{item.images[0] ? <img className="h-full w-full rounded-[10px] object-cover" src={productImageUrl(item.images[0].storageKey)} alt="" /> : '✦'}</span><span><strong>{item.name}</strong><small>{item.country || item.unit || 'Товар каталога'}</small></span></Link></td><td data-label="Артикул" className="crm-product-sku">{item.sku}</td><td data-label="Бренд">{item.brand?.name ?? '—'}</td><td data-label="Категория">{item.category?.name ?? '—'}</td><td data-label="Цена продажи">{!storeId ? 'Выберите магазин' : pricesLoading ? 'Загрузка…' : Object.hasOwn(prices, item.id) ? prices[item.id] === null ? <Link href={`/products/${item.id}`}>Указать цену</Link> : formatCurrencyMinor(String(prices[item.id])) : '—'}</td><td data-label="Статус"><span className={`crm-status-pill ${item.status === 'ACTIVE' ? 'on' : 'off'}`}>{item.status === 'ACTIVE' ? 'Активен' : 'Неактивен'}</span></td><td className="crm-product-open-cell"><Link className="crm-product-open" href={`/products/${item.id}`} aria-label={`Открыть ${item.name}`}>›</Link></td></tr>)}</tbody></table></div>
-      {loading && <div className="crm-products-empty">Загружаем товары…</div>}
-      {!loading && items.length === 0 && <div className="crm-products-empty"><span>⌕</span><strong>Товары не найдены</strong><p>{filtered ? 'Попробуйте изменить запрос или сбросить фильтры.' : 'Добавьте первый товар в каталог.'}</p>{filtered && <button onClick={() => { setSearch(''); setBrandId(''); setCategoryId(''); setPage(1); }}>Сбросить фильтры</button>}</div>}
-      <div className="crm-products-footer"><span>{total === 0 ? 'Нет записей' : `${(page - 1) * 20 + 1}–${Math.min(page * 20, total)} из ${total}`}</span><div><button disabled={page === 1 || loading} onClick={() => setPage(value => value - 1)}>← Назад</button><span>Страница {page}</span><button disabled={page * 20 >= total || loading} onClick={() => setPage(value => value + 1)}>Далее →</button></div></div></div>
+    {error && <p className="crm-alert" role="alert">{error}</p>}
+    <div className="crm-shifts-table-wrap" aria-busy={loading}>
+      <table className="crm-shifts-table crm-products-wide">
+        <thead><tr>
+          <th scope="col" className="sticky-name">Наименование</th>
+          {visible.map(key => <th key={key} scope="col" className={numeric.has(key) ? 'num' : ''}>{columnLabels[key]}</th>)}
+          {data?.stores.map(store => <th key={store.id} scope="col" className="num">{store.name} остатки</th>)}
+        </tr></thead>
+        <tbody>{data?.items.map(row => <tr key={row.id}>
+          <td className="sticky-name"><Link className="crm-link-button" href={`/products/${row.id}`}>{row.name}</Link></td>
+          {visible.map(key => <td key={key} className={numeric.has(key) ? 'num' : ''}>{key === 'priceMinor' && row.priceMinor === null ? <Link href={`/products/${row.id}`}>Указать цену</Link> : cell(row, key)}</td>)}
+          {data.stores.map(store => { const quantity = row.stock[store.id]; return <td key={store.id} className={`num${quantity !== undefined && quantity <= 0 ? ' crm-stock-zero' : ''}`}>{quantity ?? 0}</td>; })}
+        </tr>)}</tbody>
+      </table>
+      {loading && !data && <p role="status" className="crm-shifts-empty">Загружаем товары…</p>}
+      {data && !data.items.length && !loading && <div className="crm-shifts-empty"><strong>Товары не найдены</strong><p>{filtered ? 'Измените запрос или сбросьте фильтры.' : 'Создайте первый товар или импортируйте каталог.'}</p>{filtered && <button type="button" className="crm-outline-button" onClick={() => { setSearch(''); setBrandId(''); setCategoryId(''); setStatus(''); setPage(1); }}>Сбросить фильтры</button>}</div>}
+    </div>
+    {data && data.total > data.limit && <div className="crm-shifts-pages"><span>Страницы</span><button type="button" className="crm-outline-button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Назад</button><span>{page} / {pages}</span><button type="button" className="crm-outline-button" disabled={page >= pages || loading} onClick={() => setPage(value => value + 1)}>Вперёд</button></div>}
   </section>;
 }
