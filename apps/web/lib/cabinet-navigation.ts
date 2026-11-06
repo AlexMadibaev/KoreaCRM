@@ -21,6 +21,7 @@ export const cabinetGroups: CabinetGroup[] = [
     { href: '/inventories', label: 'Инвентаризации', permission: 'inventory.view' },
   ] },
   { title: 'Движение денег', icon: 'money', links: [
+    { href: '/money', label: 'Все операции', permission: 'finance.view' },
     { href: '/finance', label: 'Финансы и расходы', permission: 'finance.view' },
     { href: '/finance/categories', label: 'Категории расходов', permission: 'finance.view' },
   ] },

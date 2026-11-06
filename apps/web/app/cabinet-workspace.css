@@ -368,3 +368,7 @@
 .crm-doc-related span { color: var(--ks-color-text-muted); font-size: 12px; }
 @media print { .crm-sidebar, .crm-topbar, .crm-shifts, .crm-document-drawer-head button, .crm-doc-actions, .crm-doc-search { display: none !important; } .crm-document-drawer { position: static; width: auto; box-shadow: none; } }
 @media (max-width: 760px) { .crm-doc-fields { grid-template-columns: 1fr; gap: 6px; } .crm-chip.is-wide, .crm-main .crm-chip.crm-chip.crm-chip .crm-chip-value input[type="search"] { min-width: 0; width: 100%; } }
+.crm-money-totals { display: flex; flex-wrap: wrap; gap: 24px; font-size: 13px; color: var(--ks-color-text-muted); }
+.crm-money-totals strong { color: var(--ks-color-ink); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.crm-money-in { color: var(--ks-color-success); font-weight: 700; }
+.crm-money-out { color: var(--ks-color-danger); font-weight: 700; }
