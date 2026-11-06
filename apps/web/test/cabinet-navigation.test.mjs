@@ -4,7 +4,7 @@ import { cabinetGroups, cabinetLinkActive, createLinks, visibleCabinetLinks } fr
 
 test('cash-view-only employee can reach shifts without finance report permission', () => {
   const groups = cabinetGroups.flatMap(group => visibleCabinetLinks(group.links, ['finance.cash_view'], 'CASHIER'));
-  assert.deepEqual(groups.map(link => link.href), ['/cash-shifts']);
+  assert.deepEqual(groups.map(link => link.href), ['/cash-shifts', '/registers']);
 });
 
 test('company audit link is restricted to the superuser role', () => {

@@ -372,3 +372,8 @@
 .crm-money-totals strong { color: var(--ks-color-ink); margin-left: 4px; font-variant-numeric: tabular-nums; }
 .crm-money-in { color: var(--ks-color-success); font-weight: 700; }
 .crm-money-out { color: var(--ks-color-danger); font-weight: 700; }
+.crm-registers-total { align-self: center; font-size: 14px; color: var(--ks-color-text-muted); }
+.crm-registers-total strong { margin-left: 6px; font-size: 18px; color: var(--ks-color-ink); }
+.crm-register-open { display: inline-flex; align-items: center; gap: 4px; color: var(--ks-color-success); }
+.crm-muted { display: inline-flex; align-items: center; gap: 4px; color: var(--ks-color-text-muted); }
+.crm-shifts-table a.crm-link-button { text-decoration: none; }

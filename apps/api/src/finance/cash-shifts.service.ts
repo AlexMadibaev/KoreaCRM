@@ -97,6 +97,35 @@ export class CashShiftsService {
     };
   }
 
+  /** Registers (cash desks) with their current drawer balance, like CloudShop "Кассы". */
+  async registers(access: AccessContext) {
+    const storeIds = await this.storeIds(access);
+    if (!storeIds.length) return { items: [], totalBalanceMinor: '0' };
+    const scope = (column: string) => sql`${Prisma.raw(column)} IN (${Prisma.join(storeIds.map(id => sql`${id}::uuid`))})`;
+    const rows = await this.db.$queryRaw<Record<string, unknown>[]>`
+      WITH devices AS (
+        SELECT d."deviceId", d."storeId", d.status::text AS status, d."appVersion", d."lastActivityAt", d."createdAt" FROM "PosDevice" d WHERE ${scope('d."storeId"')}
+        UNION
+        SELECT cs."deviceId", cs."storeId", 'ACTIVE', NULL, MAX(cs."openedAt"), MIN(cs."openedAt") FROM "CashShift" cs
+        WHERE ${scope('cs."storeId"')} AND NOT EXISTS (SELECT 1 FROM "PosDevice" d WHERE d."deviceId" = cs."deviceId")
+        GROUP BY cs."deviceId", cs."storeId"
+      )
+      SELECT d.*, st.name AS store,
+             (SELECT CASE WHEN x.status = 'OPEN' THEN x."expectedCashMinor" ELSE COALESCE(x."closingCashMinor", 0) END FROM "CashShift" x WHERE x."deviceId" = d."deviceId" AND x."storeId" = d."storeId" ORDER BY x."openedAt" DESC LIMIT 1) AS balance,
+             EXISTS (SELECT 1 FROM "CashShift" x WHERE x."deviceId" = d."deviceId" AND x."storeId" = d."storeId" AND x.status = 'OPEN') AS "hasOpenShift",
+             (SELECT string_agg(DISTINCT u.name, ', ') FROM "CashShift" x JOIN "User" u ON u.id = x."openedById" WHERE x."deviceId" = d."deviceId" AND x."storeId" = d."storeId") AS cashiers,
+             (SELECT COUNT(*)::int FROM "CashShift" x WHERE x."deviceId" = d."deviceId" AND x."storeId" = d."storeId") AS shifts
+      FROM devices d JOIN "Store" st ON st.id = d."storeId"
+      ORDER BY st.name, d."createdAt"`;
+    const items = rows.map(row => ({
+      deviceId: row.deviceId, storeId: row.storeId, store: row.store, status: row.status, appVersion: row.appVersion,
+      lastActivityAt: row.lastActivityAt instanceof Date ? row.lastActivityAt.toISOString() : row.lastActivityAt,
+      createdAt: row.createdAt instanceof Date ? row.createdAt.toISOString() : row.createdAt,
+      balanceMinor: text(row.balance) ?? '0', hasOpenShift: Boolean(row.hasOpenShift), cashiers: row.cashiers ?? '', shifts: Number(row.shifts ?? 0),
+    }));
+    return { items, totalBalanceMinor: items.reduce((total, item) => total + BigInt(item.balanceMinor), 0n).toString() };
+  }
+
   /** Documents, money movements and products of one shift for the shift card tabs. */
   async activity(storeId: string, shiftId: string, access: AccessContext) {
     const shift = await this.db.cashShift.findFirst({ where: { id: shiftId, storeId }, select: { id: true } });

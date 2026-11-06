@@ -60,6 +60,8 @@ function CashShifts() {
   const can = (permission: string) => permissions.includes(permission);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    setStoreId(params.get('storeId') ?? ''); setDeviceId(params.get('deviceId') ?? '');
     try { const saved = JSON.parse(window.localStorage.getItem(COLUMNS_KEY) ?? '[]'); if (Array.isArray(saved)) setHidden(saved.filter((key): key is ColumnKey => columns.includes(key))); } catch { /* per-viewer setting only */ }
     Promise.all([api<{ permissions: string[] }>('/auth/me'), api<Store[]>('/finance/stores')])
       .then(([me, available]) => { setPermissions(me.permissions); setStores(available); })

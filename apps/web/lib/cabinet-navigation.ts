@@ -11,7 +11,7 @@ export const cabinetGroups: CabinetGroup[] = [
   ] },
   { title: 'Кассы и смены', icon: 'tills', links: [
     { href: '/cash-shifts', label: 'Смены', permission: 'finance.cash_view' },
-    { href: '/stores', label: 'Кассы', permission: 'stores.view' },
+    { href: '/registers', label: 'Кассы', permission: 'finance.cash_view' },
   ] },
   { title: 'Движение товара', icon: 'movement', links: [
     { href: '/journal', label: 'Все документы', permission: 'sales.view' },
@@ -32,6 +32,7 @@ export const cabinetGroups: CabinetGroup[] = [
   ] },
   { title: 'Компания', icon: 'company', links: [
     { href: '/employees', label: 'Сотрудники и роли', permission: 'employees.view' },
+    { href: '/stores', label: 'Магазины и устройства', permission: 'stores.view' },
     { href: '/loyalty', label: 'Лояльность', permission: 'settings.edit' },
     { href: '/payment-methods', label: 'Способы оплаты', permission: 'settings.edit' },
     { href: '/audit', label: 'Журнал действий', superuser: true },
@@ -41,7 +42,10 @@ export const cabinetGroups: CabinetGroup[] = [
 export const createLinks: CabinetLink[] = [
   { href: '/sales#new-sale', label: 'Продажа', permission: 'sales.create' },
   { href: '/purchases', label: 'Закупка', permission: 'purchases.create' },
+  { href: '/sales', label: 'Возврат продажи', permission: 'sales.return' },
   { href: '/transfers', label: 'Перемещение', permission: 'transfers.create' },
+  { href: '/stock', label: 'Списание', permission: 'inventory.adjust' },
+  { href: '/finance', label: 'Расход', permission: 'finance.edit' },
   { href: '/inventories', label: 'Инвентаризация', permission: 'inventory.start' },
   { href: '/products/new', label: 'Товар', permission: 'products.create' },
 ];
