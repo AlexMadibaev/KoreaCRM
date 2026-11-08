@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AccessGuard, RequirePermission } from '../auth/guards';
 import type { AccessContext } from '../auth/policy';
+import { ConsultantService } from './consultant.service';
 import { EmployeesService } from './employees.service';
 import { employeeActivitySchema, employeeCreateSchema, employeeListSchema, employeePatchSchema, parseEmployeeInput, roleCreateSchema, rolePatchSchema } from './employees.schemas';
 
@@ -10,7 +11,9 @@ type AuthorizedRequest = Request & { access: AccessContext };
 
 @ApiTags('employees') @ApiBearerAuth() @UseGuards(AccessGuard) @Controller('employees')
 export class EmployeesController {
-  constructor(private readonly service: EmployeesService) {}
+  constructor(private readonly service: EmployeesService, private readonly consultant: ConsultantService) {}
+  @Get('me/performance') @RequirePermission('sales.create') performance(@Req() req: AuthorizedRequest) { return this.consultant.performance(req.access); }
+  @Get('me/sales') @RequirePermission('sales.create') mySales(@Query() query: unknown, @Req() req: AuthorizedRequest) { const parsed = parseEmployeeInput(employeeActivitySchema, query); return this.consultant.sales(req.access, parsed.page, parsed.limit); }
   @Get() @RequirePermission('employees.view') list(@Query() query: unknown, @Req() req: AuthorizedRequest) { return this.service.list(req.access, parseEmployeeInput(employeeListSchema, query)); }
   @Get('me/rewards') @RequirePermission('sales.create') myRewards(@Req() req: AuthorizedRequest) { return this.service.rewards(req.access.userId, req.access); }
   @Get(':id/rewards') @RequirePermission('employees.view') rewards(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.rewards(id, req.access); }
@@ -24,7 +27,9 @@ export class EmployeesController {
 
 @ApiTags('roles') @ApiBearerAuth() @UseGuards(AccessGuard) @Controller('roles')
 export class RolesController {
-  constructor(private readonly service: EmployeesService) {}
+  constructor(private readonly service: EmployeesService, private readonly consultant: ConsultantService) {}
+  @Get('me/performance') @RequirePermission('sales.create') performance(@Req() req: AuthorizedRequest) { return this.consultant.performance(req.access); }
+  @Get('me/sales') @RequirePermission('sales.create') mySales(@Query() query: unknown, @Req() req: AuthorizedRequest) { const parsed = parseEmployeeInput(employeeActivitySchema, query); return this.consultant.sales(req.access, parsed.page, parsed.limit); }
   @Get() @RequirePermission('employees.view') list() { return this.service.roles(); }
   @Get('permissions') @RequirePermission('employees.view') permissions() { return this.service.permissions(); }
   @Post() @RequirePermission('settings.edit') create(@Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.createRole(parseEmployeeInput(roleCreateSchema, body), req.access); }

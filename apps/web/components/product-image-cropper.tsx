@@ -61,7 +61,7 @@ export function ProductImageCropper({ file, busy, onSave, onCancel }: {
 
   return <div className="crm-image-crop-backdrop" onMouseDown={event => { if (event.target === event.currentTarget && !busy) onCancel(); }}>
     <section className="crm-image-crop-dialog" role="dialog" aria-modal="true" aria-labelledby="crop-title">
-      <div className="crm-image-crop-heading"><div><span className="crm-eyebrow">ФОТО ТОВАРА</span><h2 id="crop-title">Подгоните изображение</h2></div><button type="button" className="crm-image-crop-close" onClick={onCancel} disabled={busy} aria-label="Закрыть">×</button></div>
+      <div className="crm-image-crop-heading"><div><span className="crm-eyebrow">ФОТО ТОВАРА</span><h2 id="crop-title">Подгоните изображение</h2></div><button type="button" className="ks-control crm-image-crop-close" onClick={onCancel} disabled={busy} aria-label="Закрыть">×</button></div>
       <p>Перетащите фото внутри квадрата и настройте размер. Сохранится фрагмент 360 × 360 пикселей.</p>
       <div ref={stage} className="crm-image-crop-stage" onPointerDown={event => {
         if (busy || !dimensions.width) return;
@@ -78,7 +78,7 @@ export function ProductImageCropper({ file, busy, onSave, onCancel }: {
       </div>
       <label className="crm-image-crop-zoom">Масштаб <input type="range" min="1" max="3" step="0.01" value={zoom} onChange={event => setZoom(Number(event.target.value))} disabled={busy || !dimensions.width} aria-label="Масштаб изображения" /><span>{Math.round(zoom * 100)}%</span></label>
       {error && <p role="alert" className="crm-alert">{error}</p>}
-      <div className="crm-image-crop-actions"><button type="button" className="crm-outline-button" onClick={onCancel} disabled={busy}>Отмена</button><button type="button" className="crm-primary-button" onClick={() => void save()} disabled={busy || !dimensions.width}>{busy ? 'Сохраняем…' : 'Сохранить фото'}</button></div>
+      <div className="crm-image-crop-actions"><button type="button" className="ks-button ks-button--secondary crm-outline-button" onClick={onCancel} disabled={busy}>Отмена</button><button type="button" className="ks-button ks-button--primary crm-primary-button" onClick={() => void save()} disabled={busy || !dimensions.width}>{busy ? 'Сохраняем…' : 'Сохранить фото'}</button></div>
     </section>
   </div>;
 }

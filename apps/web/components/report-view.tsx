@@ -7,6 +7,7 @@ import { formatCurrencyMinor } from '@koreacrm/ui';
 import { api, queryString, type Page } from '../lib/api';
 import { serializeCsv } from '../lib/csv';
 import { writeTableXlsx, type SheetCell } from '../lib/xlsx';
+import { SearchCaption } from "./search-caption";
 
 export type ReportFilter = 'store' | 'employee' | 'category' | 'q' | 'lowOnly';
 export type ReportInfo = { key: string; title: string; description: string; group: string; period: boolean; filters: ReportFilter[]; available: boolean };
@@ -144,17 +145,17 @@ export function ReportView({ report }: { report: ReportInfo }) {
         <h1>{report.title}</h1>
         <p>{report.description}</p>
       </div>
-      <div className="crm-report-actions">
-        <button type="button" className="crm-outline-button" disabled={!!exporting || !result?.total} onClick={() => exportReport('csv')}><Download size={14} aria-hidden /> {exporting === 'csv' ? 'Готовим…' : 'CSV'}</button>
-        <button type="button" className="crm-outline-button" disabled={!!exporting || !result?.total} onClick={() => exportReport('xlsx')}><FileSpreadsheet size={14} aria-hidden /> {exporting === 'xlsx' ? 'Готовим…' : 'Excel'}</button>
-      </div>
+      <div className="crm-page-actions"><div className="crm-report-actions">
+        <button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={!!exporting || !result?.total} onClick={() => exportReport('csv')}><Download size={14} aria-hidden /> {exporting === 'csv' ? 'Готовим…' : 'CSV'}</button>
+        <button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={!!exporting || !result?.total} onClick={() => exportReport('xlsx')}><FileSpreadsheet size={14} aria-hidden /> {exporting === 'xlsx' ? 'Готовим…' : 'Excel'}</button>
+      </div></div>
     </div>
 
     <div className="crm-products-toolbar crm-report-filters" role="group" aria-label="Фильтры отчёта">
       {report.period && <>
         <div className="crm-periods" role="radiogroup" aria-label="Период">
           {([['today', 'Сегодня'], ['yesterday', 'Вчера'], ['week', '7 дней'], ['month', '30 дней'], ['custom', 'Период']] as const).map(([value, label]) =>
-            <button key={value} type="button" role="radio" aria-checked={period === value} className={period === value ? 'selected' : ''} onClick={() => change(() => { if (value === 'custom') setCustom(range); setPeriod(value); })}>{label}</button>)}
+            <button key={value} type="button" role="radio" aria-checked={period === value} className={["ks-control", period === value ? 'selected' : ''].filter(Boolean).join(" ")} onClick={() => change(() => { if (value === 'custom') setCustom(range); setPeriod(value); })}>{label}</button>)}
         </div>
         {period === 'custom' && <span className="crm-report-dates">
           <label>С <input type="date" value={custom.from} max={custom.to || undefined} onChange={event => change(() => setCustom(value => ({ ...value, from: event.target.value })))} /></label>
@@ -180,8 +181,7 @@ export function ReportView({ report }: { report: ReportInfo }) {
           {categories.map(category => <option key={category.id} value={category.id}>{category.name}</option>)}
         </select>
       </label>}
-      {has('q') && <label className="crm-report-field crm-report-search">Поиск
-        <input type="search" value={search} placeholder={report.key === 'debts' || report.key === 'customer-activity' ? 'Имя или телефон' : 'Название, артикул, штрихкод'} onChange={event => setSearch(event.target.value)} />
+      {has('q') && <label className="crm-report-field crm-report-search"><SearchCaption text="Поиск" /><input type="search" value={search} placeholder={report.key === 'debts' || report.key === 'customer-activity' ? 'Имя или телефон' : 'Название, артикул, штрихкод'} onChange={event => setSearch(event.target.value)} />
       </label>}
       {has('lowOnly') && <label className="crm-report-check"><input type="checkbox" checked={lowOnly} onChange={event => change(() => setLowOnly(event.target.checked))} /> Только заканчивающиеся</label>}
     </div>
@@ -196,21 +196,21 @@ export function ReportView({ report }: { report: ReportInfo }) {
       {loading && !result && <div className="crm-report-skeleton" role="status" aria-label="Строим отчёт">{Array.from({ length: 6 }, (_, index) => <span key={index} />)}</div>}
       {result && result.total === 0 && !loading && <div className="crm-report-empty"><h3>Нет данных</h3><p>За выбранный период и с этими фильтрами операций нет. Измените период или сбросьте фильтры.</p></div>}
       {result && result.total > 0 && <div className="crm-report-scroll">
-        <table className="crm-products-table crm-report-table">
+        <div className="crm-table-region" role="region" aria-label="Таблица данных" tabIndex={0}><table className="crm-products-table crm-report-table">
           <thead><tr>{result.columns.map(column => {
             const active = result.sort === column.key;
             return <th key={column.key} scope="col" className={numeric.includes(column.type) ? 'num' : ''} aria-sort={active ? (result.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
-              <button type="button" onClick={() => toggleSort(column.key)}>{column.label}{active && (result.dir === 'asc' ? <ArrowUp size={12} aria-hidden /> : <ArrowDown size={12} aria-hidden />)}</button>
+              <button className="ks-button ks-button--secondary" type="button" onClick={() => toggleSort(column.key)}>{column.label}{active && (result.dir === 'asc' ? <ArrowUp size={12} aria-hidden /> : <ArrowDown size={12} aria-hidden />)}</button>
             </th>;
           })}</tr></thead>
           <tbody>{result.rows.map((row, index) => <tr key={index}>{result.columns.map(column => <td key={column.key} className={numeric.includes(column.type) ? 'num' : ''}>{formatCell(column.type, row[column.key] ?? null)}</td>)}</tr>)}</tbody>
           <tfoot><tr>{result.columns.map((column, index) => <td key={column.key} className={numeric.includes(column.type) ? 'num' : ''}>{index === 0 ? 'Итого' : column.key in result.totals ? formatCell(column.type, result.totals[column.key] ?? null) : ''}</td>)}</tr></tfoot>
-        </table>
+        </table></div>
       </div>}
       {result && result.total > result.limit && <div className="crm-products-footer crm-report-pages">
         <span>Страница {page} из {pages}</span>
-        <button type="button" className="crm-outline-button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Назад</button>
-        <button type="button" className="crm-outline-button" disabled={page >= pages || loading} onClick={() => setPage(value => value + 1)}>Вперёд</button>
+        <button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Назад</button>
+        <button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={page >= pages || loading} onClick={() => setPage(value => value + 1)}>Вперёд</button>
       </div>}
     </section>
   </div>;

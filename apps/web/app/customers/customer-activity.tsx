@@ -29,7 +29,7 @@ export function CustomerActivity({ customerId }: { customerId: string }) {
         {entry.detail && <p className="mt-1 whitespace-pre-wrap text-sm text-slate-700">{entry.detail}</p>}
         <p className="mt-2 text-xs text-slate-500">{new Date(entry.createdAt).toLocaleString('ru-RU')}{entry.actorName ? ` · ${entry.actorName}` : ''}</p>
       </li>)}{result?.items.length === 0 && <li className="rounded-lg border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">Событий пока нет</li>}</ol>
-      {(result?.total ?? 0) > 10 && <div className="flex items-center justify-end gap-3 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border bg-white px-3 py-1 disabled:opacity-50">Назад</button><span>{page} / {Math.ceil((result?.total ?? 0) / 10)}</span><button type="button" disabled={page * 10 >= (result?.total ?? 0)} onClick={() => setPage(page + 1)} className="rounded border bg-white px-3 py-1 disabled:opacity-50">Далее</button></div>}
+      {(result?.total ?? 0) > 10 && <div className="flex items-center justify-end gap-3 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="ks-button ks-button--secondary">Назад</button><span>{page} / {Math.ceil((result?.total ?? 0) / 10)}</span><button type="button" disabled={page * 10 >= (result?.total ?? 0)} onClick={() => setPage(page + 1)} className="ks-button ks-button--secondary">Далее</button></div>}
     </>}
   </div>;
 }

@@ -1,3 +1,5 @@
+import { OrdersController } from './orders/orders.controller';
+import { OrdersService } from './orders/orders.service';
 import { Controller, Get, Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import type { HealthStatus } from '@koreacrm/types';
@@ -11,6 +13,7 @@ import { ProductImagesController, ProductImageFilesController, ProductImagesServ
 import { StoresController, StockController } from './stock/stock.controller';
 import { StockService } from './stock/stock.service';
 import { PurchasesController, SuppliersController } from './purchases/purchases.controller';
+import { InvoiceImportService } from './purchases/invoice-import.service';
 import { PurchasesService } from './purchases/purchases.service';
 import { InventoryController } from './inventory/inventory.controller';
 import { InventoryService } from './inventory/inventory.service';
@@ -25,6 +28,7 @@ import { SalesService } from './sales/sales.service';
 import { PosDevicesController } from './pos-devices/pos-devices.controller';
 import { PosDevicesService } from './pos-devices/pos-devices.service';
 import { EmployeesController, RolesController } from './employees/employees.controller';
+import { ConsultantService } from './employees/consultant.service';
 import { EmployeesService } from './employees/employees.service';
 import { NotificationsController } from './notifications/notifications.controller';
 import { NotificationsService } from './notifications/notifications.service';
@@ -56,7 +60,7 @@ if (!jwtSecret || jwtSecret.length < 32) throw new Error('JWT_SECRET must have a
 
 @Module({
   imports: [JwtModule.register({ secret: jwtSecret })],
-  controllers: [LoyaltyController, HealthController, AuthController, AuditController, BrandController, CategoryController, ProductController, PosProductsController, ProductImagesController, ProductImageFilesController, StoreProductSettingsController, StoresController, StoreManagementController, StockController, SuppliersController, PurchasesController, InventoryController, TransfersController, ExpenseCategoriesController, FinanceSummaryController, StoreFinanceController, CustomersController, CustomerPaymentsController, SalesController, SalePaymentMethodsController, PosDevicesController, EmployeesController, RolesController, NotificationsController, ReportsController, CashShiftsController, DocumentsController, ProductsOverviewController],
-  providers: [LoyaltyService, StoresService, AuditService, DatabaseService, AuthService, AccessGuard, StoreScopeGuard, CatalogService, ProductImagesService, StockService, PurchasesService, InventoryService, TransfersService, FinanceService, CustomersService, SalesService, PosDevicesService, EmployeesService, NotificationsService, ReportsService, CashShiftsService, DocumentsService, MoneyService, ProductsOverviewService],
+  controllers: [OrdersController, LoyaltyController, HealthController, AuthController, AuditController, BrandController, CategoryController, ProductController, PosProductsController, ProductImagesController, ProductImageFilesController, StoreProductSettingsController, StoresController, StoreManagementController, StockController, SuppliersController, PurchasesController, InventoryController, TransfersController, ExpenseCategoriesController, FinanceSummaryController, StoreFinanceController, CustomersController, CustomerPaymentsController, SalesController, SalePaymentMethodsController, PosDevicesController, EmployeesController, RolesController, NotificationsController, ReportsController, CashShiftsController, DocumentsController, ProductsOverviewController],
+  providers: [OrdersService, LoyaltyService, StoresService, AuditService, DatabaseService, AuthService, AccessGuard, StoreScopeGuard, CatalogService, ProductImagesService, StockService, PurchasesService, InvoiceImportService, InventoryService, TransfersService, FinanceService, CustomersService, SalesService, PosDevicesService, EmployeesService, ConsultantService, NotificationsService, ReportsService, CashShiftsService, DocumentsService, MoneyService, ProductsOverviewService],
 })
 export class AppModule {}

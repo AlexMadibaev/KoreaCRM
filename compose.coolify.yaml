@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: koreacrm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: koreacrm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD', 'pg_isready', '-U', 'koreacrm', '-d', 'koreacrm']
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/production/Dockerfile
+    restart: unless-stopped
+    command: >-
+      sh -c 'corepack pnpm --filter @koreacrm/database exec prisma migrate deploy
+      && corepack pnpm --filter @koreacrm/database db:seed
+      && node apps/api/dist/main.js'
+    environment:
+      DATABASE_URL: postgresql://koreacrm:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/koreacrm?schema=public
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+      SEED_OWNER_LOGIN: ${SEED_OWNER_LOGIN:-owner}
+      SEED_OWNER_PASSWORD: ${SEED_OWNER_PASSWORD:?Set SEED_OWNER_PASSWORD}
+      KOREACRM_IMPORT_LEGACY: '0'
+      KOREACRM_CREATE_DEFAULT_STORE: '0'
+      API_PORT: '3001'
+      API_HOST: 0.0.0.0
+      WEB_ORIGIN: https://${DOMAIN:?Set DOMAIN}
+      POS_ORIGIN: http://tauri.localhost,tauri://localhost
+      PRODUCT_IMAGE_DIR: /app/uploads/products
+    volumes:
+      - product_images:/app/uploads/products
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  web:
+    build:
+      context: .
+      dockerfile: deploy/production/Dockerfile
+    restart: unless-stopped
+    working_dir: /app/apps/web
+    command: ['node', 'node_modules/next/dist/bin/next', 'start', '--hostname', '0.0.0.0', '--port', '3000']
+    environment:
+      NEXT_PUBLIC_API_URL: /api
+      NEXT_TELEMETRY_DISABLED: '1'
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:3000/login').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  caddy:
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM caddy:2-alpine
+        RUN printf '%s\n' ':80 {' '    encode zstd gzip' '    handle_path /api/* {' '        reverse_proxy api:3001' '    }' '    handle {' '        reverse_proxy web:3000' '    }' '}' > /etc/caddy/Caddyfile
+    restart: unless-stopped
+    expose:
+      - '80'
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  product_images:

@@ -22,13 +22,13 @@ function Ean13({ value }: { value: string }) {
 
 export function EmployeePosCodesCard({ codes, onClose }: { codes: EmployeePosCodes; onClose: () => void }) {
   return <section id="employee-pos-codes" className="pos-code-print-card crm-panel p-5" aria-label="Коды входа в кассу">
-    <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-violet-600">Вход в кассу</p><h2 className="mt-1 text-lg font-bold">{codes.employeeName}</h2></div><button type="button" aria-label="Закрыть коды" onClick={onClose} className="print:hidden">✕</button></div>
+    <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-violet-600">Вход в кассу</p><h2 className="mt-1 text-lg font-bold">{codes.employeeName}</h2></div><button type="button" aria-label="Закрыть коды" onClick={onClose} className="ks-button ks-button--secondary print:hidden">✕</button></div>
     <p className="mt-3 text-xs leading-5 text-slate-600 print:hidden">Сохраните или распечатайте коды сейчас. После закрытия их нельзя посмотреть повторно; перевыпуск отключит прежние.</p>
     <div className="mt-5 flex justify-center rounded-xl border border-slate-200 bg-white p-4"><QRCodeSVG value={codes.qrCode} size={190} level="H" marginSize={2} role="img" aria-label={`QR-код для входа сотрудника ${codes.employeeName}`} /></div>
     <p className="mt-2 text-center text-xs font-semibold text-slate-600">QR-код сотрудника</p>
     <div className="mt-5 rounded-xl border border-slate-200 bg-white px-2 py-4"><Ean13 value={codes.ean13} /></div>
     <p className="mt-2 text-center text-xs font-semibold text-slate-600">Для сканера штрихкодов</p>
     <p className="mt-5 text-xs leading-5 text-slate-600">Коды дают доступ к кассе от имени сотрудника. Храните их как пароль. Для входа требуется связь с сервером.</p>
-    <button type="button" onClick={() => window.print()} className="crm-primary-button mt-5 w-full print:hidden">Распечатать коды</button>
+    <button type="button" onClick={() => window.print()} className="ks-button ks-button--primary crm-primary-button mt-5 w-full print:hidden">Распечатать коды</button>
   </section>;
 }

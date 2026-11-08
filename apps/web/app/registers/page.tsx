@@ -17,7 +17,7 @@ function Registers() {
   return <div className="crm-shifts">
     <div className="crm-shifts-toolbar">
       <div className="crm-registers-total">Всего денег в кассах <strong>{data ? `${amount(data.totalBalanceMinor)} смн.` : '…'}</strong></div>
-      <Link href="/stores" className="crm-primary-button"><Plus size={14} aria-hidden /> Подключить кассу</Link>
+      <Link href="/stores" className="ks-button ks-button--primary crm-primary-button"><Plus size={14} aria-hidden /> Подключить кассу</Link>
     </div>
     {error && <p role="alert" className="crm-alert">{error}</p>}
     <div className="crm-shifts-table-wrap" aria-busy={!data && !error}>

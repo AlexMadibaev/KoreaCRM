@@ -50,7 +50,7 @@ export async function importLegacyKorea(db: PrismaClient) {
     data: data.products.map(item => ({ sku: item.sku, name: item.name, unit: item.unit, description: item.description })),
     skipDuplicates: true,
   });
-  const products = await db.product.findMany({ where: { sku: { in: data.products.map(item => item.sku) } }, select: { id: true, sku: true } });
+  const products = await db.product.findMany({ where: { deletedAt: null, sku: { in: data.products.map(item => item.sku) } }, select: { id: true, sku: true } });
   const productIds = new Map(products.map(item => [item.sku, item.id]));
   if (productIds.size !== data.products.length) throw new Error('Legacy product import did not create all SKUs');
 

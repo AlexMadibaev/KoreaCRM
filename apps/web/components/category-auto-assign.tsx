@@ -19,7 +19,7 @@ export function CategoryAutoAssign({ onApplied }: { onApplied: () => void }) {
     finally { setBusy(false); }
   };
   return <div className="crm-auto-categories-bar">
-    <button type="button" className="crm-outline-button" disabled={busy} onClick={() => void run(false)}>{busy && !summary ? 'Проверка…' : 'Распределить по категориям'}</button>
+    <button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={busy} onClick={() => void run(false)}>{busy && !summary ? 'Проверка…' : 'Распределить по категориям'}</button>
     {(summary || error) && <div className="crm-panel crm-auto-categories">
       {error && <div className="crm-alert">{error}</div>}
       {summary && (summary.applied
@@ -31,8 +31,8 @@ export function CategoryAutoAssign({ onApplied }: { onApplied: () => void }) {
             <ul>{summary.groups.map(group => <li key={group.name}><strong>{group.name}</strong> — {group.count}<small>{group.examples.join(' · ')}</small></li>)}</ul>
           </>)}
       <div className="crm-auto-categories-actions">
-        {summary && !summary.applied && summary.matched > 0 && <button type="button" className="crm-primary-button" disabled={busy} onClick={() => void run(true)}>{busy ? 'Применение…' : `Применить к ${summary.matched} товарам`}</button>}
-        <button type="button" className="crm-outline-button" disabled={busy} onClick={() => { setSummary(null); setError(''); }}>Закрыть</button>
+        {summary && !summary.applied && summary.matched > 0 && <button type="button" className="ks-button ks-button--primary crm-primary-button" disabled={busy} onClick={() => void run(true)}>{busy ? 'Применение…' : `Применить к ${summary.matched} товарам`}</button>}
+        <button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={busy} onClick={() => { setSummary(null); setError(''); }}>Закрыть</button>
       </div>
     </div>}
   </div>;

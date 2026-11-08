@@ -154,20 +154,20 @@ export function ShiftCard({ row, canManage, onClose, onChanged }: { row: ShiftRo
           <label>Тип<select value={operation.type} onChange={event => setOperation(current => ({ ...current, type: event.target.value as typeof current.type, operationId: crypto.randomUUID() }))}><option value="DEPOSIT">Внесение</option><option value="WITHDRAWAL">Изъятие</option><option value="CORRECTION">Корректировка</option></select></label>
           <label>Сумма, смн.<MoneyInput required allowNegative={operation.type === 'CORRECTION'} valueMinor={operation.amountMinor} onMinorChange={minor => setOperation(current => ({ ...current, amountMinor: minor, operationId: crypto.randomUUID() }))} /></label>
           <label>Комментарий<input required value={operation.comment} onChange={event => setOperation(current => ({ ...current, comment: event.target.value, operationId: crypto.randomUUID() }))} /></label>
-          <button type="submit" className="crm-outline-button" disabled={busy || !operation.amountMinor}>Провести операцию</button>
+          <button type="submit" className="ks-button ks-button--secondary crm-outline-button" disabled={busy || !operation.amountMinor}>Провести операцию</button>
         </form>
         <form onSubmit={prepareClose}>
           <h4>Закрытие смены</h4>
           <label>Пересчитано наличных, смн.<MoneyInput required valueMinor={actualMinor} onMinorChange={setActualMinor} /></label>
           <p>Ожидается: {amount(row.expectedCashMinor)} смн.</p>
-          <button type="submit" className="crm-primary-button" disabled={busy || !actualMinor}>Закрыть смену</button>
+          <button type="submit" className="ks-button ks-button--primary crm-primary-button" disabled={busy || !actualMinor}>Закрыть смену</button>
         </form>
       </section>}
 
       <h3 className="crm-shift-section">Последние операции</h3>
       <div className="crm-shift-tabs" role="tablist" aria-label="Операции смены">
         {([['documents', 'Движение товара'], ['money', 'Движение денег'], ['products', 'Список товаров']] as const).map(([key, label]) =>
-          <button key={key} type="button" role="tab" aria-selected={tab === key} className={tab === key ? 'selected' : ''} onClick={() => setTab(key)}>{label}</button>)}
+          <button key={key} type="button" role="tab" aria-selected={tab === key} className={["ks-control", tab === key ? 'selected' : ''].filter(Boolean).join(" ")} onClick={() => setTab(key)}>{label}</button>)}
       </div>
       {!activity && !error && <p role="status" className="crm-shift-empty">Загружаем операции…</p>}
       {activity && tab === 'documents' && (activity.documents.length ? groupByDay(activity.documents).map(group => <div key={group.day} className="crm-shift-day"><h4>{group.day}</h4>
@@ -195,9 +195,9 @@ export function ShiftCard({ row, canManage, onClose, onChanged }: { row: ShiftRo
 function ProductTable({ lines, profit, amountLabel }: { lines: ProductLine[]; profit: boolean; amountLabel: string }) {
   if (!lines.length) return <p className="crm-shift-empty">Нет позиций.</p>;
   const sum = (key: 'quantity' | 'amountMinor' | 'profitMinor') => lines.reduce((total, line) => total + Number(line[key] ?? 0), 0);
-  return <table className="crm-shift-table">
+  return <div className="crm-table-region" role="region" aria-label="Таблица данных" tabIndex={0}><table className="crm-shift-table">
     <thead><tr><th scope="col">Товар</th><th scope="col" className="num">Кол-во товара</th><th scope="col" className="num">{amountLabel}</th>{profit && <th scope="col" className="num">Прибыль</th>}</tr></thead>
     <tbody>{lines.map(line => <tr key={line.productId}><td>{line.product}<small>{line.sku}</small></td><td className="num">{Number(line.quantity)}</td><td className="num">{amount(line.amountMinor)}</td>{profit && <td className="num">{amount(line.profitMinor ?? '0')}</td>}</tr>)}</tbody>
     <tfoot><tr><td>Итог</td><td className="num">{sum('quantity')}</td><td className="num">{amount(String(sum('amountMinor')))}</td>{profit && <td className="num">{amount(String(sum('profitMinor')))}</td>}</tr></tfoot>
-  </table>;
+  </table></div>;
 }

@@ -1,3 +1,4 @@
+import { paymentMethodStoreFilter } from './payment-method-scope';
 import { createHash, randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -20,7 +21,7 @@ const saleInclude = { items: { include: { product: { select: { name: true, sku: 
 @Injectable()
 export class SalesService {
   constructor(private readonly db: DatabaseService, private readonly stock: StockService, private readonly finance: FinanceService, private readonly notifications: NotificationsService) {}
-  methods() { return this.db.salePaymentMethod.findMany({ orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] }); }
+  methods(storeId?: string) { return this.db.salePaymentMethod.findMany({ ...(storeId ? { where: paymentMethodStoreFilter(storeId) } : {}), orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] }); }
   async createMethod(input: z.infer<typeof paymentMethodSchema>, actorId: string) {
     try { return await this.db.$transaction(async tx => {
       const last = await tx.salePaymentMethod.aggregate({ _max: { sortOrder: true } });
@@ -132,7 +133,7 @@ export class SalesService {
         let cashMethodId: string | undefined;
         for (const part of refunds) {
           if (!part.paymentMethodId) {
-            cashMethodId ??= (await tx.salePaymentMethod.findFirst({ where: { kind: 'CASH' }, orderBy: [{ active: 'desc' }, { sortOrder: 'asc' }] }))?.id;
+            cashMethodId ??= (await tx.salePaymentMethod.findFirst({ where: { kind: 'CASH', ...paymentMethodStoreFilter(storeId) }, orderBy: [{ active: 'desc' }, { sortOrder: 'asc' }] }))?.id;
             if (!cashMethodId) throw new ConflictException('Cash payment method is required for this refund');
           }
           await tx.saleReturnPayment.create({ data: { saleReturnId: record.id, paymentId: part.paymentId, paymentMethodId: part.paymentMethodId ?? cashMethodId!, amountMinor: part.amount } });
@@ -202,141 +203,163 @@ export class SalesService {
   }
   async create(storeId: string, input: SaleInput, actorId: string, offlineSale = false, unlimitedDiscount = true) {
     if (new Set(input.items.map(item => item.productId)).size !== input.items.length) throw new BadRequestException('Duplicate products in sale');
-    const requestHash = createHash('sha256').update(JSON.stringify({ storeId, ...input })).digest('hex');
     for (let attempt = 0; attempt < 3; attempt++) {
-      try { return await this.db.$transaction(async tx => {
-        const existing = await tx.sale.findUnique({ where: { operationId: input.operationId }, include: saleInclude });
-        if (existing) {
-          if (existing.storeId !== storeId || existing.requestHash !== requestHash) throw new ConflictException('Operation ID was used for another sale');
-          return existing;
-        }
-        if (!await tx.store.findFirst({ where: { id: storeId, deletedAt: null, status: 'ACTIVE' } })) throw new NotFoundException('Active store not found');
-        const device = await tx.posDevice.findUnique({ where: { deviceId: input.deviceId } });
-        if (!device || device.storeId !== storeId || device.status !== 'ACTIVE') throw new ConflictException('POS device is not active in this store');
-        const customer = input.customerId ? await tx.customer.findFirst({ where: { id: input.customerId, deletedAt: null } }) : null;
-        if (input.customerId && !customer) throw new NotFoundException('Customer not found');
-        const savedLoyalty = await tx.loyaltySettings.findUnique({ where: { id: 1 } });
-        const loyalty = savedLoyalty ? loyaltySettingsSchema.parse(savedLoyalty.rules) : defaultLoyaltySettings;
-        const lines = [];
-        for (const item of input.items) {
-          const product = await tx.product.findFirst({ where: { id: item.productId, deletedAt: null } });
-          if (!product) throw new NotFoundException('Product not found');
-          const settings = await tx.storeProductSettings.findUnique({ where: { storeId_productId: { storeId, productId: item.productId } } });
-          const quotedPrice = offlineSale ? item.priceMinor : undefined;
-          if (quotedPrice === undefined && (!settings?.active || settings.priceMinor === null || settings.priceMinor < 0)) throw new ConflictException(`Product ${product.sku} has no active store price`);
-          const batch = await tx.productBatch.findFirst({ where: { productId: item.productId, storeId }, orderBy: { receivedAt: 'desc' } });
-          // A missing purchase cost must not stop the till; the sale is recorded at zero cost and flagged for the back office.
-          const knownCost = batch?.purchasePriceMinor ?? (settings?.costBasisMinor == null ? null : new Prisma.Decimal(settings.costBasisMinor));
-          const costMissing = knownCost === null;
-          const purchasePriceMinor = knownCost ?? new Prisma.Decimal(0);
-          const price = new Prisma.Decimal(quotedPrice ?? settings!.priceMinor!);
-          const gross = price.mul(item.quantity);
-          const discount = new Prisma.Decimal(item.discountMinor);
-          if (discount.gt(gross)) throw new BadRequestException('Line discount exceeds line price');
-          const cost = purchasePriceMinor.mul(item.quantity);
-          lines.push({ productId: item.productId, brandId: product.brandId, categoryId: product.categoryId, quantity: item.quantity, priceMinor: price, currentPriceMinor: settings?.priceMinor ?? null, purchasePriceMinor, discountMinor: discount, totalMinor: gross.minus(discount), profitMinor: gross.minus(discount).minus(cost), batchId: batch?.id ?? null, gross, cost, costMissing, sku: product.sku });
-        }
-        const subtotal = sum(lines.map(line => line.gross));
-        let manualDiscount = new Prisma.Decimal(0);
-        for (const line of lines) {
-          const percent = loyalty.mode === 'DISCOUNT' ? automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null, BigInt(subtotal.toString())) : '0';
-          const minimumDiscount = line.gross.mul(percentBasisPoints(percent).toString()).div(10000).floor();
-          if (line.discountMinor.lt(minimumDiscount)) throw new BadRequestException(`Automatic discount is missing for product ${line.productId}`);
-          manualDiscount = manualDiscount.plus(line.discountMinor.minus(minimumDiscount));
-        }
-        if (!unlimitedDiscount && manualDiscount.mul(10000).gt(subtotal.mul(percentBasisPoints(loyalty.maxManualDiscountPercent).toString()))) throw new ForbiddenException('Manual discount exceeds limit');
-        // Ignore legacy seller choices, including queued receipts from older tills.
-        const seller = { id: actorId };
-        const discount = sum(lines.map(line => line.discountMinor));
-        const total = subtotal.minus(discount);
-        const cost = sum(lines.map(line => line.cost));
-        if (total.gt(maximum) || cost.gt(maximum) || subtotal.gt(maximum)) throw new BadRequestException('Sale amount exceeds database range');
-        const methodIds = [...new Set(input.payments.map(payment => payment.paymentMethodId))];
-        const methods = await tx.salePaymentMethod.findMany({ where: { id: { in: methodIds }, active: true } });
-        if (methods.length !== methodIds.length) throw new BadRequestException('Payment method is unavailable');
-        const byId = new Map(methods.map(method => [method.id, method]));
-        let cash = new Prisma.Decimal(0);
-        let debt = new Prisma.Decimal(0);
-        let bonus = new Prisma.Decimal(0);
-        for (const payment of input.payments) {
-          const amount = new Prisma.Decimal(payment.amountMinor);
-          if (amount.lte(0)) throw new BadRequestException('Payment amount must be positive');
-          const method = byId.get(payment.paymentMethodId)!;
-          if (method.kind === 'BONUS') bonus = bonus.plus(amount);
-          if (method.kind === 'DEBT') debt = debt.plus(amount);
-          if (method.kind === 'CASH') cash = cash.plus(amount);
-        }
-        if (!sum(input.payments.map(payment => new Prisma.Decimal(payment.amountMinor))).eq(total)) throw new BadRequestException('Payments must equal sale total');
-        if (debt.gt(0) && !customer) throw new BadRequestException('Customer is required for debt sale');
-        if (bonus.gt(0)) {
-          if (loyalty.mode !== 'BONUS') throw new BadRequestException('Bonus payments are disabled in discount mode');
-          if (offlineSale) throw new BadRequestException('Bonus payments require an online sale');
-          if (!customer) throw new BadRequestException('Customer is required for bonus payment');
-          if (bonus.gt(customer.bonusBalanceMinor)) throw new ConflictException('Customer bonus balance is insufficient');
-          if (await tx.bonusTransaction.findUnique({ where: { operationId: input.operationId } })) throw new ConflictException('Operation ID was used for another bonus transaction');
-        }
-        if (cash.gt(0) && !input.cashShiftId) throw new BadRequestException('Cash shift is required for cash sales');
-        let cashShiftId = input.cashShiftId;
-        if (cashShiftId && !await tx.cashShift.findFirst({ where: { id: cashShiftId, storeId, deviceId: input.deviceId, status: 'OPEN' } })) {
-          // A queued non-cash sale may arrive after its shift was closed; it then stays outside any shift.
-          if (cash.gt(0) || !offlineSale) throw new ConflictException('Device has no matching open cash shift');
-          cashShiftId = undefined;
-        }
-        // Receipts get the next number in their store; a concurrent sale makes the transaction retry.
-        const sequence = ((await tx.sale.aggregate({ where: { storeId }, _max: { sequence: true } }))._max.sequence ?? 0) + 1;
-        const sale = await tx.sale.create({ data: { operationId: input.operationId, requestHash, number: String(sequence), sequence, storeId, deviceId: input.deviceId, cashShiftId, customerId: input.customerId, employeeId: actorId, sellerId: seller?.id ?? null, comment: input.comment || null, subtotalMinor: subtotal, discountMinor: discount, totalMinor: total, costMinor: cost, profitMinor: total.minus(cost), debtMinor: debt } });
-        for (const line of lines) {
-          const saleItem = await tx.saleItem.create({ data: { saleId: sale.id, productId: line.productId, quantity: line.quantity, priceMinor: line.priceMinor, purchasePriceMinor: line.purchasePriceMinor, discountMinor: line.discountMinor, totalMinor: line.totalMinor, profitMinor: line.profitMinor, batchId: line.batchId } });
-          if (line.costMissing) await tx.auditLog.create({ data: { userId: actorId, action: 'PURCHASE_COST_MISSING', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, sku: line.sku } } });
-          if (offlineSale && line.currentPriceMinor !== null && !line.priceMinor.eq(line.currentPriceMinor)) await tx.auditLog.create({ data: { userId: actorId, action: 'OFFLINE_PRICE_DIFFERENCE', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, quotedPriceMinor: line.priceMinor.toString(), currentPriceMinor: String(line.currentPriceMinor) } } });
-          const movement = await this.stock.applyMovementInTransaction(tx, { storeId, productId: line.productId, type: 'SALE', delta: -line.quantity, sourceType: 'SALE_ITEM', sourceId: saleItem.id, actorId });
-          if (movement.newQuantity < 0) await tx.auditLog.create({ data: { userId: actorId, action: 'NEGATIVE_STOCK', entityType: 'Stock', entityId: `${storeId}:${line.productId}`, newValue: { quantity: movement.newQuantity, saleId: sale.id, productId: line.productId } } });
-        }
-        for (const part of input.payments) {
-          const payment = await tx.payment.create({ data: { saleId: sale.id, paymentMethodId: part.paymentMethodId, amountMinor: part.amountMinor, reference: part.reference } });
-          if (byId.get(part.paymentMethodId)!.kind === 'CASH') await this.finance.postCashInTransaction(tx, { storeId, shiftId: input.cashShiftId!, actorId, type: 'SALE', amount: new Prisma.Decimal(part.amountMinor), sourceType: 'SALE_PAYMENT', sourceId: payment.id });
-        }
-        if (customer) {
-          const spent = customer.totalSpentMinor.plus(total);
-          const orders = customer.ordersCount + 1;
-          const balance = customer.debtBalanceMinor.plus(debt);
-          if (spent.gt(maximum) || balance.gt(maximum)) throw new ConflictException('Customer balance exceeds database range');
-          await tx.customer.update({ where: { id: customer.id }, data: { totalSpentMinor: spent, ordersCount: orders, averageCheckMinor: spent.div(orders).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP), debtBalanceMinor: balance } });
-          if (debt.gt(0)) await tx.customerDebtEntry.create({ data: { customerId: customer.id, saleId: sale.id, type: 'SALE', amountMinor: debt, balanceAfterMinor: balance } });
-          if (bonus.gt(0)) {
-            const bonusBalance = customer.bonusBalanceMinor.minus(bonus);
-            await tx.customer.update({ where: { id: customer.id }, data: { bonusBalanceMinor: bonusBalance } });
-            const transaction = await tx.bonusTransaction.create({ data: { operationId: input.operationId, customerId: customer.id, actorId, type: 'SPEND', deltaMinor: bonus.neg(), balanceAfterMinor: bonusBalance, reason: `Оплата бонусами по чеку ${sale.number}` } });
-            await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_BONUS_SPENT', entityType: 'BonusTransaction', entityId: transaction.id, newValue: { customerId: customer.id, saleId: sale.id, amountMinor: bonus.toString() } } });
-          }
-          if (loyalty.mode === 'BONUS') {
-            const earned = total.minus(bonus).minus(debt).mul(percentBasisPoints(loyalty.bonusEarnPercent).toString()).div(10000).floor();
-            if (earned.gt(0)) {
-              const current = await tx.customer.findUniqueOrThrow({ where: { id: customer.id } });
-              const nextBalance = current.bonusBalanceMinor.plus(earned);
-              if (nextBalance.gt(maximum)) throw new ConflictException('Bonus balance exceeds database range');
-              await tx.customer.update({ where: { id: customer.id }, data: { bonusBalanceMinor: nextBalance } });
-              await tx.bonusTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'earn'), customerId: customer.id, actorId, type: 'EARN', deltaMinor: earned, balanceAfterMinor: nextBalance, reason: `Начисление по чеку ${sale.number}` } });
-            }
-          }
-        }
-        const employee = await tx.user.findUniqueOrThrow({ where: { id: actorId } });
-        const rewardEarned = total.mul(employee.rewardPercent).div(100).floor();
-        if (rewardEarned.gt(0)) {
-          // Reward is posted atomically with the successful receipt at the employee's current rate.
-          const rewardedId = seller?.id ?? actorId;
-          const nextBalance = employee.rewardBalanceMinor.plus(rewardEarned);
-          if (nextBalance.gt(maximum)) throw new ConflictException('Employee reward balance exceeds database range');
-          await tx.user.update({ where: { id: rewardedId }, data: { rewardBalanceMinor: nextBalance } });
-          await tx.employeeRewardTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'employee-earn'), employeeId: rewardedId, saleId: sale.id, deltaMinor: rewardEarned, balanceAfterMinor: nextBalance, reason: `Продажа ${sale.number}` } });
-        }
-        await tx.auditLog.create({ data: { userId: actorId, action: 'SALE_COMPLETED', entityType: 'Sale', entityId: sale.id, newValue: { storeId, totalMinor: total.toString(), debtMinor: debt.toString(), itemCount: lines.length } } });
-        await tx.posDevice.update({ where: { deviceId: input.deviceId }, data: { lastActivityAt: new Date() } });
-        await this.notifications.recordLargeDiscount(tx, sale, subtotal, discount);
-        return tx.sale.findUniqueOrThrow({ where: { id: sale.id }, include: saleInclude });
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }); }
-      catch (error) { if (retryable(error) && attempt < 2) continue; if (retryable(error)) throw new ConflictException('Concurrent sale'); throw error; }
+      try {
+        return await this.db.$transaction(tx => this.createInTransaction(tx, storeId, input, actorId, { offlineSale, unlimitedDiscount }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+      } catch (error) {
+        if (retryable(error) && attempt < 2) continue;
+        if (retryable(error)) throw new ConflictException('Concurrent sale');
+        throw error;
+      }
     }
     throw new ConflictException('Sale could not be completed');
+  }
+
+  async createInTransaction(
+    tx: Prisma.TransactionClient,
+    storeId: string,
+    input: SaleInput,
+    actorId: string,
+    options: { offlineSale?: boolean; unlimitedDiscount?: boolean; orderPrices?: ReadonlyMap<string, string>; prepaidCashMinor?: Prisma.Decimal } = {},
+  ) {
+    const offlineSale = options.offlineSale ?? false;
+    const unlimitedDiscount = options.unlimitedDiscount ?? true;
+    const requestHash = createHash('sha256').update(JSON.stringify({ storeId, ...input })).digest('hex');
+    const existing = await tx.sale.findUnique({ where: { operationId: input.operationId }, include: saleInclude });
+    if (existing) {
+      if (existing.storeId !== storeId || existing.requestHash !== requestHash) throw new ConflictException('Operation ID was used for another sale');
+      return existing;
+    }
+    if (!await tx.store.findFirst({ where: { id: storeId, deletedAt: null, status: 'ACTIVE' } })) throw new NotFoundException('Active store not found');
+    const device = await tx.posDevice.findUnique({ where: { deviceId: input.deviceId } });
+    if (!device || device.storeId !== storeId || device.status !== 'ACTIVE') throw new ConflictException('POS device is not active in this store');
+    const customer = input.customerId ? await tx.customer.findFirst({ where: { id: input.customerId, deletedAt: null } }) : null;
+    if (input.customerId && !customer) throw new NotFoundException('Customer not found');
+    const savedLoyalty = await tx.loyaltySettings.findUnique({ where: { id: 1 } });
+    const loyalty = savedLoyalty ? loyaltySettingsSchema.parse(savedLoyalty.rules) : defaultLoyaltySettings;
+    const lines = [];
+    for (const item of input.items) {
+      const product = await tx.product.findFirst({ where: { id: item.productId, deletedAt: null } });
+      if (!product) throw new NotFoundException('Product not found');
+      const settings = await tx.storeProductSettings.findUnique({ where: { storeId_productId: { storeId, productId: item.productId } } });
+      const quotedPrice = options.orderPrices?.get(item.productId) ?? (offlineSale ? item.priceMinor : undefined);
+      if (quotedPrice === undefined && (!settings?.active || settings.priceMinor === null || settings.priceMinor < 0)) throw new ConflictException(`Product ${product.sku} has no active store price`);
+      const batch = await tx.productBatch.findFirst({ where: { productId: item.productId, storeId }, orderBy: { receivedAt: 'desc' } });
+      // A missing purchase cost must not stop the till; the sale is recorded at zero cost and flagged for the back office.
+      const knownCost = batch?.purchasePriceMinor ?? (settings?.costBasisMinor == null ? null : new Prisma.Decimal(settings.costBasisMinor));
+      const costMissing = knownCost === null;
+      const purchasePriceMinor = knownCost ?? new Prisma.Decimal(0);
+      const price = new Prisma.Decimal(quotedPrice ?? settings!.priceMinor!);
+      const gross = price.mul(item.quantity);
+      const discount = new Prisma.Decimal(item.discountMinor);
+      if (discount.gt(gross)) throw new BadRequestException('Line discount exceeds line price');
+      const cost = purchasePriceMinor.mul(item.quantity);
+      lines.push({ productId: item.productId, brandId: product.brandId, categoryId: product.categoryId, quantity: item.quantity, priceMinor: price, currentPriceMinor: settings?.priceMinor ?? null, purchasePriceMinor, discountMinor: discount, totalMinor: gross.minus(discount), profitMinor: gross.minus(discount).minus(cost), batchId: batch?.id ?? null, gross, cost, costMissing, sku: product.sku });
+    }
+    const subtotal = sum(lines.map(line => line.gross));
+    let manualDiscount = new Prisma.Decimal(0);
+    for (const line of lines) {
+      const percent = !options.orderPrices && loyalty.mode === 'DISCOUNT' ? automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null, BigInt(subtotal.toString())) : '0';
+      const minimumDiscount = line.gross.mul(percentBasisPoints(percent).toString()).div(10000).floor();
+      if (line.discountMinor.lt(minimumDiscount)) throw new BadRequestException(`Automatic discount is missing for product ${line.productId}`);
+      manualDiscount = manualDiscount.plus(line.discountMinor.minus(minimumDiscount));
+    }
+    if (!options.orderPrices && !unlimitedDiscount && manualDiscount.mul(10000).gt(subtotal.mul(percentBasisPoints(loyalty.maxManualDiscountPercent).toString()))) throw new ForbiddenException('Manual discount exceeds limit');
+    // Ignore legacy seller choices, including queued receipts from older tills.
+    const seller = { id: actorId };
+    const discount = sum(lines.map(line => line.discountMinor));
+    const total = subtotal.minus(discount);
+    const cost = sum(lines.map(line => line.cost));
+    if (total.gt(maximum) || cost.gt(maximum) || subtotal.gt(maximum)) throw new BadRequestException('Sale amount exceeds database range');
+    const methodIds = [...new Set(input.payments.map(payment => payment.paymentMethodId))];
+    const methods = await tx.salePaymentMethod.findMany({ where: { id: { in: methodIds }, active: options.orderPrices ? undefined : true, ...paymentMethodStoreFilter(storeId) } });
+    if (methods.length !== methodIds.length) throw new BadRequestException('Payment method is unavailable');
+    const byId = new Map(methods.map(method => [method.id, method]));
+    let cash = new Prisma.Decimal(0);
+    let debt = new Prisma.Decimal(0);
+    let bonus = new Prisma.Decimal(0);
+    for (const payment of input.payments) {
+      const amount = new Prisma.Decimal(payment.amountMinor);
+      if (amount.lte(0)) throw new BadRequestException('Payment amount must be positive');
+      const method = byId.get(payment.paymentMethodId)!;
+      if (method.kind === 'BONUS') bonus = bonus.plus(amount);
+      if (method.kind === 'DEBT') debt = debt.plus(amount);
+      if (method.kind === 'CASH') cash = cash.plus(amount);
+    }
+    if (!sum(input.payments.map(payment => new Prisma.Decimal(payment.amountMinor))).eq(total)) throw new BadRequestException('Payments must equal sale total');
+    if (debt.gt(0) && !customer) throw new BadRequestException('Customer is required for debt sale');
+    if (bonus.gt(0)) {
+      if (loyalty.mode !== 'BONUS') throw new BadRequestException('Bonus payments are disabled in discount mode');
+      if (offlineSale) throw new BadRequestException('Bonus payments require an online sale');
+      if (!customer) throw new BadRequestException('Customer is required for bonus payment');
+      if (bonus.gt(customer.bonusBalanceMinor)) throw new ConflictException('Customer bonus balance is insufficient');
+      if (await tx.bonusTransaction.findUnique({ where: { operationId: input.operationId } })) throw new ConflictException('Operation ID was used for another bonus transaction');
+    }
+    if (cash.gt(0) && !input.cashShiftId) throw new BadRequestException('Cash shift is required for cash sales');
+    let cashShiftId = input.cashShiftId;
+    if (cashShiftId && !await tx.cashShift.findFirst({ where: { id: cashShiftId, storeId, deviceId: input.deviceId, status: 'OPEN' } })) {
+      // A queued non-cash sale may arrive after its shift was closed; it then stays outside any shift.
+      if (cash.gt(0) || !offlineSale) throw new ConflictException('Device has no matching open cash shift');
+      cashShiftId = undefined;
+    }
+    // Receipts get the next number in their store; a concurrent sale makes the transaction retry.
+    const sequence = ((await tx.sale.aggregate({ where: { storeId }, _max: { sequence: true } }))._max.sequence ?? 0) + 1;
+    const sale = await tx.sale.create({ data: { operationId: input.operationId, requestHash, number: String(sequence), sequence, storeId, deviceId: input.deviceId, cashShiftId, customerId: input.customerId, employeeId: actorId, sellerId: seller?.id ?? null, comment: input.comment || null, subtotalMinor: subtotal, discountMinor: discount, totalMinor: total, costMinor: cost, profitMinor: total.minus(cost), debtMinor: debt } });
+    for (const line of lines) {
+      const saleItem = await tx.saleItem.create({ data: { saleId: sale.id, productId: line.productId, quantity: line.quantity, priceMinor: line.priceMinor, purchasePriceMinor: line.purchasePriceMinor, discountMinor: line.discountMinor, totalMinor: line.totalMinor, profitMinor: line.profitMinor, batchId: line.batchId } });
+      if (line.costMissing) await tx.auditLog.create({ data: { userId: actorId, action: 'PURCHASE_COST_MISSING', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, sku: line.sku } } });
+      if (offlineSale && line.currentPriceMinor !== null && !line.priceMinor.eq(line.currentPriceMinor)) await tx.auditLog.create({ data: { userId: actorId, action: 'OFFLINE_PRICE_DIFFERENCE', entityType: 'SaleItem', entityId: saleItem.id, newValue: { saleId: sale.id, productId: line.productId, quotedPriceMinor: line.priceMinor.toString(), currentPriceMinor: String(line.currentPriceMinor) } } });
+      const movement = await this.stock.applyMovementInTransaction(tx, { storeId, productId: line.productId, type: 'SALE', delta: -line.quantity, sourceType: 'SALE_ITEM', sourceId: saleItem.id, actorId });
+      if (movement.newQuantity < 0) await tx.auditLog.create({ data: { userId: actorId, action: 'NEGATIVE_STOCK', entityType: 'Stock', entityId: `${storeId}:${line.productId}`, newValue: { quantity: movement.newQuantity, saleId: sale.id, productId: line.productId } } });
+    }
+    let prepaidCash = options.prepaidCashMinor ?? new Prisma.Decimal(0);
+    for (const part of input.payments) {
+      const payment = await tx.payment.create({ data: { saleId: sale.id, paymentMethodId: part.paymentMethodId, amountMinor: part.amountMinor, reference: part.reference } });
+      if (byId.get(part.paymentMethodId)!.kind === 'CASH') {
+        const amount = new Prisma.Decimal(part.amountMinor);
+        const prepaid = Prisma.Decimal.min(prepaidCash, amount);
+        prepaidCash = prepaidCash.minus(prepaid);
+        const cashNow = amount.minus(prepaid);
+        if (cashNow.gt(0)) await this.finance.postCashInTransaction(tx, { storeId, shiftId: input.cashShiftId!, actorId, type: 'SALE', amount: cashNow, sourceType: 'SALE_PAYMENT', sourceId: payment.id });
+      }
+    }
+    if (customer) {
+      const spent = customer.totalSpentMinor.plus(total);
+      const orders = customer.ordersCount + 1;
+      const balance = customer.debtBalanceMinor.plus(debt);
+      if (spent.gt(maximum) || balance.gt(maximum)) throw new ConflictException('Customer balance exceeds database range');
+      await tx.customer.update({ where: { id: customer.id }, data: { totalSpentMinor: spent, ordersCount: orders, averageCheckMinor: spent.div(orders).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP), debtBalanceMinor: balance } });
+      if (debt.gt(0)) await tx.customerDebtEntry.create({ data: { customerId: customer.id, saleId: sale.id, type: 'SALE', amountMinor: debt, balanceAfterMinor: balance } });
+      if (bonus.gt(0)) {
+        const bonusBalance = customer.bonusBalanceMinor.minus(bonus);
+        await tx.customer.update({ where: { id: customer.id }, data: { bonusBalanceMinor: bonusBalance } });
+        const transaction = await tx.bonusTransaction.create({ data: { operationId: input.operationId, customerId: customer.id, actorId, type: 'SPEND', deltaMinor: bonus.neg(), balanceAfterMinor: bonusBalance, reason: `Оплата бонусами по чеку ${sale.number}` } });
+        await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_BONUS_SPENT', entityType: 'BonusTransaction', entityId: transaction.id, newValue: { customerId: customer.id, saleId: sale.id, amountMinor: bonus.toString() } } });
+      }
+      if (loyalty.mode === 'BONUS') {
+        const earned = total.minus(bonus).minus(debt).mul(percentBasisPoints(loyalty.bonusEarnPercent).toString()).div(10000).floor();
+        if (earned.gt(0)) {
+          const current = await tx.customer.findUniqueOrThrow({ where: { id: customer.id } });
+          const nextBalance = current.bonusBalanceMinor.plus(earned);
+          if (nextBalance.gt(maximum)) throw new ConflictException('Bonus balance exceeds database range');
+          await tx.customer.update({ where: { id: customer.id }, data: { bonusBalanceMinor: nextBalance } });
+          await tx.bonusTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'earn'), customerId: customer.id, actorId, type: 'EARN', deltaMinor: earned, balanceAfterMinor: nextBalance, reason: `Начисление по чеку ${sale.number}` } });
+        }
+      }
+    }
+    const employee = await tx.user.findUniqueOrThrow({ where: { id: actorId } });
+    const rewardEarned = total.mul(employee.rewardPercent).div(100).floor();
+    if (rewardEarned.gt(0)) {
+      // Reward is posted atomically with the successful receipt at the employee's current rate.
+      const rewardedId = seller?.id ?? actorId;
+      const nextBalance = employee.rewardBalanceMinor.plus(rewardEarned);
+      if (nextBalance.gt(maximum)) throw new ConflictException('Employee reward balance exceeds database range');
+      await tx.user.update({ where: { id: rewardedId }, data: { rewardBalanceMinor: nextBalance } });
+      await tx.employeeRewardTransaction.create({ data: { operationId: derivedOperationId(input.operationId, 'employee-earn'), employeeId: rewardedId, saleId: sale.id, deltaMinor: rewardEarned, balanceAfterMinor: nextBalance, reason: `Продажа ${sale.number}` } });
+    }
+    await tx.auditLog.create({ data: { userId: actorId, action: 'SALE_COMPLETED', entityType: 'Sale', entityId: sale.id, newValue: { storeId, totalMinor: total.toString(), debtMinor: debt.toString(), itemCount: lines.length } } });
+    await tx.posDevice.update({ where: { deviceId: input.deviceId }, data: { lastActivityAt: new Date() } });
+    await this.notifications.recordLargeDiscount(tx, sale, subtotal, discount);
+    return tx.sale.findUniqueOrThrow({ where: { id: sale.id }, include: saleInclude });
   }
 }

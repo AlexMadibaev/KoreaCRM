@@ -55,7 +55,7 @@ export function ProductPriceEditor({ productId, readOnly = false }: { productId:
     {readOnly ? <label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={!stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label> : <form onSubmit={save}>
       <label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={saving || !stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
       <label>Новая цена, сомони<MoneyInput aria-label="Цена продажи, сомони" valueMinor={priceMinor} onMinorChange={setPriceMinor} placeholder="0,00" disabled={loading || saving || !storeId} required /></label>
-      <button className="crm-primary-button" disabled={loading || saving || !storeId || !priceMinor}>{saving ? 'Сохранение…' : 'Сохранить цену'}</button>
+      <button className="ks-button ks-button--primary crm-primary-button" disabled={loading || saving || !storeId || !priceMinor}>{saving ? 'Сохранение…' : 'Сохранить цену'}</button>
     </form>}
     {error && <p role="alert" className="crm-alert">{error}</p>}
     {notice && <p role="status" className="crm-product-notice">{notice}</p>}

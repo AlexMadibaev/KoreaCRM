@@ -49,3 +49,22 @@ test('receiving replays the same operation without changing stock', async () => 
   assert.equal((await service.receive(storeId, purchaseId, input, 'user-1')).id, existing.id);
   assert.equal(writes, 0);
 });
+
+// Received batch history must remain constrained to the route store even with filters.
+test('purchase price history preserves store scope and uses immutable batch costs', async () => {
+  const queries: { where: Record<string, unknown> }[] = [];
+  const db = {
+    store: { findFirst: async () => ({ id: storeId }) },
+    productBatch: {
+      findMany: async (query: { where: Record<string, unknown> }) => { queries.push(query); return []; },
+      count: async (query: { where: Record<string, unknown> }) => { queries.push(query); return 0; },
+    },
+    $transaction: async (requests: Promise<unknown>[]) => Promise.all(requests),
+  } as unknown as DatabaseService;
+  const result = await new PurchasesService(db, {} as StockService).priceHistory(storeId, { page: 2, limit: 20, supplierId: 'supplier-1', search: 'Skin1004' });
+  assert.equal(result.total, 0);
+  for (const query of queries) {
+    assert.equal(query.where.storeId, storeId);
+    assert.equal(query.where.supplierId, 'supplier-1');
+  }
+});

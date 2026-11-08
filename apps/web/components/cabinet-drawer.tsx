@@ -14,7 +14,7 @@ export function CabinetDrawer({ title, children, onClose }: { title: string; chi
     return () => { dialog?.close(); document.body.style.overflow = previousOverflow; };
   }, []);
   return <dialog ref={dialogRef} className="crm-document-drawer" aria-labelledby={headingId} onCancel={event => { event.preventDefault(); onClose(); }}>
-    <header className="crm-document-drawer-head"><button type="button" aria-label="Закрыть карточку" onClick={onClose}><X size={20} aria-hidden /></button><h2 id={headingId}>{title}</h2></header>
+    <header className="crm-document-drawer-head"><button className="ks-button ks-button--ghost ks-button--icon" type="button" aria-label="Закрыть карточку" onClick={onClose}><X size={20} aria-hidden /></button><h2 id={headingId}>{title}</h2></header>
     <div className="crm-document-drawer-body">{children}</div>
   </dialog>;
 }

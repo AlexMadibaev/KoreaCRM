@@ -58,8 +58,8 @@ export function DocumentCard({ kind, id, onClose, onOpen }: { kind: Kind; id: st
         <span className="crm-doc-created">Создан {dateTimeFormat.format(new Date(detail.occurredAt))}</span>
         <span className={`crm-doc-status ${done.has(detail.status) ? 'is-done' : cancelled.has(detail.status) ? 'is-cancelled' : 'is-pending'}`}><StatusIcon status={detail.status} /> {statusTitle[detail.status] ?? detail.status}</span>
         <span className="crm-doc-actions">
-          <button type="button" className="crm-icon-button" aria-label="Печать" title="Печать" onClick={() => window.print()}><Printer size={16} aria-hidden /></button>
-          <Link className="crm-outline-button" href={sectionHref(detail)}><ExternalLink size={14} aria-hidden /> Открыть в разделе</Link>
+          <button type="button" className="ks-button ks-button--ghost ks-button--icon crm-icon-button" aria-label="Печать" title="Печать" onClick={() => window.print()}><Printer size={16} aria-hidden /></button>
+          <Link className="ks-button ks-button--secondary crm-outline-button" href={sectionHref(detail)}><ExternalLink size={14} aria-hidden /> Открыть в разделе</Link>
         </span>
       </div>
       <div className="crm-doc-fields">
@@ -73,20 +73,20 @@ export function DocumentCard({ kind, id, onClose, onOpen }: { kind: Kind; id: st
       </div>
       {detail.payments.length > 0 && <>
         <h3 className="crm-shift-section">Оплата</h3>
-        <table className="crm-shift-table"><thead><tr><th scope="col">#</th><th scope="col">Счёт</th><th scope="col">Способ</th><th scope="col">Дата</th><th scope="col" className="num">Сумма</th></tr></thead>
-          <tbody>{detail.payments.map((payment, index) => <tr key={index}><td>{index + 1}</td><td>{payment.account}</td><td>{payment.method}</td><td>{dateTimeFormat.format(new Date(payment.occurredAt))}</td><td className="num">{amount(payment.amountMinor)} смн.</td></tr>)}</tbody></table>
+        <div className="crm-table-region" role="region" aria-label="Таблица данных" tabIndex={0}><table className="crm-shift-table"><thead><tr><th scope="col">#</th><th scope="col">Счёт</th><th scope="col">Способ</th><th scope="col">Дата</th><th scope="col" className="num">Сумма</th></tr></thead>
+          <tbody>{detail.payments.map((payment, index) => <tr key={index}><td>{index + 1}</td><td>{payment.account}</td><td>{payment.method}</td><td>{dateTimeFormat.format(new Date(payment.occurredAt))}</td><td className="num">{amount(payment.amountMinor)} смн.</td></tr>)}</tbody></table></div>
       </>}
       <h3 className="crm-shift-section">Товары</h3>
       <label className="crm-doc-search"><span className="sr-only">Поиск товаров</span><input type="search" placeholder="Поиск товаров" value={filter} onChange={event => setFilter(event.target.value)} /></label>
-      <div className="crm-report-scroll"><table className="crm-shift-table">
+      <div className="crm-report-scroll"><div className="crm-table-region" role="region" aria-label="Таблица данных" tabIndex={0}><table className="crm-shift-table">
         <thead><tr><th scope="col">Наименование</th><th scope="col">Штрих-код</th><th scope="col">Артикул</th><th scope="col" className="num">Количество</th>{extra === 'received' && <th scope="col" className="num">Принято</th>}{extra === 'expected' && <th scope="col" className="num">Ожидалось</th>}{extra === 'after' && <th scope="col" className="num">Остаток после</th>}<th scope="col" className="num">Цена</th><th scope="col" className="num">Скидка</th><th scope="col" className="num">Итог</th></tr></thead>
         <tbody>{lines.map((line, index) => <tr key={`${line.productId}-${index}`}><td>{line.name}</td><td>{line.barcode ?? ''}</td><td>{line.sku}</td><td className="num">{line.quantity ?? '—'}</td>{extra === 'received' && <td className="num">{line.received}</td>}{extra === 'expected' && <td className="num">{line.expected}</td>}{extra === 'after' && <td className="num">{line.after}</td>}<td className="num">{line.priceMinor ? amount(line.priceMinor) : '—'}</td><td className="num">{line.discountMinor !== '0' ? amount(line.discountMinor) : ''}</td><td className="num">{line.totalMinor ? amount(line.totalMinor) : '—'}</td></tr>)}</tbody>
         <tfoot><tr><td>Итог</td><td /><td /><td className="num">{sum('quantity')}</td>{extra && <td />}<td className="num">-</td><td className="num">{sum('discountMinor') !== '0' ? amount(sum('discountMinor')) : ''}</td><td className="num">{lines.some(line => line.totalMinor) ? amount(sum('totalMinor')) : ''}</td></tr></tfoot>
-      </table></div>
+      </table></div></div>
       {detail.comment && <p className="crm-doc-comment">Комментарий: {detail.comment}</p>}
       {detail.related.length > 0 && <>
         <h3 className="crm-shift-section">Связанные документы</h3>
-        <ul className="crm-doc-related">{detail.related.map(item => <li key={item.id}><button type="button" className="crm-link-button" onClick={() => onOpen?.(item.kind, item.id)}>{item.title}</button>{item.amountMinor && <span>{amount(item.amountMinor)} смн.</span>}{item.occurredAt && <span>{dateTimeFormat.format(new Date(item.occurredAt))}</span>}{item.note && <span>{item.note}</span>}</li>)}</ul>
+        <ul className="crm-doc-related">{detail.related.map(item => <li key={item.id}><button type="button" className="ks-button ks-button--ghost ks-button--sm crm-link-button" onClick={() => onOpen?.(item.kind, item.id)}>{item.title}</button>{item.amountMinor && <span>{amount(item.amountMinor)} смн.</span>}{item.occurredAt && <span>{dateTimeFormat.format(new Date(item.occurredAt))}</span>}{item.note && <span>{item.note}</span>}</li>)}</ul>
       </>}
     </div>}
   </CabinetDrawer>;

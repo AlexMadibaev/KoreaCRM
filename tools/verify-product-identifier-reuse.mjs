@@ -1,0 +1,38 @@
+import assert from 'node:assert/strict';
+import { randomUUID, createHash } from 'node:crypto';
+import { createRequire } from 'node:module';
+import { CatalogService } from '../apps/api/src/catalog/catalog.service.ts';
+import { StockService } from '../apps/api/src/stock/stock.service.ts';
+const connection = new URL(process.env.DATABASE_URL ?? '');
+if (!['127.0.0.1', 'localhost'].includes(connection.hostname) || !/^\/koreacrm_identifier_test_/.test(connection.pathname)) throw Error('This writes fixtures: use a separate local koreacrm_identifier_test_* database.');
+const require = createRequire(new URL('../apps/api/package.json', import.meta.url));
+const { PrismaClient } = require('@prisma/client');
+const db = new PrismaClient();
+const run = randomUUID();
+try {
+  const role = await db.role.create({ data: { code: `VERIFY-${run}`, name: 'Identifier test' } });
+  const user = await db.user.create({ data: { login: `verify-${run}`, name: 'Identifier test', passwordHash: createHash('sha256').update(run).digest('hex'), roleId: role.id } });
+  const store = await db.store.create({ data: { code: `VERIFY-${run}`, name: 'Identifier test' } });
+  const service = new CatalogService(db);
+  const input = { name: 'Original cream', sku: `SKU-${run}`, unit: 'pcs', status: 'ACTIVE', barcodes: [`BAR-${run}`], imageKeys: [] };
+  const old = await service.createProduct(input, user.id);
+  await new StockService(db).applyMovement({ storeId: store.id, productId: old.id, type: 'PURCHASE', delta: 3, sourceType: 'IDENTIFIER_TEST', sourceId: run, actorId: user.id });
+  await assert.rejects(service.createProduct(input, user.id), (error) => error.getStatus?.() === 409);
+  await assert.rejects(service.createProduct({ ...input, sku: `OTHER-${run}` }, user.id), (error) => error.getStatus?.() === 409);
+  await service.deleteProduct(old.id, user.id);
+  const archived = await db.product.findUnique({ where: { id: old.id }, include: { barcodes: true } });
+  assert.ok(archived.deletedAt);
+  assert.equal(archived.sku, input.sku);
+  assert.equal(archived.barcodes[0].value, input.barcodes[0]);
+  assert.ok(archived.barcodes[0].deletedAt);
+  const replacement = await service.createProduct({ ...input, name: 'New cream' }, user.id);
+  assert.notEqual(replacement.id, old.id);
+  assert.equal(await db.stock.count({ where: { productId: replacement.id } }), 0);
+  assert.equal((await db.stock.findFirst({ where: { productId: old.id } })).quantity, 3);
+  const scanned = await db.productBarcode.findFirst({ where: { value: input.barcodes[0], deletedAt: null, product: { deletedAt: null } } });
+  assert.equal(scanned.productId, replacement.id);
+  await assert.rejects(service.deleteProduct(replacement.id, randomUUID()));
+  assert.equal((await db.product.findUnique({ where: { id: replacement.id } })).deletedAt, null);
+  assert.equal((await db.productBarcode.findFirst({ where: { productId: replacement.id } })).deletedAt, null);
+  console.log('Passed: active duplicates rejected; archive retains identifiers and stock; re-created card is independent; scanner resolves active card; failed deletion rolls back.');
+} finally { await db.$disconnect(); }

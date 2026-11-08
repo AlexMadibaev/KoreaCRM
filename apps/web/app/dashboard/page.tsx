@@ -96,9 +96,9 @@ export default function DashboardPage() {
   const stockHref = `/stock?filter=low${storeId ? `&storeId=${encodeURIComponent(storeId)}` : ''}`;
 
   return <CatalogShell>
-    <div className="crm-page-head"><div><span className="crm-eyebrow">ПАНЕЛЬ УПРАВЛЕНИЯ</span><h1>Обзор бизнеса</h1><p>Ключевые показатели и быстрый доступ к работе магазина.</p></div><Link href="/account" className="crm-outline-button">Мой профиль <span>↗</span></Link></div>
+    <div className="crm-page-head"><div><span className="crm-eyebrow">ПАНЕЛЬ УПРАВЛЕНИЯ</span><h1>Обзор бизнеса</h1><p>Ключевые показатели и быстрый доступ к работе магазина.</p></div><div className="crm-page-actions"><Link href="/account" className="ks-button ks-button--secondary crm-outline-button">Мой профиль <span>↗</span></Link></div></div>
     <div className="crm-dashboard-filters">
-      <div className="crm-periods" role="group" aria-label="Период отчёта">{([['today', 'Сегодня'], ['week', '7 дней'], ['month', '30 дней']] as const).map(([key, label]) => <button key={key} className={period === key ? 'selected' : ''} onClick={() => setPeriod(key)}>{label}</button>)}</div>
+      <div className="crm-periods" role="group" aria-label="Период отчёта">{([['today', 'Сегодня'], ['week', '7 дней'], ['month', '30 дней']] as const).map(([key, label]) => <button key={key} className={["ks-control", period === key ? 'selected' : ''].filter(Boolean).join(" ")} onClick={() => setPeriod(key)}>{label}</button>)}</div>
       <label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)}><option value="">{scope === 'all' ? 'Вся история сети' : 'Все действующие магазины'}</option>{stores.map(store => <option key={store.id} value={store.id}>{store.name}{store.deletedAt || store.status && store.status !== 'ACTIVE' ? ' (архив)' : ''}</option>)}</select></label>
     </div>
     <label className="crm-dashboard-archive"><input type="checkbox" checked={scope === 'all'} onChange={event => { setScope(event.target.checked ? 'all' : 'active'); setStoreId(''); }} /> Включить архивные магазины в отчёт</label>
