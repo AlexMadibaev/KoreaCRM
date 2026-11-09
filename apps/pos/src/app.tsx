@@ -764,11 +764,11 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     <button className="login-return" type="button" onClick={() => setShowSignup(false)}>Вернуться ко входу</button>
   </section> : !storeConnection || setupRequested ? <form onSubmit={connectStore} className="panel login-form">
     <img className="login-brand-logo" src="/koreacrm-logo.svg" alt="Korea Secret" />
-    <span className="login-welcome">ПЕРВАЯ НАСТРОЙКА</span>
-    <h1>Подключить точку</h1>
+    <span className="login-welcome">{storeConnection ? 'НАСТРОЙКА МАГАЗИНА' : 'ПЕРВАЯ НАСТРОЙКА'}</span>
+    <h1>{storeConnection ? 'Изменить точку' : 'Подключить точку'}</h1>
     <p className="login-intro">Введите адрес сервера и ID-код магазина. Касса запомнит точку — повторять настройку при каждом входе не нужно.</p>
     <label>Адрес сервера<input required type="url" value={apiUrl} onChange={event => setApiUrl(event.target.value)} placeholder="https://ваш-магазин.uz/api" /></label>
-    <label>ID-код точки<input required autoComplete="off" minLength={2} maxLength={40} value={storeCode} onChange={event => setStoreCode(event.target.value.toUpperCase())} placeholder="Например, SADBARG" /></label>
+    <label>Код магазина<input required autoFocus={setupRequested} autoComplete="off" minLength={2} maxLength={40} value={storeCode} onChange={event => setStoreCode(event.target.value.toUpperCase())} placeholder="Например, SADBARG" /></label>
     <p className="scan-hint">Код находится в ЛК: «Магазины» → карточка точки → «Код подключения кассы». Код точки и личный код кассира — разные вещи.</p>
     {error && <p role="alert" className="error">{error}</p>}
     <Button variant="primary" type="submit" disabled={busy}>{busy ? 'Проверяем точку…' : 'Сохранить точку'}</Button>
