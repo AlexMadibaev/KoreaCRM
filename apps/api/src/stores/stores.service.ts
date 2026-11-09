@@ -4,29 +4,34 @@ import type { z } from 'zod';
 import { DatabaseService } from '../database.service';
 import { canAccessStore, type AccessContext } from '../auth/policy';
 import { storeCreateSchema, storePatchSchema } from './stores.schemas';
+import { employeeDirectoryWhere, isBootstrapAccount } from '../employees/directory-visibility';
 
-const publicStore = { id: true, name: true, code: true, address: true, phone: true, status: true, managerId: true, manager: { select: { id: true, name: true } }, createdAt: true, _count: { select: { users: true, posDevices: true } } } as const;
+const publicStore = () => ({ id: true, name: true, code: true, address: true, phone: true, status: true, managerId: true, manager: { select: { id: true, name: true, login: true } }, createdAt: true, _count: { select: { users: { where: { user: employeeDirectoryWhere() } }, posDevices: true } } } as const);
+function storeView<T extends { managerId: string | null; manager: { id: string; name: string; login?: string } | null }>(store: T) {
+  const hidden = isBootstrapAccount(store.manager?.login);
+  return { ...store, managerId: hidden ? null : store.managerId, manager: store.manager && !hidden ? { id: store.manager.id, name: store.manager.name } : null };
+}
 
 @Injectable()
 export class StoresService {
   constructor(private readonly db: DatabaseService) {}
 
   async list(access: AccessContext) {
-    return this.db.store.findMany({ where: { deletedAt: null, id: access.allStores ? undefined : { in: access.storeIds } }, select: publicStore, orderBy: { name: 'asc' } });
+    return (await this.db.store.findMany({ where: { deletedAt: null, id: access.allStores ? undefined : { in: access.storeIds } }, select: publicStore(), orderBy: { name: 'asc' } })).map(storeView);
   }
 
   async detail(id: string, access: AccessContext) {
     if (!canAccessStore(access, id)) throw new ForbiddenException();
-    const store = await this.db.store.findFirst({ where: { id, deletedAt: null }, select: publicStore });
+    const store = await this.db.store.findFirst({ where: { id, deletedAt: null }, select: publicStore() });
     if (!store) throw new NotFoundException('Магазин не найден');
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const [employees, devices, sales, lowStock] = await Promise.all([
-      this.db.user.findMany({ where: { deletedAt: null, active: true, OR: [{ allStores: true }, { stores: { some: { storeId: id } } }] }, select: { id: true, name: true, login: true, primaryStoreId: true, allStores: true, role: { select: { code: true, name: true } } }, orderBy: { name: 'asc' } }),
+      this.db.user.findMany({ where: { ...employeeDirectoryWhere(), active: true, OR: [{ allStores: true }, { stores: { some: { storeId: id } } }] }, select: { id: true, name: true, login: true, primaryStoreId: true, allStores: true, role: { select: { code: true, name: true } } }, orderBy: { name: 'asc' } }),
       this.db.posDevice.findMany({ where: { storeId: id }, select: { deviceId: true, status: true, lastActivityAt: true, lastSyncAt: true }, orderBy: { lastActivityAt: 'desc' } }),
       this.db.sale.aggregate({ where: { storeId: id, createdAt: { gte: since }, status: 'COMPLETED' }, _count: { id: true }, _sum: { totalMinor: true } }),
       this.db.$queryRaw<{ count: bigint }[]>`SELECT COUNT(*)::bigint AS count FROM "StoreProductSettings" s LEFT JOIN "Stock" st ON st."storeId" = s."storeId" AND st."productId" = s."productId" WHERE s."storeId" = ${id}::uuid AND s.active = true AND s."minStock" > 0 AND COALESCE(st.quantity - st."reservedQuantity", 0) <= s."minStock"`,
     ]);
-    return { ...store, employees, devices, summary: { salesCount30Days: sales._count.id, salesTotalMinor30Days: (sales._sum.totalMinor ?? new Prisma.Decimal(0)).toString(), lowStockCount: Number(lowStock[0]?.count ?? 0) } };
+    return { ...storeView(store), employees, devices, summary: { salesCount30Days: sales._count.id, salesTotalMinor30Days: (sales._sum.totalMinor ?? new Prisma.Decimal(0)).toString(), lowStockCount: Number(lowStock[0]?.count ?? 0) } };
   }
 
   async create(input: z.infer<typeof storeCreateSchema>, access: AccessContext) {
@@ -50,7 +55,7 @@ export class StoresService {
     if (!current) throw new NotFoundException('Магазин не найден');
     if ((input.status === 'ARCHIVED' || current.status === 'ARCHIVED' && input.status !== undefined) && !access.permissions.includes('stores.archive')) throw new ForbiddenException('Статус архива может менять только владелец сети');
     if (input.managerId) {
-      const manager = await this.db.user.findFirst({ where: { id: input.managerId, active: true, deletedAt: null, OR: [{ allStores: true }, { stores: { some: { storeId: id } } }] }, select: { id: true } });
+      const manager = await this.db.user.findFirst({ where: { ...employeeDirectoryWhere(), id: input.managerId, active: true, OR: [{ allStores: true }, { stores: { some: { storeId: id } } }] }, select: { id: true } });
       if (!manager) throw new BadRequestException('Ответственный должен работать в этом магазине');
     }
     if (input.status && input.status !== 'ACTIVE' && current.status === 'ACTIVE' && await this.db.cashShift.count({ where: { storeId: id, status: 'OPEN' } })) throw new ConflictException('Сначала закройте кассовые смены');
@@ -63,7 +68,7 @@ export class StoresService {
 
   async assignEmployee(storeId: string, userId: string, access: AccessContext) {
     if (!canAccessStore(access, storeId)) throw new ForbiddenException();
-    const employee = await this.db.user.findFirst({ where: { id: userId, active: true, deletedAt: null }, include: { stores: true } });
+    const employee = await this.db.user.findFirst({ where: { ...employeeDirectoryWhere(), id: userId, active: true }, include: { stores: true } });
     if (!employee || !access.allStores && (employee.allStores || employee.stores.some(item => !access.storeIds.includes(item.storeId)))) throw new ForbiddenException('Сотрудник недоступен');
     const role = await this.db.role.findUnique({ where: { id: employee.roleId }, select: { code: true, permissions: { select: { permission: { select: { code: true } } } } } });
     if (!role || role.code === 'SUPERUSER' && access.role !== 'SUPERUSER' || role.permissions.some(item => !access.permissions.includes(item.permission.code))) throw new ForbiddenException('Недостаточно прав для назначения сотрудника');
@@ -80,7 +85,7 @@ export class StoresService {
 
   async unassignEmployee(storeId: string, userId: string, access: AccessContext) {
     if (!canAccessStore(access, storeId)) throw new ForbiddenException();
-    const employee = await this.db.user.findFirst({ where: { id: userId, deletedAt: null }, include: { stores: true } });
+    const employee = await this.db.user.findFirst({ where: { ...employeeDirectoryWhere(), id: userId }, include: { stores: true } });
     if (!employee || employee.allStores || !employee.stores.some(item => item.storeId === storeId)) throw new NotFoundException('Назначение не найдено');
     if (!access.allStores && employee.stores.some(item => !access.storeIds.includes(item.storeId))) throw new ForbiddenException();
     if (employee.stores.length <= 1) throw new ConflictException('Сначала назначьте сотруднику другой магазин');
