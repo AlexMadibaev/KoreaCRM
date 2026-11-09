@@ -35,12 +35,12 @@ export function CustomerHistory({ customerId, debtBalanceMinor, canComment, canC
     <div className="flex flex-wrap items-center justify-between gap-3">
       <h3 className="font-semibold">История клиента</h3>
       <div role="tablist" aria-label="История клиента" className="flex min-w-0 gap-1 rounded-lg bg-white p-1 shadow-sm">
-        <button type="button" role="tab" aria-selected={kind === 'sales'} onClick={() => selectKind('sales')} className={`rounded-md px-3 py-2 text-sm ${kind === 'sales' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Покупки</button>
-        <button type="button" role="tab" aria-selected={kind === 'returns'} onClick={() => selectKind('returns')} className={`rounded-md px-3 py-2 text-sm ${kind === 'returns' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Возвраты</button>
-        <button type="button" role="tab" aria-selected={kind === 'bonuses'} onClick={() => selectKind('bonuses')} className={`rounded-md px-3 py-2 text-sm ${kind === 'bonuses' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Бонусы</button>
-        <button type="button" role="tab" aria-selected={kind === 'debts'} onClick={() => selectKind('debts')} className={`rounded-md px-3 py-2 text-sm ${kind === 'debts' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Долги</button>
-        <button type="button" role="tab" aria-selected={kind === 'comments'} onClick={() => selectKind('comments')} className={`rounded-md px-3 py-2 text-sm ${kind === 'comments' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>Комментарии</button>
-        <button type="button" role="tab" aria-selected={kind === 'activity'} onClick={() => selectKind('activity')} className={`rounded-md px-3 py-2 text-sm ${kind === 'activity' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>История</button>
+        <button type="button" role="tab" aria-selected={kind === 'sales'} onClick={() => selectKind('sales')} className={["ks-control", `rounded-md px-3 py-2 text-sm ${kind === 'sales' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`].filter(Boolean).join(" ")}>Покупки</button>
+        <button type="button" role="tab" aria-selected={kind === 'returns'} onClick={() => selectKind('returns')} className={["ks-control", `rounded-md px-3 py-2 text-sm ${kind === 'returns' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`].filter(Boolean).join(" ")}>Возвраты</button>
+        <button type="button" role="tab" aria-selected={kind === 'bonuses'} onClick={() => selectKind('bonuses')} className={["ks-control", `rounded-md px-3 py-2 text-sm ${kind === 'bonuses' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`].filter(Boolean).join(" ")}>Бонусы</button>
+        <button type="button" role="tab" aria-selected={kind === 'debts'} onClick={() => selectKind('debts')} className={["ks-control", `rounded-md px-3 py-2 text-sm ${kind === 'debts' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`].filter(Boolean).join(" ")}>Долги</button>
+        <button type="button" role="tab" aria-selected={kind === 'comments'} onClick={() => selectKind('comments')} className={["ks-control", `rounded-md px-3 py-2 text-sm ${kind === 'comments' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`].filter(Boolean).join(" ")}>Комментарии</button>
+        <button type="button" role="tab" aria-selected={kind === 'activity'} onClick={() => selectKind('activity')} className={["ks-control", `rounded-md px-3 py-2 text-sm ${kind === 'activity' ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'}`].filter(Boolean).join(" ")}>История</button>
       </div>
     </div>
     {kind === 'debts' && <p className="mt-3 text-sm text-slate-700">Текущий долг: <strong>{money(debtBalanceMinor)}</strong></p>}
@@ -60,7 +60,7 @@ export function CustomerHistory({ customerId, debtBalanceMinor, canComment, canC
           <p className="mt-1 text-sm text-slate-500">{new Date(entry.createdAt).toLocaleString('ru-RU')} · {(entry as DebtEntry).sale?.number ? `Чек №${(entry as DebtEntry).sale?.number}` : (entry as DebtEntry).customerPayment?.paymentMethod.name ?? ''}</p>
         </>}
       </li>)}{result?.items.length === 0 && <li className="rounded-lg border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">{kind === 'sales' ? 'У клиента пока нет покупок' : kind === 'returns' ? 'У клиента пока нет возвратов' : 'Операций по долгу пока нет'}</li>}</ul>
-      {(result?.total ?? 0) > 10 && <div className="mt-3 flex items-center justify-end gap-3 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border bg-white px-3 py-1 disabled:opacity-50">Назад</button><span>{page} / {Math.ceil((result?.total ?? 0) / 10)}</span><button type="button" disabled={page * 10 >= (result?.total ?? 0)} onClick={() => setPage(page + 1)} className="rounded border bg-white px-3 py-1 disabled:opacity-50">Далее</button></div>}
+      {(result?.total ?? 0) > 10 && <div className="mt-3 flex items-center justify-end gap-3 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="ks-button ks-button--secondary">Назад</button><span>{page} / {Math.ceil((result?.total ?? 0) / 10)}</span><button type="button" disabled={page * 10 >= (result?.total ?? 0)} onClick={() => setPage(page + 1)} className="ks-button ks-button--secondary">Далее</button></div>}
     </>}
   </section>;
 }

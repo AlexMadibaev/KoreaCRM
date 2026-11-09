@@ -55,20 +55,20 @@ export default function PaymentMethodsPage() {
     void run(async () => { await api('/sale-payment-methods', { method: 'POST', body: JSON.stringify({ name, kind: newKind }) }); setNewName(''); setNewKind('CARD'); }, 'Способ оплаты добавлен.');
   }
 
-  return <CatalogShell><div className="crm-workspace-page space-y-6">
+  return <CatalogShell><div className="crm-screen crm-workspace-page">
     <header className="crm-page-head"><div><span className="crm-eyebrow">ПРОДАЖИ</span><h1>Способы оплаты</h1><p>Какие кнопки оплаты видит кассир и в каком порядке.</p></div></header>
     {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">{error}</p>}
     {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">{notice}</p>}
     {loading ? <p>Загрузка…</p> : <section className="rounded-2xl border border-slate-200 bg-white">
       <ul className="divide-y divide-slate-100">{methods.map((method, index) => <li key={method.id} className={`flex flex-wrap items-center gap-3 p-4 ${method.active ? '' : 'bg-slate-50'}`}>
-        {canEdit && <span className="flex flex-col"><button type="button" aria-label={`Поднять ${method.name}`} disabled={busy || index === 0} className="px-2 leading-none text-slate-500 disabled:opacity-30" onClick={() => move(index, -1)}>▲</button><button type="button" aria-label={`Опустить ${method.name}`} disabled={busy || index === methods.length - 1} className="px-2 leading-none text-slate-500 disabled:opacity-30" onClick={() => move(index, 1)}>▼</button></span>}
+        {canEdit && <span className="flex flex-col"><button type="button" aria-label={`Поднять ${method.name}`} disabled={busy || index === 0} className="ks-button ks-button--ghost ks-button--icon" onClick={() => move(index, -1)}>▲</button><button type="button" aria-label={`Опустить ${method.name}`} disabled={busy || index === methods.length - 1} className="ks-button ks-button--ghost ks-button--icon" onClick={() => move(index, 1)}>▼</button></span>}
         <div className="min-w-0 flex-1">
           {editingId === method.id
-            ? <form onSubmit={rename} className="flex flex-wrap gap-2"><input autoFocus required maxLength={100} aria-label="Название способа оплаты" className="rounded-lg border border-slate-200 p-2" value={editName} onChange={event => setEditName(event.target.value)} /><button disabled={busy} className="rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">Сохранить</button><button type="button" className="rounded-lg border px-4 py-2 text-sm" onClick={() => setEditingId('')}>Отмена</button></form>
+            ? <form onSubmit={rename} className="flex flex-wrap gap-2"><input autoFocus required maxLength={100} aria-label="Название способа оплаты" className="rounded-lg border border-slate-200 p-2" value={editName} onChange={event => setEditName(event.target.value)} /><button disabled={busy} className="ks-button ks-button--primary">Сохранить</button><button type="button" className="ks-button ks-button--secondary" onClick={() => setEditingId('')}>Отмена</button></form>
             : <strong className={method.active ? '' : 'text-slate-400'}>{method.name}</strong>}
           <p className="mt-1 text-xs text-slate-500">{kindName[method.kind]}{method.system ? ' · системный' : ''}{kindHint[method.kind] ? ` · ${kindHint[method.kind]}` : ''}</p>
         </div>
-        {canEdit && editingId !== method.id && <button type="button" disabled={busy} className="text-sm underline" onClick={() => { setEditingId(method.id); setEditName(method.name); }}>Переименовать</button>}
+        {canEdit && editingId !== method.id && <button type="button" disabled={busy} className="ks-button ks-button--ghost ks-button--sm" onClick={() => { setEditingId(method.id); setEditName(method.name); }}>Переименовать</button>}
         {canEdit
           ? <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={method.active} disabled={busy} onChange={event => void run(() => patch(method.id, { active: event.target.checked }), event.target.checked ? `«${method.name}» включён.` : `«${method.name}» скрыт с кассы.`)} />{method.active ? 'Включён' : 'Выключен'}</label>
           : <span className="text-sm text-slate-500">{method.active ? 'Включён' : 'Выключен'}</span>}
@@ -78,7 +78,7 @@ export default function PaymentMethodsPage() {
       <h2 className="w-full text-lg font-semibold">Новый способ оплаты</h2>
       <label className="text-sm">Название<input required maxLength={100} className="mt-1 block rounded-lg border border-slate-200 p-2" value={newName} onChange={event => setNewName(event.target.value)} placeholder="Например, Алиф" /></label>
       <label className="text-sm">Тип<select className="mt-1 block rounded-lg border border-slate-200 p-2" value={newKind} onChange={event => setNewKind(event.target.value as Kind)}>{creatableKinds.map(kind => <option key={kind} value={kind}>{kindName[kind]}</option>)}</select></label>
-      <button disabled={busy} className="rounded-lg bg-rose-500 px-5 py-2 font-semibold text-white disabled:opacity-50">Добавить</button>
+      <button disabled={busy} className="ks-button ks-button--primary">Добавить</button>
       <p className="w-full text-xs text-slate-500">Тип определяет учёт: наличные попадают в кассовую смену, остальные считаются безналичными. Способы, по которым уже были продажи, не удаляются — их можно выключить.</p>
     </form>}
   </div></CatalogShell>;

@@ -43,8 +43,8 @@ export default function ProductDetailPage() {
     <div className="crm-product-detail-header">
       <div><span className="crm-eyebrow">КАРТОЧКА ТОВАРА</span><h1>{product.name}</h1><p>Артикул {product.sku}</p></div>
       <div className="crm-product-detail-actions">
-        <button type="button" className="crm-outline-button" onClick={() => setEditing(!editing)}>{editing ? 'Отменить изменения' : 'Изменить товар'}</button>
-        <button type="button" className="crm-product-delete" disabled={deleting} onClick={() => void remove()}>{deleting ? 'Удаление…' : 'Удалить'}</button>
+        <button type="button" className="ks-button ks-button--secondary crm-outline-button" onClick={() => setEditing(!editing)}>{editing ? 'Отменить изменения' : 'Изменить товар'}</button>
+        <button type="button" className="ks-button ks-button--ghost ks-button--danger-text crm-product-delete" disabled={deleting} onClick={() => void remove()}>{deleting ? 'Удаление…' : 'Удалить'}</button>
       </div>
     </div>
     {error && <p role="alert" className="crm-alert">{error}</p>}

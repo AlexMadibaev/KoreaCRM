@@ -305,6 +305,7 @@ export class CatalogService {
     const old = await this.product(id);
     await this.db.$transaction([
       this.db.product.update({ where: { id }, data: { deletedAt: new Date() } }),
+      this.db.productBarcode.updateMany({ where: { productId: id }, data: { deletedAt: new Date() } }),
       this.db.auditLog.create({ data: { userId, action: 'PRODUCT_DELETED', entityType: 'Product', entityId: id, oldValue: auditValue(old) } }),
     ]);
     return { success: true };

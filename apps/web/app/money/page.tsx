@@ -71,7 +71,7 @@ function MoneyJournal() {
           <tr className="crm-journal-day"><th scope="rowgroup" colSpan={9}>{group.day}</th></tr>
           {group.rows.map(entry => <tr key={entry.id} className={`${entry.direction === 'OUT' ? 'is-out' : 'is-in'}${selected?.id === entry.id ? ' selected' : ''}`}>
             <td><CheckCircle2 size={16} className="is-done" aria-label="Проведён" /></td>
-            <td><button type="button" className="crm-link-button" onClick={() => setSelected(entry)}>{title(entry)}</button></td>
+            <td><button type="button" className="ks-button ks-button--ghost ks-button--sm crm-link-button" onClick={() => setSelected(entry)}>{title(entry)}</button></td>
             <td>{timeFormat.format(new Date(entry.occurredAt))}</td>
             <td className="num">{entry.direction === 'IN' ? amount(entry.amountMinor) : ''}</td>
             <td className="num">{entry.direction === 'OUT' ? amount(entry.amountMinor) : ''}</td>
@@ -82,7 +82,7 @@ function MoneyJournal() {
       {journal && !journal.items.length && !loading && <div className="crm-shifts-empty"><strong>Операций нет</strong><p>За выбранный период денег не поступало и не выплачивалось. Расширьте период или сбросьте фильтры.</p></div>}
       {!journal && loading && <p role="status" className="crm-shifts-empty">Загружаем операции…</p>}
     </div>
-    {journal && journal.total > journal.limit && <div className="crm-shifts-pages"><span>Показано {journal.items.length} из {journal.total}</span><button type="button" className="crm-outline-button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Назад</button><span>{page} / {pages}</span><button type="button" className="crm-outline-button" disabled={page >= pages || loading} onClick={() => setPage(value => value + 1)}>Вперёд</button></div>}
+    {journal && journal.total > journal.limit && <div className="crm-shifts-pages"><span>Показано {journal.items.length} из {journal.total}</span><button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Назад</button><span>{page} / {pages}</span><button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={page >= pages || loading} onClick={() => setPage(value => value + 1)}>Вперёд</button></div>}
     {selected && !document && <CabinetDrawer title={title(selected)} onClose={() => setSelected(null)}>
       <div className="crm-doc-card">
         <div className="crm-doc-toolbar"><span className="crm-doc-created">Создан {fullDate.format(new Date(selected.occurredAt))}</span><span className="crm-doc-status is-done"><CheckCircle2 size={14} aria-hidden /> Проведён</span></div>
@@ -96,7 +96,7 @@ function MoneyJournal() {
           </dl>
           <dl><div><dt>{selected.direction === 'IN' ? 'Приход' : 'Расход'}</dt><dd className={selected.direction === 'IN' ? 'crm-money-in' : 'crm-money-out'}>{selected.direction === 'IN' ? '+' : '−'}{amount(selected.amountMinor)} смн.</dd></div>{selected.comment && <div><dt>Комментарий</dt><dd>{selected.comment}</dd></div>}</dl>
         </div>
-        {selected.document && <><h3 className="crm-shift-section">Документ-основание</h3><button type="button" className="crm-link-button" onClick={() => setDocument({ kind: selected.document!.kind, id: selected.document!.id })}>{selected.document.title.replace(/ (\d+)$/, ' #$1')}</button></>}
+        {selected.document && <><h3 className="crm-shift-section">Документ-основание</h3><button type="button" className="ks-button ks-button--ghost ks-button--sm crm-link-button" onClick={() => setDocument({ kind: selected.document!.kind, id: selected.document!.id })}>{selected.document.title.replace(/ (\d+)$/, ' #$1')}</button></>}
       </div>
     </CabinetDrawer>}
     {document && <DocumentCard kind={document.kind} id={document.id} onClose={() => { setDocument(null); setSelected(null); }} onOpen={(kind, id) => setDocument({ kind, id })} />}

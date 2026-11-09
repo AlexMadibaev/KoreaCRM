@@ -1,0 +1,778 @@
+/* Focused working layouts for catalogue and purchasing. */
+.crm-workspace-page {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  color: var(--ks-color-ink);
+}
+.crm-workspace-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.crm-workspace-heading h1 {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  line-height: 1.25;
+}
+.crm-workspace-heading p {
+  margin: 7px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ks-color-text-muted);
+}
+.crm-workspace-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.crm-workspace-page :is(.crm-outline-button, .crm-primary-button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 14px;
+  border-radius: var(--ks-radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.crm-workspace-page .crm-primary-button {
+  border: 1px solid var(--ks-color-brand);
+}
+.crm-text-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--ks-color-brand-strong);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+.crm-text-action:hover {
+  text-decoration: underline;
+}
+.crm-text-action.is-danger {
+  color: var(--ks-color-danger);
+}
+.crm-workspace-page :is(button, a, input, select, summary):focus-visible {
+  outline: 2px solid var(--ks-color-brand-strong);
+  outline-offset: 3px;
+}
+.crm-catalog-filters,
+.crm-purchase-filters {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--ks-color-border);
+  border-radius: var(--ks-radius-md);
+  background: var(--ks-color-surface);
+  align-items: end;
+}
+.crm-catalog-filters {
+  grid-template-columns: minmax(230px, 2fr) repeat(4, minmax(120px, 1fr));
+}
+.crm-purchase-filters {
+  grid-template-columns: minmax(180px, 240px) minmax(220px, 440px);
+}
+.crm-main :is(.crm-products-overview, .crm-purchases-page) label {
+  display: grid;
+  align-content: start;
+  gap: 7px;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+}
+.crm-products-overview
+  label
+  > :is(input:not([type='checkbox']):not([type='radio']), select),
+.crm-purchases-page
+  label
+  > :is(input:not([type='checkbox']):not([type='radio']), select) {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.crm-catalog-search > div {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 0 12px;
+  border: 1px solid var(--ks-color-border);
+  border-radius: var(--ks-radius-sm);
+  background: var(--ks-color-surface);
+}
+.crm-catalog-search > div > svg {
+  flex-shrink: 0;
+  color: var(--ks-color-text-muted);
+}
+.crm-main
+  .crm-workspace-page
+  .crm-catalog-search.crm-catalog-search
+  input[type='search'] {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  padding: 9px 0;
+  box-shadow: none;
+  background: transparent;
+  font-size: 13px;
+}
+.crm-catalog-search > div:focus-within {
+  border-color: var(--ks-color-brand-strong);
+  box-shadow: var(--ks-focus-ring);
+}
+.crm-filter-reset {
+  grid-column: 1 / -1;
+  justify-self: start;
+  min-height: 28px;
+}
+.crm-list-panel {
+  min-width: 0;
+  border: 1px solid var(--ks-color-border);
+  border-radius: var(--ks-radius-md);
+  background: var(--ks-color-surface);
+}
+.crm-list-panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--ks-color-border);
+}
+.crm-list-panel-heading h2 {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+.crm-list-panel-heading h2 > span {
+  border-radius: 20px;
+  background: var(--ks-color-canvas);
+  padding: 3px 8px;
+  font-size: 12px;
+  font-weight: 500;
+}
+.crm-list-panel-heading p {
+  margin: 5px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ks-color-text-muted);
+}
+.crm-workspace-page .crm-columns-popover {
+  top: calc(100% + 8px);
+  right: 0;
+  left: auto;
+  z-index: 10;
+  width: min(280px, calc(100vw - 48px));
+  max-height: min(540px, 70dvh);
+  gap: 4px;
+  border-radius: var(--ks-radius-sm);
+}
+.crm-workspace-page .crm-columns-popover label {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  gap: 10px;
+  font-weight: 400;
+}
+.crm-columns-popover > strong {
+  padding: 5px 0 8px;
+  font-size: 13px;
+}
+.crm-workspace-page .crm-columns-popover input[type='checkbox'] {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+}
+.crm-table-hint {
+  margin: 0;
+  padding: 10px 20px;
+  font-size: 12px;
+  color: var(--ks-color-text-muted);
+  background: var(--ks-color-brand-subtle);
+}
+.crm-catalog-table-scroll {
+  overflow: auto;
+  max-height: min(650px, 70dvh);
+  scrollbar-gutter: stable;
+  border-radius: 0;
+}
+.crm-main .crm-products-overview .crm-products-wide {
+  width: 100%;
+  min-width: 640px;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+.crm-main .crm-products-overview .crm-products-wide :is(th, td) {
+  padding: 14px 16px;
+  font-size: 13px;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--ks-color-border);
+}
+.crm-main .crm-products-overview .crm-products-wide th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  height: auto;
+  background: var(--ks-color-canvas);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+  text-align: left;
+}
+.crm-main .crm-products-overview .crm-products-wide .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.crm-main .crm-products-overview .crm-products-wide .sticky-name {
+  width: 42%;
+  min-width: 240px;
+  max-width: 420px;
+  white-space: normal;
+  background: var(--ks-color-surface);
+}
+.crm-main .crm-products-overview .crm-products-wide th.sticky-name {
+  z-index: 3;
+  background: var(--ks-color-canvas);
+}
+.crm-main .crm-products-overview .crm-catalog-item {
+  display: grid;
+  gap: 5px;
+  text-decoration: none;
+  color: var(--ks-color-ink);
+  overflow-wrap: anywhere;
+}
+.crm-catalog-item strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.5;
+}
+.crm-catalog-item:hover strong {
+  color: var(--ks-color-brand-strong);
+  text-decoration: underline;
+}
+.crm-catalog-item :is(span, small) {
+  font-size: 12px;
+  color: var(--ks-color-text-muted);
+  line-height: 1.5;
+}
+.crm-main .crm-products-overview .crm-products-wide tbody tr:hover td {
+  background: var(--ks-color-brand-subtle);
+}
+.crm-stock-unit {
+  margin-left: 5px;
+  color: var(--ks-color-text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+.crm-workspace-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 20px;
+  min-height: 240px;
+  text-align: center;
+  color: var(--ks-color-text-muted);
+}
+.crm-workspace-empty svg {
+  color: var(--ks-color-brand-strong);
+}
+.crm-workspace-empty h3 {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--ks-color-ink);
+}
+.crm-workspace-empty p {
+  max-width: 440px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.6;
+}
+.crm-list-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 20px;
+  color: var(--ks-color-text-muted);
+  font-size: 12px;
+  border-top: 1px solid var(--ks-color-border);
+}
+.crm-list-footer > div {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.crm-catalog-additional {
+  font-size: 13px;
+  color: var(--ks-color-text-muted);
+}
+.crm-catalog-additional summary {
+  cursor: pointer;
+  padding: 8px 0;
+}
+.crm-catalog-additional .crm-auto-categories-bar {
+  margin: 12px 0 0;
+}
+.crm-purchase-table-scroll {
+  overflow-x: auto;
+}
+.crm-main .crm-purchases-page .crm-purchase-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.crm-main .crm-purchases-page .crm-purchase-table :is(th, td) {
+  padding: 15px 18px;
+  border-bottom: 1px solid var(--ks-color-border);
+  font-size: 13px;
+  text-align: left;
+}
+.crm-main .crm-purchases-page .crm-purchase-table th {
+  background: var(--ks-color-canvas);
+  font-size: 12px;
+  text-transform: none;
+  letter-spacing: 0;
+  font-weight: 600;
+}
+.crm-main .crm-purchases-page .crm-purchase-table .num {
+  text-align: right;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.crm-purchase-table td > .crm-field-note {
+  display: block;
+  margin-top: 4px;
+}
+.crm-workspace-page .crm-status-pill {
+  padding: 5px 9px;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.crm-workspace-page .crm-status-pill.pending {
+  color: var(--ks-color-warning);
+  background: var(--ks-color-brand-subtle);
+  border: 1px solid var(--ks-color-border-brand);
+}
+.crm-field-note {
+  color: var(--ks-color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+  font-weight: 400;
+}
+.crm-purchases-page .crm-document-drawer {
+  width: min(820px, 100vw);
+}
+.crm-purchase-editor {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
+.crm-purchase-editor fieldset {
+  display: grid;
+  gap: 20px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.crm-editor-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.crm-editor-section {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+  padding-top: 20px;
+  border-top: 1px solid var(--ks-color-border);
+}
+.crm-editor-section h3,
+.crm-purchase-detail-heading h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.crm-section-heading,
+.crm-purchase-detail-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+.crm-purchase-product-results {
+  max-height: 185px;
+  overflow: auto;
+  border: 1px solid var(--ks-color-border);
+  border-radius: var(--ks-radius-sm);
+}
+.crm-purchase-product-results > p {
+  margin: 0;
+  padding: 14px;
+  font-size: 13px;
+  color: var(--ks-color-text-muted);
+}
+.crm-purchase-product-results > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  border-bottom: 1px solid var(--ks-color-border);
+  color: var(--ks-color-ink);
+  background: var(--ks-color-surface);
+  text-align: left;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.crm-purchase-product-results > button:hover {
+  background: var(--ks-color-brand-subtle);
+}
+.crm-purchase-product-results > button > span:first-child {
+  display: grid;
+  gap: 3px;
+}
+.crm-purchase-product-results > button > span:last-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ks-color-brand-strong);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.crm-purchase-product-results small {
+  color: var(--ks-color-text-muted);
+}
+.crm-editor-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  border: 1px dashed var(--ks-color-border-brand);
+  border-radius: var(--ks-radius-sm);
+  color: var(--ks-color-text-muted);
+  font-size: 13px;
+}
+.crm-purchase-lines {
+  display: grid;
+  gap: 12px;
+}
+.crm-purchase-line {
+  display: grid;
+  grid-template-columns:
+    minmax(80px, 1fr) minmax(110px, 1.2fr) minmax(80px, 1fr)
+    36px;
+  gap: 12px;
+  align-items: end;
+  padding: 16px;
+  border: 1px solid var(--ks-color-border);
+  border-radius: var(--ks-radius-sm);
+  background: var(--ks-color-brand-subtle);
+}
+.crm-purchase-line-title {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+}
+.crm-purchase-line-title strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.crm-purchase-line-title small {
+  color: var(--ks-color-text-muted);
+  font-size: 12px;
+}
+.crm-line-total {
+  display: grid;
+  gap: 12px;
+  padding-bottom: 12px;
+  text-align: right;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.crm-line-total > span {
+  font-size: 12px;
+  color: var(--ks-color-text-muted);
+}
+.crm-purchase-line > .crm-icon-button {
+  margin-bottom: 3px;
+  color: var(--ks-color-danger);
+}
+.crm-editor-footer {
+  position: sticky;
+  bottom: -22px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 0 -22px -22px;
+  padding: 18px 22px;
+  border-top: 1px solid var(--ks-color-border);
+  background: var(--ks-color-surface);
+}
+.crm-editor-footer > div {
+  display: grid;
+  gap: 4px;
+}
+.crm-editor-footer span {
+  font-size: 12px;
+  color: var(--ks-color-text-muted);
+}
+.crm-editor-footer strong {
+  font-size: 24px;
+  font-variant-numeric: tabular-nums;
+}
+.crm-workspace-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--ks-color-border-brand);
+  border-radius: var(--ks-radius-sm);
+  background: var(--ks-color-brand-subtle);
+  color: var(--ks-color-ink);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.crm-workspace-notice svg {
+  flex-shrink: 0;
+  color: var(--ks-color-success);
+  margin-top: 2px;
+}
+.crm-purchase-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 16px;
+  background: var(--ks-color-canvas);
+  border-radius: var(--ks-radius-sm);
+}
+.crm-purchase-summary > div {
+  display: grid;
+  gap: 8px;
+}
+.crm-purchase-summary span {
+  font-size: 12px;
+  color: var(--ks-color-text-muted);
+  line-height: 1.5;
+}
+.crm-purchase-summary strong {
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+.crm-purchase-item-list {
+  display: grid;
+  gap: 0;
+}
+.crm-purchase-item-list > div {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--ks-color-border);
+}
+.crm-purchase-item-list > div > div {
+  display: grid;
+  gap: 4px;
+}
+.crm-purchase-item-list strong {
+  font-size: 14px;
+  font-weight: 600;
+}
+.crm-purchase-item-list small {
+  color: var(--ks-color-text-muted);
+  font-size: 12px;
+}
+.crm-purchase-item-list > div > span {
+  white-space: nowrap;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.crm-receipt-complete {
+  color: var(--ks-color-success);
+}
+.crm-source-document {
+  padding: 14px;
+  border: 1px solid var(--ks-color-border);
+  border-radius: var(--ks-radius-sm);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.crm-source-document summary,
+.crm-receipt-dates summary {
+  cursor: pointer;
+  color: var(--ks-color-brand-strong);
+  font-size: 13px;
+}
+.crm-source-document > div {
+  padding: 10px 0;
+  border-top: 1px solid var(--ks-color-border);
+}
+.crm-source-document p {
+  color: var(--ks-color-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+.crm-receipt-dates > div {
+  padding-top: 14px;
+}
+.crm-purchase-cancel {
+  padding-top: 18px;
+  border-top: 1px solid var(--ks-color-border);
+  font-size: 13px;
+}
+@media (max-width: 1100px) {
+  .crm-catalog-filters {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+  .crm-catalog-filters .crm-catalog-search {
+    grid-column: 1 / -1;
+  }
+  .crm-workspace-actions {
+    gap: 8px;
+  }
+}
+@media (max-width: 760px) {
+  .crm-workspace-page {
+    gap: 16px;
+  }
+  .crm-workspace-heading {
+    gap: 16px;
+  }
+  .crm-workspace-heading h1 {
+    font-size: 24px;
+  }
+  .crm-workspace-actions {
+    width: 100%;
+  }
+  .crm-workspace-heading .crm-workspace-actions > :is(a, button) {
+    flex: 1 1 auto;
+  }
+  .crm-catalog-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 14px;
+  }
+  .crm-purchase-filters {
+    grid-template-columns: 1fr;
+    padding: 14px;
+  }
+  .crm-list-panel-heading {
+    padding: 14px;
+    align-items: flex-start;
+  }
+  .crm-list-panel-heading p {
+    max-width: 230px;
+  }
+  .crm-list-footer {
+    padding: 12px 14px;
+  }
+  .crm-catalog-table-scroll {
+    max-height: none;
+    overflow: visible;
+  }
+  .crm-main .crm-products-overview .crm-products-wide .sticky-name {
+    position: static;
+    min-width: 0;
+    max-width: none;
+    width: 100%;
+    box-shadow: none;
+  }
+  .crm-main .crm-products-overview .crm-products-wide td {
+    background: transparent;
+  }
+  .crm-main .crm-products-overview .crm-products-wide .num {
+    text-align: right;
+  }
+  .crm-main .crm-products-overview .crm-products-wide tbody tr {
+    padding: 16px;
+  }
+  .crm-main .crm-products-overview .crm-products-wide .sticky-name {
+    padding-bottom: 14px !important;
+  }
+  .crm-main .crm-products-overview .crm-products-wide .crm-stock-unit {
+    margin-left: auto;
+  }
+  .crm-main
+    .crm-products-overview
+    .crm-products-wide
+    td
+    strong
+    + .crm-stock-unit {
+    margin-left: 0;
+  }
+  .crm-table-hint {
+    display: none;
+  }
+  .crm-purchase-summary {
+    grid-template-columns: 1fr;
+  }
+  .crm-purchase-summary > div {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+  }
+  .crm-editor-grid {
+    grid-template-columns: 1fr;
+  }
+  .crm-editor-footer {
+    bottom: -16px;
+    margin: 0 -16px -16px;
+    padding: 16px;
+  }
+  .crm-editor-footer > button {
+    flex: 1 1 100%;
+  }
+  .crm-purchase-line {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 40px;
+    padding: 12px;
+  }
+  .crm-purchase-line .crm-line-total {
+    grid-column: 1 / 3;
+    grid-row: 3;
+    display: flex;
+    justify-content: space-between;
+    padding: 0;
+  }
+  .crm-purchase-line > .crm-icon-button {
+    grid-column: 3;
+    grid-row: 2;
+    align-self: end;
+  }
+  .crm-purchase-detail-heading {
+    flex-wrap: wrap;
+  }
+}

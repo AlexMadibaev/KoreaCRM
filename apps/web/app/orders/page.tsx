@@ -236,7 +236,7 @@ export default function OrdersPage() {
             <button
               type="button"
               disabled={busy || !storeId}
-              className="crm-primary-button"
+              className="ks-button ks-button--primary"
               onClick={() => {
                 setSelected(null);
                 setEditing(true);
@@ -312,7 +312,7 @@ export default function OrdersPage() {
                   key={order.id}
                   type="button"
                   disabled={busy}
-                  className={`flex w-full flex-wrap justify-between gap-2 rounded-lg border p-3 text-left ${selected?.id === order.id ? 'border-rose-400 bg-rose-50' : ''}`}
+                  className={`ks-control flex w-full flex-wrap justify-between gap-2 rounded-lg border p-3 text-left ${selected?.id === order.id ? 'border-rose-400 bg-rose-50' : ''}`}
                   onClick={() => void loadOrder(order.id)}
                 >
                   <span>
@@ -338,7 +338,7 @@ export default function OrdersPage() {
             )}
             {list && list.total > 20 && (
               <div className="mt-4 flex justify-between">
-                <button
+                <button className="ks-button ks-button--secondary"
                   disabled={page <= 1 || busy}
                   onClick={() => setPage(page - 1)}
                 >
@@ -347,7 +347,7 @@ export default function OrdersPage() {
                 <span>
                   {page} / {Math.ceil(list.total / 20)}
                 </span>
-                <button
+                <button className="ks-button ks-button--secondary"
                   disabled={page * 20 >= list.total || busy}
                   onClick={() => setPage(page + 1)}
                 >
@@ -427,7 +427,7 @@ export default function OrdersPage() {
                     {can('orders.edit') && (
                       <button
                         disabled={busy}
-                        className="rounded border p-2"
+                        className="ks-button ks-button--secondary"
                         onClick={() => setEditing(true)}
                       >
                         Изменить
@@ -436,7 +436,7 @@ export default function OrdersPage() {
                     {can('orders.confirm') && (
                       <button
                         disabled={busy}
-                        className="crm-primary-button"
+                        className="ks-button ks-button--primary"
                         onClick={() =>
                           void action('/confirm', { version: selected.version })
                         }
@@ -449,7 +449,7 @@ export default function OrdersPage() {
                 {selected.status === 'CONFIRMED' && can('orders.edit') && (
                   <button
                     disabled={busy}
-                    className="rounded border p-2"
+                    className="ks-button ks-button--secondary"
                     onClick={() => void action('/ready', {})}
                   >
                     Готов к выдаче
@@ -459,7 +459,7 @@ export default function OrdersPage() {
                   can('orders.cancel') && (
                     <button
                       disabled={busy}
-                      className="rounded border border-rose-300 p-2"
+                      className="ks-button ks-button--danger"
                       onClick={() => setCancelOpen((value) => !value)}
                     >
                       Отменить заказ
@@ -550,7 +550,7 @@ export default function OrdersPage() {
                         BigInt(amount || '0') <= 0n ||
                         (method?.kind === 'CASH' && !shiftId)
                       }
-                      className="crm-primary-button"
+                      className="ks-button ks-button--primary"
                     >
                       Принять предоплату
                     </button>
@@ -562,7 +562,7 @@ export default function OrdersPage() {
                 can('sales.create') && (
                   <button
                     disabled={busy || !shiftId}
-                    className="crm-primary-button"
+                    className="ks-button ks-button--primary"
                     onClick={() =>
                       void action('/complete', {
                         operationId: completionId,
@@ -600,7 +600,7 @@ export default function OrdersPage() {
                   </label>
                   <button
                     disabled={busy || cancelReason.trim().length < 3}
-                    className="crm-primary-button"
+                    className="ks-button ks-button--danger"
                     onClick={() =>
                       void action('/cancel', {
                         operationId: cancelId,

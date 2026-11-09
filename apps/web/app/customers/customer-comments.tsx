@@ -39,12 +39,12 @@ export function CustomerComments({ customerId, canComment }: { customerId: strin
     {canComment && <form onSubmit={submit} className="rounded-lg border border-slate-200 bg-white p-3">
       <label htmlFor="customer-comment" className="block text-sm font-medium">Новый комментарий</label>
       <textarea id="customer-comment" required maxLength={2000} rows={3} value={text} onChange={event => setText(event.target.value)} placeholder="Например, что клиент попросил подобрать или сообщить" className="mt-2 w-full rounded border border-slate-300 p-2" />
-      <div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-slate-500">{text.length} / 2000</span><button disabled={busy || !text.trim()} className="rounded bg-slate-900 px-4 py-2 text-sm text-white disabled:opacity-50">Добавить комментарий</button></div>
+      <div className="mt-2 flex items-center justify-between gap-3"><span className="text-xs text-slate-500">{text.length} / 2000</span><button disabled={busy || !text.trim()} className="ks-button ks-button--primary">Добавить комментарий</button></div>
     </form>}
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
     {loading ? <p className="text-sm text-slate-500">Загрузка комментариев…</p> : <>
       <ul className="space-y-2">{result?.items.map(comment => <li key={comment.id} className="rounded-lg border border-slate-200 bg-white p-3"><p className="whitespace-pre-wrap text-sm text-slate-800">{comment.text}</p><p className="mt-2 text-xs text-slate-500">{comment.author.name} · {new Date(comment.createdAt).toLocaleString('ru-RU')}</p></li>)}{result?.items.length === 0 && <li className="rounded-lg border border-dashed border-slate-300 bg-white p-5 text-center text-sm text-slate-500">Комментариев пока нет</li>}</ul>
-      {(result?.total ?? 0) > 10 && <div className="flex items-center justify-end gap-3 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded border bg-white px-3 py-1 disabled:opacity-50">Назад</button><span>{page} / {Math.ceil((result?.total ?? 0) / 10)}</span><button type="button" disabled={page * 10 >= (result?.total ?? 0)} onClick={() => setPage(page + 1)} className="rounded border bg-white px-3 py-1 disabled:opacity-50">Далее</button></div>}
+      {(result?.total ?? 0) > 10 && <div className="flex items-center justify-end gap-3 text-sm"><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)} className="ks-button ks-button--secondary">Назад</button><span>{page} / {Math.ceil((result?.total ?? 0) / 10)}</span><button type="button" disabled={page * 10 >= (result?.total ?? 0)} onClick={() => setPage(page + 1)} className="ks-button ks-button--secondary">Далее</button></div>}
     </>}
   </div>;
 }

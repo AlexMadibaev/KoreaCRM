@@ -70,7 +70,7 @@ function DocumentJournal() {
           <tr className="crm-journal-day"><th scope="rowgroup" colSpan={9}>{group.day}</th></tr>
           {group.rows.map(row => <tr key={`${row.kind}:${row.id}`} className={`${outgoing.has(row.kind) ? 'is-out' : 'is-in'}${selected?.id === row.id ? ' selected' : ''}`}>
             <td><StatusIcon status={row.status} /></td>
-            <td><button type="button" className="crm-link-button" onClick={() => setSelected(row)}>{documentName(row.kind, row.number)}</button></td>
+            <td><button type="button" className="ks-button ks-button--ghost ks-button--sm crm-link-button" onClick={() => setSelected(row)}>{documentName(row.kind, row.number)}</button></td>
             <td>{timeFormat.format(new Date(row.occurredAt))}</td>
             <td className="num">{row.positions}</td>
             <td className="num">{row.amountMinor === null ? '' : amount(row.amountMinor)}</td>
@@ -82,7 +82,7 @@ function DocumentJournal() {
       {journal && !journal.items.length && !loading && <div className="crm-shifts-empty"><strong>Документов нет</strong><p>За выбранный период и с этими фильтрами документов не найдено. Расширьте период или сбросьте фильтры.</p></div>}
       {!journal && loading && <p role="status" className="crm-shifts-empty">Загружаем документы…</p>}
     </div>
-    {journal && journal.total > journal.limit && <div className="crm-shifts-pages"><span>Показано {journal.items.length} из {journal.total}</span><button type="button" className="crm-outline-button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Назад</button><span>{page} / {pages}</span><button type="button" className="crm-outline-button" disabled={page >= pages || loading} onClick={() => setPage(value => value + 1)}>Вперёд</button></div>}
+    {journal && journal.total > journal.limit && <div className="crm-shifts-pages"><span>Показано {journal.items.length} из {journal.total}</span><button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Назад</button><span>{page} / {pages}</span><button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={page >= pages || loading} onClick={() => setPage(value => value + 1)}>Вперёд</button></div>}
     {selected && <DocumentCard key={`${selected.kind}:${selected.id}`} kind={selected.kind} id={selected.id} onClose={() => setSelected(null)} onOpen={(nextKind, nextId) => setSelected({ ...selected, kind: nextKind, id: nextId })} />}
   </div>;
 }

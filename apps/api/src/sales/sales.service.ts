@@ -1,3 +1,4 @@
+import { paymentMethodStoreFilter } from './payment-method-scope';
 import { createHash, randomUUID } from 'node:crypto';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
@@ -20,7 +21,7 @@ const saleInclude = { items: { include: { product: { select: { name: true, sku: 
 @Injectable()
 export class SalesService {
   constructor(private readonly db: DatabaseService, private readonly stock: StockService, private readonly finance: FinanceService, private readonly notifications: NotificationsService) {}
-  methods() { return this.db.salePaymentMethod.findMany({ orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] }); }
+  methods(storeId?: string) { return this.db.salePaymentMethod.findMany({ ...(storeId ? { where: paymentMethodStoreFilter(storeId) } : {}), orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] }); }
   async createMethod(input: z.infer<typeof paymentMethodSchema>, actorId: string) {
     try { return await this.db.$transaction(async tx => {
       const last = await tx.salePaymentMethod.aggregate({ _max: { sortOrder: true } });
@@ -132,7 +133,7 @@ export class SalesService {
         let cashMethodId: string | undefined;
         for (const part of refunds) {
           if (!part.paymentMethodId) {
-            cashMethodId ??= (await tx.salePaymentMethod.findFirst({ where: { kind: 'CASH' }, orderBy: [{ active: 'desc' }, { sortOrder: 'asc' }] }))?.id;
+            cashMethodId ??= (await tx.salePaymentMethod.findFirst({ where: { kind: 'CASH', ...paymentMethodStoreFilter(storeId) }, orderBy: [{ active: 'desc' }, { sortOrder: 'asc' }] }))?.id;
             if (!cashMethodId) throw new ConflictException('Cash payment method is required for this refund');
           }
           await tx.saleReturnPayment.create({ data: { saleReturnId: record.id, paymentId: part.paymentId, paymentMethodId: part.paymentMethodId ?? cashMethodId!, amountMinor: part.amount } });
@@ -271,7 +272,7 @@ export class SalesService {
     const cost = sum(lines.map(line => line.cost));
     if (total.gt(maximum) || cost.gt(maximum) || subtotal.gt(maximum)) throw new BadRequestException('Sale amount exceeds database range');
     const methodIds = [...new Set(input.payments.map(payment => payment.paymentMethodId))];
-    const methods = await tx.salePaymentMethod.findMany({ where: { id: { in: methodIds }, active: options.orderPrices ? undefined : true } });
+    const methods = await tx.salePaymentMethod.findMany({ where: { id: { in: methodIds }, active: options.orderPrices ? undefined : true, ...paymentMethodStoreFilter(storeId) } });
     if (methods.length !== methodIds.length) throw new BadRequestException('Payment method is unavailable');
     const byId = new Map(methods.map(method => [method.id, method]));
     let cash = new Prisma.Decimal(0);

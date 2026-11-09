@@ -83,8 +83,8 @@ button, input, select, textarea { font-family: var(--ks-font-sans); }
 .crm-periods button.selected, .crm-notification-tabs button.active { background: var(--ks-color-brand); color: var(--ks-color-ink); }
 .crm-primary-button { border: 1px solid var(--ks-color-brand); background: var(--ks-color-brand); color: var(--ks-color-ink); box-shadow: 0 7px 15px #f2979c27; }
 .crm-primary-button:hover { border-color: var(--ks-color-brand-hover); background: var(--ks-color-brand-hover); color: var(--ks-color-ink); }
-.crm-main :is(input:not([type="checkbox"]), select, textarea) { border-color: var(--ks-color-border); background: var(--ks-color-surface); color: var(--ks-color-ink); }
-.crm-main :is(input:not([type="checkbox"]), select, textarea):focus { border-color: var(--ks-color-brand-strong); outline: 0; box-shadow: var(--ks-focus-ring); }
+.crm-main :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { border-color: var(--ks-color-border); background: var(--ks-color-surface); color: var(--ks-color-ink); }
+.crm-main :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea):focus { border-color: var(--ks-color-brand-strong); outline: 0; box-shadow: var(--ks-focus-ring); }
 .crm-main input[type="checkbox"], .crm-remember input { accent-color: var(--ks-color-brand-strong); }
 .crm-main table thead, .crm-products-table thead { background: var(--ks-color-brand-subtle); }
 .crm-products-table tbody tr:hover, .crm-transfers-page > div.rounded.border.bg-white li:hover { background: var(--ks-color-brand-subtle); }
@@ -551,7 +551,7 @@ input[type="date"]::-webkit-date-and-time-value { text-align: left; }
   .crm-main button:is(.rounded, .rounded-lg):is(.border, .px-3, .px-4) { min-height: 40px; }
   .crm-main label > :is(select, input):is(.ml-2, .ml-3) { display: block; width: 100%; margin: 6px 0 0; }
   .crm-main :is(form.flex-wrap, form .flex-wrap, div.flex-wrap) > label:not(:has(> input[type="checkbox"])) { flex: 1 1 100%; min-width: 0; }
-  .crm-main :is(form.flex-wrap, form .flex-wrap, div.flex-wrap) > label > :is(input:not([type="checkbox"]), select, textarea) { display: block; width: 100%; }
+  .crm-main :is(form.flex-wrap, form .flex-wrap, div.flex-wrap) > label > :is(input:not([type="checkbox"]):not([type="radio"]), select, textarea) { display: block; width: 100%; }
   .crm-main form.flex-wrap > button, .crm-main form .flex-wrap > button:not(.underline) { flex: 1 1 auto; min-height: 44px; }
   .crm-main form :is(.w-40, .w-44, .w-48) { width: 100%; }
   .crm-main :is(form, .crm-sale-create) > button:is(.bg-slate-900, .bg-violet-700, .bg-amber-700), .crm-main form > .flex > button:is(.bg-slate-900, .bg-violet-700, .bg-amber-700) { width: 100%; min-height: 46px; }

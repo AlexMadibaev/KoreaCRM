@@ -114,9 +114,9 @@ function CashShifts() {
         </FilterChip>
       </div>
       <div className="crm-shifts-tools">
-        {can('finance.cash') && <button type="button" className="crm-primary-button" onClick={() => setOpening(true)}><Plus size={14} aria-hidden /> Открыть смену</button>}
+        {can('finance.cash') && <button type="button" className="ks-button ks-button--primary crm-primary-button" onClick={() => setOpening(true)}><Plus size={14} aria-hidden /> Открыть смену</button>}
         <div className="crm-columns-menu">
-          <button type="button" className="crm-icon-button" aria-label="Настроить колонки" title="Настроить колонки" aria-expanded={columnsOpen} onClick={() => setColumnsOpen(value => !value)}><Settings2 size={18} aria-hidden /></button>
+          <button type="button" className="ks-button ks-button--ghost ks-button--icon crm-icon-button" aria-label="Настроить колонки" title="Настроить колонки" aria-expanded={columnsOpen} onClick={() => setColumnsOpen(value => !value)}><Settings2 size={18} aria-hidden /></button>
           {columnsOpen && <div className="crm-columns-popover" role="group" aria-label="Колонки таблицы">
             {columns.map(key => <label key={key}><input type="checkbox" checked={!hidden.includes(key)} onChange={() => toggleColumn(key)} /> {columnLabels[key]}</label>)}
           </div>}
@@ -137,7 +137,7 @@ function CashShifts() {
         <tbody>
           {journal?.items.map(row => <tr key={row.id} className={selected?.id === row.id ? 'selected' : ''}>
             <td className="sticky-status">{row.status === 'OPEN' ? <LockOpen size={15} className="is-open" aria-label="Открыта" /> : <Lock size={15} className="is-closed" aria-label="Закрыта" />}</td>
-            <td className="sticky-number"><button type="button" className="crm-link-button" onClick={() => setSelected(row)}>Смена #{row.number}</button></td>
+            <td className="sticky-number"><button type="button" className="ks-button ks-button--ghost ks-button--sm crm-link-button" onClick={() => setSelected(row)}>Смена #{row.number}</button></td>
             {visible.map(key => <td key={key} className={numericColumns.has(key) ? 'num' : ''}>{cell(row, key)}</td>)}
           </tr>)}
         </tbody>
@@ -148,9 +148,9 @@ function CashShifts() {
 
     {journal && journal.total > journal.limit && <div className="crm-shifts-pages">
       <span>Показано {journal.items.length} из {journal.total}</span>
-      <button type="button" className="crm-outline-button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Назад</button>
+      <button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={page <= 1 || loading} onClick={() => setPage(value => value - 1)}>Назад</button>
       <span>{page} / {pages}</span>
-      <button type="button" className="crm-outline-button" disabled={page >= pages || loading} onClick={() => setPage(value => value + 1)}>Вперёд</button>
+      <button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={page >= pages || loading} onClick={() => setPage(value => value + 1)}>Вперёд</button>
     </div>}
 
     {selected && <ShiftCard key={selected.id} row={selected} canManage={can('finance.cash')} onClose={() => setSelected(null)} onChanged={() => void load()} />}
@@ -183,7 +183,7 @@ function OpenShiftDrawer({ stores, onClose, onOpened }: { stores: Store[]; onClo
       <label>Касса (код устройства)<input required value={deviceId} onChange={event => setDeviceId(event.target.value)} /></label>
       <label>Наличные на начало смены, смн.<MoneyInput required valueMinor={openingCash} onMinorChange={setOpeningCash} /></label>
       {error && <p role="alert" className="crm-alert">{error}</p>}
-      <button type="submit" className="crm-primary-button" disabled={busy || !storeId}>{busy ? 'Открываем…' : 'Открыть смену'}</button>
+      <button type="submit" className="ks-button ks-button--primary crm-primary-button" disabled={busy || !storeId}>{busy ? 'Открываем…' : 'Открыть смену'}</button>
     </form>
   </CabinetDrawer>;
 }

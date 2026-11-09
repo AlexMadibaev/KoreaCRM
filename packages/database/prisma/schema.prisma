@@ -103,6 +103,7 @@ model Store {
   status    String      @default("ACTIVE")
   users     UserStore[]
   primaryUsers User[]   @relation("PrimaryStore")
+  paymentMethods StorePaymentMethod[]
   productSettings StoreProductSettings[]
   stocks    Stock[]
   notifications Notification[]
@@ -172,7 +173,8 @@ model Product {
   orderItems OrderItem[]
   id          String                 @id @default(uuid()) @db.Uuid
   name        String
-  sku         String                 @unique
+  /// Active SKU uniqueness is enforced by a partial index in migrations.
+  sku         String
   brandId     String?                @db.Uuid
   brand       Brand?                 @relation(fields: [brandId], references: [id])
   categoryId  String?                @db.Uuid
@@ -245,6 +247,7 @@ model Purchase {
   storeId       String         @db.Uuid
   store         Store          @relation(fields: [storeId], references: [id])
   number        String
+  sourceDocument Json?
   status        PurchaseStatus @default(DRAFT)
   totalMinor    Decimal        @default(0) @db.Decimal(18, 0)
   receivedMinor Decimal        @default(0) @db.Decimal(18, 0)
@@ -650,6 +653,8 @@ model SalePaymentMethod {
   code             String           @unique
   name             String
   kind             SalePaymentKind
+  restrictedToStores Boolean @default(false)
+  storeBindings StorePaymentMethod[]
   active           Boolean          @default(true)
   system           Boolean          @default(false)
   sortOrder        Int              @default(0)
@@ -976,8 +981,10 @@ model ProductBarcode {
   id        String  @id @default(uuid()) @db.Uuid
   productId String  @db.Uuid
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
-  value     String  @unique
+  /// Active barcode uniqueness is enforced by a partial index in migrations.
+  value     String
   primary   Boolean @default(false)
+  deletedAt DateTime?
 
   @@index([productId])
 }
@@ -1137,4 +1144,13 @@ model OrderEvent {
   createdAt DateTime @default(now())
 
   @@index([orderId, createdAt])
+}
+
+model StorePaymentMethod {
+  storeId String @db.Uuid
+  paymentMethodId String @db.Uuid
+  store Store @relation(fields: [storeId], references: [id], onDelete: Cascade)
+  paymentMethod SalePaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
+  @@id([storeId, paymentMethodId])
+  @@index([paymentMethodId])
 }

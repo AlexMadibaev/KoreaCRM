@@ -20,3 +20,5 @@ export function parseInput<T extends z.ZodTypeAny>(schema: T, input: unknown): z
   if (!result.success) throw new BadRequestException(result.error.flatten());
   return result.data;
 }
+
+export const priceHistorySchema = listSchema.extend({ productId: uuid.optional(), supplierId: uuid.optional() });

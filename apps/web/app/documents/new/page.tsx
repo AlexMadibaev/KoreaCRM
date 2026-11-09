@@ -117,7 +117,7 @@ function GoodsDocument({ kind, stores, storeId, setStoreId, allowed, busy, setBu
     <aside className="crm-doc-picker" aria-label="Выбор товаров">
       <label className="crm-doc-picker-search"><Search size={14} aria-hidden /><span className="sr-only">Поиск товаров</span><input type="search" placeholder="Поиск товаров" value={search} onChange={event => setSearch(event.target.value)} /></label>
       <Link href="/products/new" className="crm-doc-picker-create"><Plus size={14} aria-hidden /> Создать товар</Link>
-      <ul>{picks.map(pick => { const chosen = lines.some(line => line.productId === pick.id); return <li key={pick.id}><button type="button" className={chosen ? 'chosen' : ''} onClick={() => add(pick)} aria-label={`Добавить ${pick.name}`}>
+      <ul>{picks.map(pick => { const chosen = lines.some(line => line.productId === pick.id); return <li key={pick.id}><button type="button" className={["ks-control", chosen ? 'chosen' : ''].filter(Boolean).join(" ")} onClick={() => add(pick)} aria-label={`Добавить ${pick.name}`}>
         <span className="crm-doc-pick-name">{pick.name}{chosen && <Check size={14} aria-hidden />}</span>
         <span className="crm-doc-pick-meta"><span>{amount((kind === 'PURCHASE' ? pick.purchasePriceMinor : pick.priceMinor)?.split('.')[0] ?? '0')} смн.</span><span>{pick.stock[storeId] ?? 0}</span></span>
       </button></li>; })}</ul>
@@ -125,7 +125,7 @@ function GoodsDocument({ kind, stores, storeId, setStoreId, allowed, busy, setBu
     </aside>
     <section className="crm-doc-sheet">
       <div className="crm-doc-sheet-actions">
-        <button type="submit" className="crm-primary-button" disabled={busy || !allowed || !lines.length || (kind === 'PURCHASE' && !supplierId) || (kind !== 'PURCHASE' && comment.trim().length < 3)}>{busy ? 'Сохраняем…' : 'Сохранить'}</button>
+        <button type="submit" className="ks-button ks-button--primary crm-primary-button" disabled={busy || !allowed || !lines.length || (kind === 'PURCHASE' && !supplierId) || (kind !== 'PURCHASE' && comment.trim().length < 3)}>{busy ? 'Сохраняем…' : 'Сохранить'}</button>
         {kind === 'PURCHASE' && <label className="crm-doc-toggle"><input type="checkbox" checked={posted} onChange={event => setPosted(event.target.checked)} /> Документ проведён (оприходовать товар)</label>}
         <span className="crm-doc-date">{nowLabel()}</span>
       </div>
@@ -134,20 +134,20 @@ function GoodsDocument({ kind, stores, storeId, setStoreId, allowed, busy, setBu
         {kind === 'PURCHASE' && <label>Поставщик<select required value={supplierId} onChange={event => setSupplierId(event.target.value)}>{!suppliers.length && <option value="">Сначала добавьте поставщика</option>}{suppliers.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
         <label>Магазин<select value={storeId} onChange={event => { setStoreId(event.target.value); setLines([]); }}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
       </div>
-      <div className="crm-doc-tabs" role="tablist"><button type="button" role="tab" aria-selected={tab === 'goods'} className={tab === 'goods' ? 'selected' : ''} onClick={() => setTab('goods')}>Товары</button>{kind === 'PURCHASE' && <button type="button" role="tab" aria-selected={tab === 'payment'} className={tab === 'payment' ? 'selected' : ''} onClick={() => setTab('payment')}>Счета и оплата</button>}</div>
+      <div className="crm-doc-tabs" role="tablist"><button type="button" role="tab" aria-selected={tab === 'goods'} className={["ks-control", tab === 'goods' ? 'selected' : ''].filter(Boolean).join(" ")} onClick={() => setTab('goods')}>Товары</button>{kind === 'PURCHASE' && <button type="button" role="tab" aria-selected={tab === 'payment'} className={["ks-control", tab === 'payment' ? 'selected' : ''].filter(Boolean).join(" ")} onClick={() => setTab('payment')}>Счета и оплата</button>}</div>
       {tab === 'goods' ? <>
         {lines.length ? <>
           <label className="crm-doc-search"><span className="sr-only">Поиск по товарам в документе</span><input type="search" placeholder="Поиск по товарам в документе" value={lineFilter} onChange={event => setLineFilter(event.target.value)} /></label>
-          <div className="crm-report-scroll"><table className="crm-shift-table crm-doc-lines">
+          <div className="crm-report-scroll"><div className="crm-table-region" role="region" aria-label="Таблица данных" tabIndex={0}><table className="crm-shift-table crm-doc-lines">
             <thead><tr><th scope="col">#</th><th scope="col">Наименование</th><th scope="col">Код товара</th><th scope="col">Ед. изм.</th><th scope="col" className="num">Кол-во</th><th scope="col" className="num">{kind === 'PURCHASE' ? 'Цена закупки, смн.' : 'Себестоимость, смн.'}</th><th scope="col" className="num">Итог</th><th scope="col"><span className="sr-only">Удалить</span></th></tr></thead>
             <tbody>{visibleLines.map(line => <tr key={line.productId}>
               <td>{lines.indexOf(line) + 1}</td><td>{line.name}</td><td>{line.sku}</td><td>{unitTitle[line.unit] ?? line.unit}</td>
               <td className="num"><input aria-label={`Количество: ${line.name}`} type="number" min={1} step={1} value={line.quantity} onChange={event => update(line.productId, { quantity: Math.max(1, Math.floor(Number(event.target.value) || 1)) })} /></td>
               <td className="num">{kind === 'PURCHASE' ? <MoneyInput aria-label={`Цена закупки: ${line.name}`} required valueMinor={line.priceMinor} onMinorChange={minor => update(line.productId, { priceMinor: minor || '0' })} /> : amount(line.priceMinor)}</td>
               <td className="num">{amount((BigInt(line.priceMinor || '0') * BigInt(line.quantity)).toString())}</td>
-              <td><button type="button" className="crm-icon-button" aria-label={`Удалить ${line.name}`} onClick={() => setLines(current => current.filter(item => item.productId !== line.productId))}><Trash2 size={14} aria-hidden /></button></td>
+              <td><button type="button" className="ks-button ks-button--ghost ks-button--icon crm-icon-button" aria-label={`Удалить ${line.name}`} onClick={() => setLines(current => current.filter(item => item.productId !== line.productId))}><Trash2 size={14} aria-hidden /></button></td>
             </tr>)}</tbody>
-          </table></div>
+          </table></div></div>
         </> : <p className="crm-doc-empty">← Выберите товары слева</p>}
         <dl className="crm-doc-summary"><div><dt>Итог:</dt><dd>{amount(total)} смн.</dd></div>{kind === 'PURCHASE' && <div><dt>Оплаченные:</dt><dd>{amount(payNow && posted ? payAmount || '0' : '0')} смн.</dd></div>}<div><dt>Позиций:</dt><dd>{lines.length}</dd></div></dl>
         <label className="crm-doc-comment-field">{kind === 'WRITE_OFF' ? 'Причина списания' : kind === 'RECEIVE_IN' ? 'Основание оприходования' : 'Комментарий'}<textarea required={kind !== 'PURCHASE'} minLength={kind !== 'PURCHASE' ? 3 : undefined} rows={3} value={comment} onChange={event => setComment(event.target.value)} placeholder={kind === 'WRITE_OFF' ? 'Например: повреждена упаковка' : ''} /></label>
@@ -196,7 +196,7 @@ function ExpenseForm({ income = false, stores, storeId, setStoreId, allowed, bus
     } catch (caught) { setError(errorText(caught)); } finally { setBusy(false); }
   }
   return <form className="crm-doc-sheet crm-expense-form" onSubmit={save}>
-    <div className="crm-doc-sheet-actions"><button type="submit" className="crm-primary-button" disabled={busy || !allowed || !amountMinor || amountMinor === '0' || (income ? !incomeCategory.trim() || !account.startsWith('CASH:') : !categoryId) || !account}>{busy ? 'Сохраняем…' : 'Сохранить'}</button><span className="crm-doc-date">{nowLabel()}</span></div>
+    <div className="crm-doc-sheet-actions"><button type="submit" className="ks-button ks-button--primary crm-primary-button" disabled={busy || !allowed || !amountMinor || amountMinor === '0' || (income ? !incomeCategory.trim() || !account.startsWith('CASH:') : !categoryId) || !account}>{busy ? 'Сохраняем…' : 'Сохранить'}</button><span className="crm-doc-date">{nowLabel()}</span></div>
     <div className="crm-doc-title"><h1>{income ? 'Приход' : 'Расход'} #</h1></div>
     <div className="crm-doc-parties">
       <label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>

@@ -11,16 +11,18 @@ const labels: Record<string, string> = {
 };
 const fields = Object.keys(labels);
 
-function initialValues(product?: Product): Values {
-  return Object.fromEntries(fields.map((key) => [key, product?.[key as keyof Product] ?? (key === 'unit' ? 'pcs' : '')])) as Values;
+export type ProductDraft = Partial<Pick<Product, 'name' | 'sku' | 'description' | 'unit'>> & { barcodes?: string[] };
+
+function initialValues(product?: Partial<Omit<Product, 'barcodes'>>): Values {
+  return Object.fromEntries(fields.map((key) => [key, product?.[key as keyof Omit<Product, 'barcodes'>] ?? (key === 'unit' ? 'pcs' : '')])) as Values;
 }
 
-export function ProductForm({ product, onSaved }: { product?: Product; onSaved: (product: Product) => void }) {
-  const [values, setValues] = useState<Values>(() => initialValues(product));
+export function ProductForm({ product, initialDraft, onSaved, onSavingChange }: { product?: Product; initialDraft?: ProductDraft; onSaved: (product: Product) => void; onSavingChange?: (saving: boolean) => void }) {
+  const [values, setValues] = useState<Values>(() => initialValues(product ?? initialDraft));
   const [brandId, setBrandId] = useState(product?.brandId ?? '');
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? '');
   const [status, setStatus] = useState(product?.status ?? 'ACTIVE');
-  const [barcodes, setBarcodes] = useState(product?.barcodes.map((item) => item.value).join('\n') ?? '');
+  const [barcodes, setBarcodes] = useState(product?.barcodes.map((item) => item.value).join('\n') ?? initialDraft?.barcodes?.join('\n') ?? '');
   const [brands, setBrands] = useState<Brand[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState('');
@@ -33,7 +35,7 @@ export function ProductForm({ product, onSaved }: { product?: Product; onSaved: 
   }, []);
 
   async function submit(event: FormEvent) {
-    event.preventDefault(); setSaving(true); setError('');
+    event.preventDefault(); if (saving) return; setSaving(true); onSavingChange?.(true); setError('');
     try {
       const body = {
         ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.trim() || (['name', 'sku', 'unit'].includes(key) ? '' : null)])),
@@ -43,7 +45,7 @@ export function ProductForm({ product, onSaved }: { product?: Product; onSaved: 
       const saved = await api<Product>(product ? `/products/${product.id}` : '/products', { method: product ? 'PATCH' : 'POST', body: JSON.stringify(body) });
       onSaved(saved);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось сохранить товар'); }
-    finally { setSaving(false); }
+    finally { setSaving(false); onSavingChange?.(false); }
   }
 
   return <form onSubmit={submit} className="crm-product-form">
@@ -63,6 +65,6 @@ export function ProductForm({ product, onSaved }: { product?: Product; onSaved: 
       <div className="crm-product-form-grid">{fields.filter(key => !['name', 'sku', 'unit', 'description'].includes(key)).map(key => <label key={key}>{labels[key]}<input value={values[key]} onChange={event => setValues({ ...values, [key]: event.target.value })} /></label>)}</div>
     </section>
     {error && <p role="alert" className="crm-alert">{error}</p>}
-    <div className="crm-product-form-footer"><button className="crm-primary-button" disabled={saving}>{saving ? 'Сохранение…' : 'Сохранить товар'}</button></div>
+    <div className="crm-product-form-footer"><button className="ks-button ks-button--primary crm-primary-button" disabled={saving}>{saving ? 'Сохранение…' : 'Сохранить товар'}</button></div>
   </form>;
 }

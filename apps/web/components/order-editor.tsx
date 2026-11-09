@@ -144,7 +144,7 @@ export function OrderEditor({
         <h2 className="text-lg font-semibold">
           {order ? `Черновик №${order.number}` : 'Новый заказ'}
         </h2>
-        <button type="button" disabled={busy} onClick={onClose}>
+        <button className="ks-button ks-button--secondary" type="button" disabled={busy} onClick={onClose}>
           Закрыть
         </button>
       </div>
@@ -256,7 +256,7 @@ export function OrderEditor({
                 draft.items.length >= 100 ||
                 busy
               }
-              className="block w-full rounded-lg border p-2 text-left disabled:opacity-40"
+              className="ks-button ks-button--secondary"
               onClick={() => addProduct(product)}
             >
               {product.name} · {product.sku}{' '}
@@ -293,7 +293,7 @@ export function OrderEditor({
                   }
                 />
               </label>
-              <button
+              <button className="ks-button ks-button--danger"
                 type="button"
                 onClick={() =>
                   setDraft({
@@ -327,7 +327,7 @@ export function OrderEditor({
         <button
           type="submit"
           disabled={busy || !draft.items.length}
-          className="crm-primary-button"
+          className="ks-button ks-button--primary"
         >
           Сохранить черновик
         </button>

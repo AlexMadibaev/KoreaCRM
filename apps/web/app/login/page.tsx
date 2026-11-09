@@ -51,17 +51,17 @@ export default function LoginPage() {
           <h3>Хотите подключить Korea CRM?</h3>
           <p>Перейдите на сайт Madibaev Studio. Там вы сможете связаться с нами и обсудить подключение.</p>
           <a href={studioUrl} target="_blank" rel="noopener noreferrer" className="crm-login-submit">Перейти на сайт <span aria-hidden="true">↗</span></a>
-          <button type="button" className="crm-login-back" onClick={() => setShowSignup(false)}>Вернуться ко входу</button>
+          <button type="button" className="ks-button ks-button--ghost ks-button--sm crm-login-back" onClick={() => setShowSignup(false)}>Вернуться ко входу</button>
         </div> : <form onSubmit={submit} className="crm-login-form">
           <label>Логин<input value={login} onChange={event => setLogin(event.target.value)} required autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="next" placeholder="Ваш логин" /></label>
           <label>Пароль<input value={password} onChange={event => setPassword(event.target.value)} required autoComplete="current-password" type="password" enterKeyHint="go" placeholder="Введите пароль" /></label>
           <label className="crm-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} /><span>Оставаться в системе на этом устройстве</span></label>
           {error && <div className="crm-alert" role="alert">{error}</div>}
-          <button disabled={loading} type="submit" className="crm-login-submit">{loading ? 'Входим…' : 'Войти в кабинет'} <span aria-hidden="true">→</span></button>
+          <button disabled={loading} type="submit" className="ks-button ks-button--primary crm-login-submit">{loading ? 'Входим…' : 'Войти в кабинет'} <span aria-hidden="true">→</span></button>
         </form>}
         {showSignup
-          ? <div className="crm-login-switch">Уже есть аккаунт? <button type="button" onClick={() => setShowSignup(false)}>Войти</button></div>
-          : <button type="button" className="crm-login-signup-button" onClick={() => { setShowSignup(true); setError(''); }}>Sign up <span>Подключить магазин ↗</span></button>}
+          ? <div className="crm-login-switch">Уже есть аккаунт? <button className="ks-button ks-button--secondary" type="button" onClick={() => setShowSignup(false)}>Войти</button></div>
+          : <button type="button" className="ks-button ks-button--secondary crm-login-signup-button" onClick={() => { setShowSignup(true); setError(''); }}>Sign up <span>Подключить магазин ↗</span></button>}
       </div>
     </div>
   </main>;

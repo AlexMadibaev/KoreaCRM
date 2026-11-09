@@ -4,7 +4,7 @@ import { Prisma, PurchaseStatus } from '@prisma/client';
 import type { z } from 'zod';
 import { DatabaseService } from '../database.service';
 import { StockService } from '../stock/stock.service';
-import { listSchema, purchasePatchSchema, purchaseSchema, receivingSchema, supplierPatchSchema, supplierSchema } from './purchases.schemas';
+import { listSchema, priceHistorySchema, purchasePatchSchema, purchaseSchema, receivingSchema, supplierPatchSchema, supplierSchema } from './purchases.schemas';
 
 type List = z.infer<typeof listSchema>;
 type SupplierInput = z.infer<typeof supplierSchema>;
@@ -62,6 +62,23 @@ export class PurchasesService {
   private async requireStore(storeId: string) {
     if (!await this.db.store.findFirst({ where: { id: storeId, deletedAt: null }, select: { id: true } })) throw new NotFoundException('Store not found');
   }
+  async priceHistory(storeId: string, query: z.infer<typeof priceHistorySchema>) {
+    await this.requireStore(storeId);
+    const where: Prisma.ProductBatchWhereInput = {
+      storeId, productId: query.productId, supplierId: query.supplierId,
+      ...(query.search ? { product: { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { sku: { contains: query.search, mode: 'insensitive' } }, { barcodes: { some: { value: { contains: query.search } } } }] } } : {}),
+    };
+    const [items, count] = await this.db.$transaction([
+      this.db.productBatch.findMany({ where, select: {
+        id: true, batchNumber: true, purchasePriceMinor: true, quantity: true, receivedAt: true, manufacturedAt: true, expiresAt: true,
+        product: { select: { id: true, name: true, sku: true } },
+        supplier: { select: { id: true, name: true } },
+        purchaseItem: { select: { purchase: { select: { id: true, number: true } } } },
+      }, orderBy: [{ receivedAt: 'desc' }, { id: 'desc' }], skip: (query.page - 1) * query.limit, take: query.limit }),
+      this.db.productBatch.count({ where }),
+    ]);
+    return { items, total: count, page: query.page, limit: query.limit };
+  }
   async purchases(storeId: string, query: List) {
     await this.requireStore(storeId);
     const where: Prisma.PurchaseWhereInput = { storeId, OR: query.search ? [{ number: { contains: query.search, mode: 'insensitive' } }, { supplier: { name: { contains: query.search, mode: 'insensitive' } } }] : undefined };
@@ -81,12 +98,12 @@ export class PurchasesService {
     const supplier = await this.supplier(input.supplierId);
     if (supplier.status !== 'ACTIVE') throw new BadRequestException('Supplier is inactive');
   }
-  async createPurchase(storeId: string, input: PurchaseInput, actorId: string) {
+  async createPurchase(storeId: string, input: PurchaseInput, actorId: string, sourceDocument?: Prisma.InputJsonObject) {
     await this.requireStore(storeId);
     await this.validateItems(input);
     try {
       return await this.db.$transaction(async (tx) => {
-        const item = await tx.purchase.create({ data: { storeId, supplierId: input.supplierId, number: input.number, createdById: actorId, totalMinor: total(input.items), items: { create: input.items.map((row) => ({ productId: row.productId, quantityOrdered: row.quantityOrdered, purchasePriceMinor: decimal(row.purchasePriceMinor), salePriceMinor: row.salePriceMinor == null ? null : decimal(row.salePriceMinor) })) } }, include: includePurchase });
+        const item = await tx.purchase.create({ data: { storeId, sourceDocument, supplierId: input.supplierId, number: input.number, createdById: actorId, totalMinor: total(input.items), items: { create: input.items.map((row) => ({ productId: row.productId, quantityOrdered: row.quantityOrdered, purchasePriceMinor: decimal(row.purchasePriceMinor), salePriceMinor: row.salePriceMinor == null ? null : decimal(row.salePriceMinor) })) } }, include: includePurchase });
         await tx.auditLog.create({ data: { userId: actorId, action: 'PURCHASE_CREATED', entityType: 'Purchase', entityId: item.id, newValue: { number: item.number, totalMinor: item.totalMinor.toString() } } });
         return item;
       });
@@ -95,6 +112,7 @@ export class PurchasesService {
   async updatePurchase(storeId: string, id: string, patch: z.infer<typeof purchasePatchSchema>, actorId: string) {
     const current = await this.purchase(storeId, id);
     if (current.status !== 'DRAFT') throw new ConflictException('Only draft purchases can be edited');
+    if (current.sourceDocument) throw new ConflictException('Импортированную закупку нельзя редактировать: отмените её и повторите импорт исправленного файла');
     const input: PurchaseInput = { supplierId: patch.supplierId ?? current.supplierId, number: patch.number ?? current.number, items: patch.items ?? current.items.map((row) => ({ productId: row.productId, quantityOrdered: row.quantityOrdered, purchasePriceMinor: row.purchasePriceMinor.toString(), salePriceMinor: row.salePriceMinor?.toString() ?? null })) };
     await this.validateItems(input);
     try {

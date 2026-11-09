@@ -3,8 +3,10 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AccessGuard, RequirePermission, StoreScopeGuard } from '../auth/guards';
 import type { AccessContext } from '../auth/policy';
+import { InvoiceImportService } from './invoice-import.service';
+import { invoiceMatchSchema, invoiceSchema } from './invoice-import';
 import { PurchasesService } from './purchases.service';
-import { listSchema, parseInput, purchasePatchSchema, purchaseSchema, receivingSchema, supplierPatchSchema, supplierSchema } from './purchases.schemas';
+import { listSchema, priceHistorySchema, parseInput, purchasePatchSchema, purchaseSchema, receivingSchema, supplierPatchSchema, supplierSchema } from './purchases.schemas';
 
 type AuthorizedRequest = Request & { access: AccessContext };
 
@@ -26,7 +28,11 @@ export class SuppliersController {
 @UseGuards(AccessGuard, StoreScopeGuard)
 @Controller('stores/:storeId/purchases')
 export class PurchasesController {
-  constructor(private readonly service: PurchasesService) {}
+  constructor(private readonly service: PurchasesService, private readonly invoices: InvoiceImportService) {}
+  @Get('price-history') @RequirePermission('purchases.view') priceHistory(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.priceHistory(storeId, parseInput(priceHistorySchema, query)); }
+  @Post('import/match') @RequirePermission('purchases.create') matchInvoice(@Body() body: unknown) { return this.invoices.match(parseInput(invoiceMatchSchema, body).rows); }
+  @Post('import/preview') @RequirePermission('purchases.create') previewInvoice(@Body() body: unknown) { return this.invoices.preview(parseInput(invoiceSchema, body)); }
+  @Post('import/confirm') @RequirePermission('purchases.create') confirmInvoice(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.invoices.confirm(storeId, parseInput(invoiceSchema, body), req.access.userId); }
   @Get() @RequirePermission('purchases.view') list(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.purchases(storeId, parseInput(listSchema, query)); }
   @Get(':id') @RequirePermission('purchases.view') get(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string) { return this.service.purchase(storeId, id); }
   @Post() @RequirePermission('purchases.create') create(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.createPurchase(storeId, parseInput(purchaseSchema, body), req.access.userId); }

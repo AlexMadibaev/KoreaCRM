@@ -76,11 +76,13 @@ async function main() {
   }
   const ownerRole = await prisma.role.findUniqueOrThrow({ where: { code: 'OWNER' } });
   const superuserRole = await prisma.role.findUniqueOrThrow({ where: { code: 'SUPERUSER' } });
+  if (process.env.KOREACRM_CREATE_DEFAULT_STORE !== '0') {
   await prisma.store.upsert({
     where: { code: 'MAIN' },
     update: {},
     create: { code: 'MAIN', name: 'Основной магазин' },
   });
+  }
   const seededUser = await prisma.user.upsert({
     where: { login: ownerLogin },
     update: {},

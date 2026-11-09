@@ -1,3 +1,4 @@
+import { paymentMethodStoreFilter } from '../sales/payment-method-scope';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -463,7 +464,7 @@ export class OrdersService {
         );
       this.requireActiveStore(order);
       const method = await tx.salePaymentMethod.findFirst({
-        where: { id: input.paymentMethodId, active: true },
+        where: { id: input.paymentMethodId, active: true, ...paymentMethodStoreFilter(storeId) },
       });
       if (!method || ['BONUS', 'DEBT'].includes(method.kind))
         throw new BadRequestException(

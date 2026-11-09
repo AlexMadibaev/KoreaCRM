@@ -72,7 +72,7 @@ export class InventoryService {
     });
   }
   async scan(storeId: string, id: string, input: Scan, actorId: string) {
-    const product = await this.db.productBarcode.findUnique({ where: { value: input.barcode }, select: { productId: true } });
+    const product = await this.db.productBarcode.findFirst({ where: { value: input.barcode, deletedAt: null, product: { deletedAt: null } }, select: { productId: true } });
     if (!product) throw new NotFoundException('Barcode not found');
     return this.retryCount(async (tx) => {
       const inventory = await tx.inventory.findFirst({ where: { id, storeId }, select: { status: true } });

@@ -1,4 +1,4 @@
-param([switch]$SkipBuild)
+param([switch]$SkipBuild, [ValidateRange(1024, 65535)][int]$WebPort = 3010, [ValidatePattern('^\.next[a-zA-Z0-9._-]*$')][string]$WebDistDir = '.next-mvp')
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
@@ -7,7 +7,6 @@ $envFile = Join-Path $stateDir 'mvp.env'
 $pgBin = 'C:\Program Files\PostgreSQL\16\bin'
 $dbName = 'koreacrm_mvp'
 $dbPort = 5433
-$webPort = 3010
 $apiPort = 3011
 
 function New-RandomText([int]$bytes) {
@@ -48,7 +47,8 @@ if (-not (Test-Path $envFile)) {
 Get-Content -LiteralPath $envFile | ForEach-Object {
   if ($_ -match '^([A-Z_]+)=(.*)$') { [Environment]::SetEnvironmentVariable($Matches[1], $Matches[2], 'Process') }
 }
-$env:KOREACRM_NEXT_DIST_DIR = '.next-mvp'
+$env:WEB_ORIGIN = "http://127.0.0.1:$webPort"
+$env:KOREACRM_NEXT_DIST_DIR = $WebDistDir
 $env:KOREACRM_API_PROXY_TARGET = "http://127.0.0.1:$apiPort"
 $env:KOREACRM_LOCAL_BACKUP_ENABLED = '1'
 $env:PRODUCT_IMAGE_DIR = Join-Path $stateDir 'product-images'
@@ -83,7 +83,7 @@ try {
   if ($LASTEXITCODE -ne 0) { throw 'Database migration failed' }
   & corepack pnpm --filter @koreacrm/database db:seed
   if ($LASTEXITCODE -ne 0) { throw 'Database seed failed' }
-  if (-not $SkipBuild -or -not (Test-Path (Join-Path $root 'apps/web/.next-mvp/BUILD_ID'))) {
+  if (-not $SkipBuild -or -not (Test-Path (Join-Path $root "apps/web/$WebDistDir/BUILD_ID"))) {
     & corepack pnpm --filter @koreacrm/api build
     if ($LASTEXITCODE -ne 0) { throw 'API build failed' }
     & corepack pnpm --filter @koreacrm/web build
@@ -104,6 +104,10 @@ if (-not $webRunning) {
   Start-Process -FilePath $node -ArgumentList "node_modules/next/dist/bin/next start --hostname 0.0.0.0 --port $webPort" -WorkingDirectory (Join-Path $root 'apps/web') -WindowStyle Hidden -RedirectStandardOutput (Join-Path $stateDir 'web.out.log') -RedirectStandardError (Join-Path $stateDir 'web.err.log') | Out-Null
 }
 Wait-Http $webLogin
+
+# Compare route JS and shared styles, not only the HTTP status.
+& $node (Join-Path $root 'tools/verify-web-build.mjs') "apps/web/$WebDistDir" "http://127.0.0.1:$webPort"
+if ($LASTEXITCODE -ne 0) { throw 'The local web process does not serve the current build. Restart it or choose a free -WebPort with the same -WebDistDir.' }
 
 $lanAddress = [Net.NetworkInformation.NetworkInterface]::GetAllNetworkInterfaces() |
   Where-Object { $_.OperationalStatus -eq 'Up' } |
