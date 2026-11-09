@@ -1,8 +1,11 @@
 'use client';
 
 import { QRCodeSVG } from 'qrcode.react';
+import { useRef, useState } from 'react';
+import { downloadBadgePdf } from '../lib/badge-pdf';
 
 export type EmployeePosCodes = { employeeName: string; qrCode: string; ean13: string };
+export type EmployeePosCodesResult = ({ available: true } & EmployeePosCodes) | { available: false; hasCodes: boolean };
 
 const leftOdd = ['0001101', '0011001', '0010011', '0111101', '0100011', '0110001', '0101111', '0111011', '0110111', '0001011'];
 const leftEven = ['0100111', '0110011', '0011011', '0100001', '0011101', '0111001', '0000101', '0010001', '0001001', '0010111'];
@@ -21,14 +24,37 @@ function Ean13({ value }: { value: string }) {
 }
 
 export function EmployeePosCodesCard({ codes, onClose }: { codes: EmployeePosCodes; onClose: () => void }) {
+  const qr = useRef<HTMLDivElement>(null);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState('');
+  async function download() {
+    setDownloading(true); setDownloadError('');
+    try {
+      const element = qr.current?.querySelector('svg')?.cloneNode(true) as SVGSVGElement | undefined;
+      if (!element) throw new Error('QR-код ещё не готов.');
+      element.setAttribute('x', '35'); element.setAttribute('y', '220'); element.setAttribute('width', '280'); element.setAttribute('height', '280'); element.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+      const scheme = parity[Number(codes.ean13[0])]!;
+      const left = [...codes.ean13.slice(1, 7)].map((digit, index) => scheme[index] === 'L' ? leftOdd[Number(digit)] : leftEven[Number(digit)]).join('');
+      const bars = `101${left}01010${[...codes.ean13.slice(7)].map(digit => right[Number(digit)]).join('')}101`;
+      const module = 390 / 113;
+      const rectangles = [...bars].map((bit, index) => bit === '1' ? `<rect x="${410 + (11 + index) * module}" y="235" width="${module}" height="${index < 3 || index >= 92 || index >= 45 && index < 50 ? 245 : 230}"/>` : '').join('');
+      const escape = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[char]!);
+      const nameSize = Math.max(25, Math.min(45, 1100 / Math.max(codes.employeeName.length, 1)));
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="86mm" height="54mm" viewBox="0 0 860 540"><rect width="860" height="540" fill="white"/><path d="M0 0H860V12H0Z" fill="#9c2548"/><g font-family="Arial,sans-serif" fill="#202630"><text x="35" y="65" font-size="29" font-weight="700">Korea CRM</text><text x="35" y="128" font-size="${nameSize}" font-weight="700">${escape(codes.employeeName)}</text><text x="35" y="169" font-size="22" fill="#606b79">Личная карта сотрудника</text></g><path d="M35 190H825" stroke="#dde2e8"/>${new XMLSerializer().serializeToString(element)}<text x="410" y="217" font-family="Arial,sans-serif" font-size="20" fill="#606b79">Вход в кассу</text><g fill="black">${rectangles}</g><text x="605" y="512" font-family="monospace" font-size="27" text-anchor="middle" letter-spacing="3">${codes.ean13}</text></svg>`;
+      await downloadBadgePdf(svg, codes.employeeName);
+    } catch (reason) { setDownloadError(reason instanceof Error ? reason.message : 'Не удалось скачать бейдж.'); }
+    finally { setDownloading(false); }
+  }
   return <section id="employee-pos-codes" className="pos-code-print-card crm-panel p-5" aria-label="Коды входа в кассу">
     <div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold uppercase tracking-wider text-violet-600">Вход в кассу</p><h2 className="mt-1 text-lg font-bold">{codes.employeeName}</h2></div><button type="button" aria-label="Закрыть коды" onClick={onClose} className="ks-button ks-button--secondary print:hidden">✕</button></div>
-    <p className="mt-3 text-xs leading-5 text-slate-600 print:hidden">Сохраните или распечатайте коды сейчас. После закрытия их нельзя посмотреть повторно; перевыпуск отключит прежние.</p>
-    <div className="mt-5 flex justify-center rounded-xl border border-slate-200 bg-white p-4"><QRCodeSVG value={codes.qrCode} size={190} level="H" marginSize={2} role="img" aria-label={`QR-код для входа сотрудника ${codes.employeeName}`} /></div>
+    <p className="mt-3 text-xs leading-5 text-slate-600 print:hidden">Код можно повторно показать в личном кабинете. Перевыпуск отключит прежний бейдж.</p>
+    <div ref={qr} className="mt-5 flex justify-center rounded-xl border border-slate-200 bg-white p-4"><QRCodeSVG value={codes.qrCode} size={190} level="M" marginSize={4} role="img" aria-label={`QR-код для входа сотрудника ${codes.employeeName}`} /></div>
     <p className="mt-2 text-center text-xs font-semibold text-slate-600">QR-код сотрудника</p>
     <div className="mt-5 rounded-xl border border-slate-200 bg-white px-2 py-4"><Ean13 value={codes.ean13} /></div>
     <p className="mt-2 text-center text-xs font-semibold text-slate-600">Для сканера штрихкодов</p>
     <p className="mt-5 text-xs leading-5 text-slate-600">Коды дают доступ к кассе от имени сотрудника. Храните их как пароль. Для входа требуется связь с сервером.</p>
-    <button type="button" onClick={() => window.print()} className="ks-button ks-button--primary crm-primary-button mt-5 w-full print:hidden">Распечатать коды</button>
+    <button type="button" disabled={downloading} onClick={() => void download()} className="ks-button ks-button--primary crm-primary-button mt-5 w-full print:hidden">{downloading ? 'Готовим PDF…' : 'Скачать PDF-бейдж 86 × 54 мм'}</button>
+    {downloadError && <p role="alert" className="mt-2 text-sm text-rose-700">{downloadError}</p>}
+    <p className="mt-2 text-xs text-slate-500 print:hidden">Печатайте в масштабе 100%, без подгонки страницы.</p>
   </section>;
 }

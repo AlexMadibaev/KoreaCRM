@@ -5,6 +5,7 @@ import type { z } from 'zod';
 import { DatabaseService } from '../database.service';
 import type { AccessContext } from '../auth/policy';
 import { hashPosCode, newPosCodes } from '../auth/pos-code';
+import { openPosCodes, sealPosCodes } from '../auth/pos-code-vault';
 import { employeeActivitySchema, employeeCreateSchema, employeeListSchema, employeePatchSchema, roleCreateSchema, rolePatchSchema } from './employees.schemas';
 
 const userPublic = { id: true, name: true, login: true, active: true, deletedAt: true, allStores: true, primaryStoreId: true, rewardPercent: true, createdAt: true, roleId: true, role: { select: { id: true, code: true, name: true, permissions: { select: { permission: { select: { code: true } } } } } }, stores: { select: { storeId: true } } } as const;
@@ -69,17 +70,26 @@ export class EmployeesService {
     if (!employee.active || !employee.role.permissions.some(item => item.permission.code === 'sales.create')) throw new BadRequestException('Employee must be active and allowed to sell');
     const codes = newPosCodes();
     await this.db.$transaction(async tx => {
-      await tx.user.update({ where: { id }, data: { posQrHash: hashPosCode(codes.qrCode), posEanHash: hashPosCode(codes.ean13) } });
+      await tx.user.update({ where: { id }, data: { posQrHash: hashPosCode(codes.qrCode), posEanHash: hashPosCode(codes.ean13), posCodesEncrypted: sealPosCodes(id, codes) } });
       await tx.refreshToken.updateMany({ where: { userId: id, deviceId: { not: null }, revokedAt: null }, data: { revokedAt: new Date() } });
       await tx.auditLog.create({ data: { userId: actor.userId, action: 'POS_CODES_ISSUED', entityType: 'User', entityId: id } });
     });
     return { employeeName: employee.name, ...codes };
   }
 
+  async getPosCodes(id: string, actor: AccessContext) {
+    const employee = await this.posCodeTarget(id, actor);
+    if (!employee.active || !employee.role.permissions.some(item => item.permission.code === 'sales.create')) throw new BadRequestException('Employee must be active and allowed to sell');
+    const stored = await this.db.user.findUniqueOrThrow({ where: { id }, select: { posQrHash: true, posEanHash: true, posCodesEncrypted: true } });
+    const codes = stored.posCodesEncrypted ? openPosCodes(id, stored.posCodesEncrypted) : null;
+    if (!codes || hashPosCode(codes.qrCode) !== stored.posQrHash || hashPosCode(codes.ean13) !== stored.posEanHash) return { available: false as const, hasCodes: Boolean(stored.posQrHash || stored.posEanHash) };
+    return { available: true as const, employeeName: employee.name, ...codes };
+  }
+
   async revokePosCodes(id: string, actor: AccessContext) {
     await this.posCodeTarget(id, actor);
     await this.db.$transaction(async tx => {
-      await tx.user.update({ where: { id }, data: { posQrHash: null, posEanHash: null } });
+      await tx.user.update({ where: { id }, data: { posQrHash: null, posEanHash: null, posCodesEncrypted: null } });
       await tx.refreshToken.updateMany({ where: { userId: id, deviceId: { not: null }, revokedAt: null }, data: { revokedAt: new Date() } });
       await tx.auditLog.create({ data: { userId: actor.userId, action: 'POS_CODES_REVOKED', entityType: 'User', entityId: id } });
     });
@@ -175,7 +185,7 @@ export class EmployeesService {
         const owners = await tx.user.count({ where: { active: true, deletedAt: null, roleId: current.roleId } });
         if (owners <= 1) throw new ConflictException('Нельзя удалить последнего владельца или суперпользователя');
       }
-      const removed = await tx.user.updateMany({ where: { id, deletedAt: null }, data: { active: false, deletedAt: new Date(), login: `deleted_${id.replace(/-/g, '')}`, pinHash: null, posQrHash: null, posEanHash: null } });
+      const removed = await tx.user.updateMany({ where: { id, deletedAt: null }, data: { active: false, deletedAt: new Date(), login: `deleted_${id.replace(/-/g, '')}`, pinHash: null, posQrHash: null, posEanHash: null, posCodesEncrypted: null } });
       if (removed.count !== 1) throw new NotFoundException('Сотрудник не найден');
       await tx.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
       await tx.auditLog.create({ data: { userId: actor.userId, action: 'EMPLOYEE_DELETED', entityType: 'User', entityId: id, oldValue: { login: current.login, roleId: current.roleId, allStores: current.allStores, storeIds: current.stores.map(item => item.storeId) } } });

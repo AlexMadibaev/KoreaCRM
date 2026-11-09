@@ -49,6 +49,12 @@ export function CatalogShell({ children }: { children: React.ReactNode }) {
   }, [router]);
   useEffect(() => { setMenuOpen(false); }, [pathname]);
   useEffect(() => {
+    const desktop = window.matchMedia('(min-width: 761px)');
+    const closeOnDesktop = () => { if (desktop.matches) setMenuOpen(false); };
+    desktop.addEventListener('change', closeOnDesktop);
+    return () => desktop.removeEventListener('change', closeOnDesktop);
+  }, []);
+  useEffect(() => {
     if (!(me?.permissions.includes('inventory.view') || me?.permissions.includes('sales.view'))) return;
     const refresh = () => { api<{ unreadCount: number }>('/notifications/summary').then(result => setUnreadCount(result.unreadCount)).catch(() => undefined); };
     refresh();
@@ -90,6 +96,7 @@ export function CatalogShell({ children }: { children: React.ReactNode }) {
   return <div className="crm-shell">
     <a href="#cabinet-content" className="crm-skip-link">Перейти к содержимому</a>
     <aside id="crm-navigation" className={`crm-sidebar ${menuOpen ? 'crm-sidebar-open' : ''}`}>
+      <button type="button" className="ks-control crm-mobile-nav-close" aria-label="Закрыть меню" onClick={() => { setMenuOpen(false); requestAnimationFrame(() => menuButtonRef.current?.focus()); }}><X size={20} aria-hidden /></button>
       <Link href={firstCabinetPath(permissions)} className="crm-brand" onClick={() => setMenuOpen(false)}><Image className="crm-brand-logo" src="/koreacrm-logo.svg" alt="Korea CRM" width={163} height={26} /></Link>
       {actions.length > 0 && <details ref={createRef} className="crm-create-menu"><summary className="ks-button ks-button--primary"><Plus size={17} aria-hidden />Создать документ<ChevronDown size={14} aria-hidden /></summary><div>{actions.map(action => <Link key={action.href} href={action.href} onClick={() => followLink(action.href)}>{action.label}</Link>)}</div></details>}
       <nav aria-label="Основная навигация">{visibleGroups.map(group => {

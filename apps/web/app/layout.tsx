@@ -6,6 +6,7 @@ import './design-system.css';
 import './cabinet-workspace.css';
 import './catalog-workspace.css';
 import './cabinet-consistency.css';
+import './mobile-workspace.css';
 import { PwaRegister } from '../components/pwa-register';
 
 export const metadata: Metadata = {

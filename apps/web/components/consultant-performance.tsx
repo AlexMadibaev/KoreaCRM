@@ -72,13 +72,13 @@ export function ConsultantPerformance() {
   }, [page]);
   const metrics = performance?.[period];
   return (
-    <section className="crm-panel mt-6 space-y-4 p-5">
+    <section className="crm-panel crm-consultant-performance mt-6 space-y-4 p-5">
       <div className="crm-panel-heading">
         <div>
           <span className="crm-eyebrow">МОИ РЕЗУЛЬТАТЫ</span>
           <h2>Продажи консультанта</h2>
         </div>
-        <label>
+        <label className="crm-consultant-period">
           Период
           <select
             className="ml-2 rounded border p-2"
@@ -101,15 +101,15 @@ export function ConsultantPerformance() {
           {[
             [
               'Выручка за вычетом возвратов',
-              `${money(metrics.netMinor)} сомони`,
+              money(metrics.netMinor),
             ],
             ['Чеков', metrics.saleCount],
             [
               'Средний чек до возвратов',
-              `${money(metrics.averageCheckMinor)} сомони`,
+              money(metrics.averageCheckMinor),
             ],
-            ['Продажи', `${money(metrics.salesMinor)} сомони`],
-            ['Возвращено за период', `${money(metrics.returnsMinor)} сомони`],
+            ['Продажи', money(metrics.salesMinor)],
+            ['Возвращено за период', money(metrics.returnsMinor)],
             ['Завершённых смен', metrics.closedShiftCount],
           ].map(([label, value]) => (
             <div key={label} className="rounded-xl bg-rose-50 p-4">
@@ -129,7 +129,16 @@ export function ConsultantPerformance() {
       </p>
       <h3 className="font-semibold">История моих продаж</h3>
       {loading && <p role="status">Загрузка…</p>}
-      <div className="overflow-x-auto">
+      <div className="crm-consultant-cards">
+        {sales?.items.length === 0 && <p className="text-sm text-slate-500">Продаж пока нет.</p>}
+        {sales?.items.map(sale => <article key={sale.id} className="crm-consultant-sale-card">
+          <header><strong>Чек {sale.number}</strong><time dateTime={sale.createdAt}>{new Date(sale.createdAt).toLocaleString('ru-RU', { timeZone: 'Asia/Dushanbe' })}</time></header>
+          <p>{sale.store.name}</p>
+          <ul>{sale.items.map((item, index) => <li key={index}>{item.product.name} × {item.quantity}</li>)}</ul>
+          <dl><div><dt>Сумма</dt><dd>{money(sale.totalMinor)}</dd></div><div><dt>Возвращено</dt><dd>{money(sale.returns.reduce((sum, row) => sum + BigInt(row.amountMinor), 0n).toString())}</dd></div></dl>
+        </article>)}
+      </div>
+      <div className="overflow-x-auto crm-consultant-sales-table">
         <table className="w-full text-left text-sm">
           <thead>
             <tr>
@@ -171,7 +180,7 @@ export function ConsultantPerformance() {
         </table>
       </div>
       {sales && !sales.items.length && <p>Продаж пока нет.</p>}
-      <div className="flex items-center gap-3">
+      <div className="crm-pagination flex items-center gap-3">
         <button
           disabled={loading || page <= 1}
           className="ks-button ks-button--secondary crm-outline-button"
