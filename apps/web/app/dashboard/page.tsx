@@ -7,6 +7,7 @@ import { api } from '../../lib/api';
 import { formatCurrencyMinor as money } from '@koreacrm/ui';
 import { SalesTrend, type SalesTrendData } from '../../components/sales-trend';
 import { TopProducts, type TopProductsData } from '../../components/top-products';
+import { TopCustomers, type TopCustomersData } from '../../components/top-customers';
 
 type Summary = {
   revenueMinor: string; cogsMinor: string; grossProfitMinor: string; expensesMinor: string; operationalResultMinor: string;
@@ -18,6 +19,14 @@ type LowStockItem = { productId: string; name: string; sku: string; quantity: nu
 type StockAttention = { visible: boolean; total: number; items: Array<LowStockItem & { storeId: string; storeName: string }>; error?: string };
 const date = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
 const count = (value: number | undefined) => Number.isFinite(value) ? new Intl.NumberFormat('ru-RU').format(value!) : '—';
+function reportParams(period: 'today' | 'week' | 'month', scope: 'active' | 'all', storeId: string) {
+  const to = new Date(); const from = new Date(to);
+  if (period === 'week') from.setDate(to.getDate() - 6);
+  if (period === 'month') from.setDate(to.getDate() - 29);
+  const params = new URLSearchParams({ from: date(from), to: date(to), scope });
+  if (storeId) params.set('storeId', storeId);
+  return params;
+}
 
 export default function DashboardPage() {
   const [period, setPeriod] = useState<'today' | 'week' | 'month'>('week');
@@ -29,24 +38,22 @@ export default function DashboardPage() {
   const [trendError, setTrendError] = useState('');
   const [topProducts, setTopProducts] = useState<TopProductsData | null>(null);
   const [topProductsError, setTopProductsError] = useState('');
+  const [canViewCustomers, setCanViewCustomers] = useState(false);
+  const [topCustomers, setTopCustomers] = useState<TopCustomersData | null>(null);
+  const [topCustomersError, setTopCustomersError] = useState('');
   const [error, setError] = useState('');
   const [stockAttention, setStockAttention] = useState<StockAttention | null>(null);
 
   useEffect(() => {
     let active = true;
-    api<Store[]>(`/finance/stores?scope=${scope}`).then(value => { if (active) setStores(value); }).catch(reason => {
+    Promise.all([api<Store[]>(`/finance/stores?scope=${scope}`), api<{ permissions: string[] }>('/auth/me')]).then(([value, me]) => { if (active) { setStores(value); setCanViewCustomers(me.permissions.includes('customers.view') && me.permissions.includes('finance.view')); } }).catch(reason => {
       if (active) setError(reason instanceof Error ? reason.message : 'Не удалось загрузить магазины');
     });
     return () => { active = false; };
   }, [scope]);
 
   useEffect(() => {
-    const to = new Date(); const from = new Date(to);
-    if (period === 'week') from.setDate(to.getDate() - 6);
-    if (period === 'month') from.setDate(to.getDate() - 29);
-    const params = new URLSearchParams({ from: date(from), to: date(to) });
-    params.set('scope', scope);
-    if (storeId) params.set('storeId', storeId);
+    const params = reportParams(period, scope, storeId);
     let active = true;
     setSummary(null);
     setTrend(null);
@@ -64,6 +71,16 @@ export default function DashboardPage() {
     });
     return () => { active = false; };
   }, [period, storeId, scope]);
+
+  useEffect(() => {
+    if (!canViewCustomers) { setTopCustomers(null); return; }
+    let active = true;
+    setTopCustomers(null); setTopCustomersError('');
+    api<TopCustomersData>(`/finance/top-customers?${reportParams(period, scope, storeId)}`).then(value => { if (active) setTopCustomers(value); }).catch(reason => {
+      if (active) setTopCustomersError(reason instanceof Error ? reason.message : 'Не удалось загрузить топ клиентов');
+    });
+    return () => { active = false; };
+  }, [period, storeId, scope, canViewCustomers]);
 
   useEffect(() => {
     let active = true;
@@ -115,6 +132,7 @@ export default function DashboardPage() {
     </section>
     {topProductsError && <div className="crm-alert" role="alert">{topProductsError}</div>}
     {topProducts && <TopProducts data={topProducts} />}
+    {canViewCustomers && <TopCustomers data={topCustomers} error={topCustomersError} />}
     <div className="crm-dashboard-grid"><section className="crm-panel"><div className="crm-panel-heading"><div><span className="crm-eyebrow">ДЕЙСТВИЯ</span><h2>Продолжить работу</h2></div></div><div className="crm-shortcuts"><Link href="/products"><span className="crm-shortcut-icon purple">◫</span><span><strong>Каталог товаров</strong><small>Товары, цены и ассортимент</small></span><b>→</b></Link><Link href="/sales"><span className="crm-shortcut-icon green">▤</span><span><strong>Продажи</strong><small>История чеков и операций</small></span><b>→</b></Link><Link href="/stock"><span className="crm-shortcut-icon orange">▦</span><span><strong>Остатки</strong><small>Наличие по магазинам</small></span><b>→</b></Link></div></section><section className="crm-panel"><div className="crm-panel-heading"><div><span className="crm-eyebrow">РАСЧЁТЫ</span><h2>Задолженности</h2></div><Link href="/finance">Подробнее →</Link></div><div className="crm-debt"><span>Долг клиентов</span><strong>{summary ? money(summary.customerDebtMinor) : '—'}</strong></div><div className="crm-debt"><span>Долг поставщикам</span><strong>{summary ? money(summary.supplierDebtMinor) : '—'}</strong></div><p className="crm-panel-note">Долг клиентов по отдельному магазину пока недоступен.</p></section></div>
     {stockAttention?.visible && <section className="crm-panel crm-stock-attention"><div className="crm-panel-heading"><div><span className="crm-eyebrow">КОНТРОЛЬ ОСТАТКОВ</span><h2>Товары с низким остатком</h2></div><Link href={stockHref}>Все остатки →</Link></div>{stockAttention.error ? <p role="alert" className="crm-stock-attention-note">{stockAttention.error}</p> : stockAttention.total === 0 ? <p className="crm-stock-attention-note">Сейчас нет товаров на уровне минимума или ниже.</p> : <><p className="crm-stock-attention-note">Требуют внимания: {stockAttention.total}</p><div className="crm-stock-attention-list">{stockAttention.items.map(item => <Link key={`${item.storeId}:${item.productId}`} href={`/stock?filter=low&storeId=${encodeURIComponent(item.storeId)}`}><span><strong>{item.name}</strong><small>{item.storeName} · {item.sku}</small></span><span className="crm-stock-attention-count">{item.quantity} / мин. {item.minStock}</span></Link>)}</div></>}</section>}
   </CatalogShell>;

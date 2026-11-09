@@ -1,0 +1,12 @@
+.crm-top-customers-list { list-style: none; padding: 0; margin: 18px 0 0; }
+.crm-top-customers-list > li { display: grid; grid-template-columns: 32px minmax(0, 1fr) auto; gap: 14px; align-items: center; padding: 16px 0; border-top: 1px solid var(--ks-color-border); }
+.crm-top-customer-rank { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 50%; background: var(--ks-color-brand-soft); color: var(--ks-color-brand-strong); font-size: 13px; font-weight: 700; }
+.crm-top-customer-name { min-width: 0; overflow-wrap: anywhere; }
+.crm-top-customer-name strong { display: block; font-size: 14px; line-height: 1.5; }
+.crm-top-customer-name small { display: block; margin-top: 4px; color: var(--ks-color-text-muted); font-size: 12px; }
+.crm-top-customer-amount { font-size: 14px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; text-align: right; }
+@media (max-width: 760px) {
+  .crm-top-customers-list > li { grid-template-columns: 32px minmax(0, 1fr); gap: 8px 12px; }
+  .crm-top-customer-rank { align-self: start; }
+  .crm-top-customer-amount { grid-column: 2; text-align: left; }
+}
