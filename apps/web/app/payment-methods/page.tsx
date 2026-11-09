@@ -59,7 +59,7 @@ export default function PaymentMethodsPage() {
     <header className="crm-page-head"><div><span className="crm-eyebrow">ПРОДАЖИ</span><h1>Способы оплаты</h1><p>Какие кнопки оплаты видит кассир и в каком порядке.</p></div></header>
     {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">{error}</p>}
     {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-800">{notice}</p>}
-    {loading ? <p>Загрузка…</p> : <section className="rounded-2xl border border-slate-200 bg-white">
+    {loading ? <p>Загрузка…</p> : <section className="crm-payment-methods rounded-2xl border border-slate-200 bg-white">
       <ul className="divide-y divide-slate-100">{methods.map((method, index) => <li key={method.id} className={`flex flex-wrap items-center gap-3 p-4 ${method.active ? '' : 'bg-slate-50'}`}>
         {canEdit && <span className="flex flex-col"><button type="button" aria-label={`Поднять ${method.name}`} disabled={busy || index === 0} className="ks-button ks-button--ghost ks-button--icon" onClick={() => move(index, -1)}>▲</button><button type="button" aria-label={`Опустить ${method.name}`} disabled={busy || index === methods.length - 1} className="ks-button ks-button--ghost ks-button--icon" onClick={() => move(index, 1)}>▼</button></span>}
         <div className="min-w-0 flex-1">

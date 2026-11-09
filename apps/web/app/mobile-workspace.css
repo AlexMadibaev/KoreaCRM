@@ -1,0 +1,156 @@
+/* Responsive refinements for the existing cabinet, without clipping the page. */
+.crm-mobile-nav-close,
+.crm-consultant-cards { display: none; }
+
+@media (max-width: 760px) {
+  .crm-shell { --ks-page-gap: 20px; --ks-section-gap: 14px; }
+  .crm-shell .crm-content,
+  .crm-shell .crm-main,
+  .crm-screen-stack,
+  .crm-screen-stack > *,
+  .crm-screen > *,
+  .crm-import-page > *,
+  .crm-profile-grid > *,
+  .crm-dashboard-grid > * { min-width: 0; max-width: 100%; }
+  .crm-shell .crm-main { width: 100%; padding: 18px 12px calc(28px + env(safe-area-inset-bottom)); font-size: 14px; line-height: 1.5; }
+  .crm-main :is(h1, h2, h3, label, .crm-alert, .crm-panel-note) { overflow-wrap: anywhere; }
+  .crm-main .crm-page-head { gap: 12px; align-items: stretch; }
+  .crm-main .crm-page-head > div { min-width: 0; max-width: 100%; }
+  .crm-main .crm-page-head h1 { font-size: 23px; line-height: 1.3; letter-spacing: -.3px; }
+  .crm-main .crm-page-head p { font-size: 13px; line-height: 1.6; }
+  .crm-main .crm-panel { border: 1px solid var(--ks-color-border); border-radius: 10px; }
+  .crm-main .crm-panel-heading { flex-wrap: wrap; align-items: flex-start; gap: 12px; margin-bottom: 16px; }
+  .crm-main .crm-panel-heading > * { min-width: 0; max-width: 100%; }
+  .crm-main .crm-panel-heading h2 { font-size: 18px; line-height: 1.35; margin-top: 4px; }
+  .crm-main .crm-panel-note { font-size: 12px; line-height: 1.6; }
+  .crm-main :is(form, fieldset, .grid, .crm-editor-grid) { min-width: 0; }
+  .crm-main :is(form, fieldset, .grid) > * { min-width: 0; }
+  .crm-main :is(input, select, textarea) { max-width: 100%; min-width: 0; box-sizing: border-box; }
+  .crm-main :is(input:not([type='checkbox']):not([type='radio']):not([type='hidden']), select, textarea),
+  .crm-login-form :is(input:not([type='checkbox']), select) { min-height: 44px; font-size: 16px; line-height: 1.35; }
+  .crm-main :is(input[type='checkbox'], input[type='radio']) { width: 24px; height: 24px; flex-shrink: 0; }
+  .crm-main label:has(> input[type='checkbox']),
+  .crm-main label:has(> input[type='radio']) { min-height: 44px; align-items: center; gap: 8px; }
+  .crm-shell .crm-main .ks-button.ks-button { min-height: 44px; max-width: 100%; white-space: normal; line-height: 1.35; text-align: center; }
+  .crm-shell .ks-control.ks-control,
+  .crm-shell .crm-icon-button.crm-icon-button { min-width: 44px; min-height: 44px; }
+  .crm-main .ks-button--icon { flex-shrink: 0; padding: 10px; }
+  .crm-main :is(.crm-page-actions, .crm-workspace-actions, .crm-report-actions) { gap: 8px; width: 100%; flex-wrap: wrap; }
+  .crm-main :is(.crm-page-actions, .crm-workspace-actions) > .ks-button { flex: 1 1 140px; }
+  .crm-main .crm-alert { padding: 12px; line-height: 1.6; }
+
+  .crm-shell .crm-topbar { min-height: 60px; height: auto; padding: 8px 12px; gap: 8px; }
+  .crm-shell .crm-breadcrumb { flex: 1 1 auto; min-width: 0; }
+  .crm-shell .crm-breadcrumb small { display: none; }
+  .crm-shell .crm-breadcrumb strong { display: block; font-size: 13px; }
+  .crm-shell .crm-topbar-actions { gap: 4px; flex: 0 0 auto; }
+  .crm-shell .crm-topbar-actions :is(a, button) { display: inline-flex; align-items: center; justify-content: center; width: 44px; min-width: 44px; height: 44px; padding: 0; }
+  .crm-shell .crm-pos-download span { display: none; }
+  .crm-shell .crm-topbar-avatar { margin: 0; font-size: 14px; }
+  .crm-shell .crm-sidebar { width: min(300px, calc(100vw - 40px)); height: 100dvh; max-height: 100dvh; }
+  .crm-shell .crm-sidebar nav { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+  .crm-shell .crm-sidebar :is(.crm-nav-link, .crm-nav-section > summary, .crm-create-menu a) { min-height: 44px; line-height: 1.4; }
+  .crm-shell .crm-mobile-nav-close { display: inline-flex; position: absolute; right: 6px; top: 4px; z-index: 2; align-items: center; justify-content: center; border: 0; background: transparent; color: var(--ks-color-ink); }
+  .crm-shell .crm-sidebar-account { min-width: 0; gap: 10px; }
+  .crm-shell .crm-sidebar-account > span:last-child { min-width: 0; overflow-wrap: anywhere; }
+
+  .crm-main .crm-profile-grid { grid-template-columns: minmax(0, 1fr); gap: 20px; }
+  .crm-main .crm-import-page { grid-template-columns: minmax(0, 1fr); }
+  .crm-main .crm-import-panel { padding: 16px; border-radius: 10px; }
+  .crm-main .crm-profile-card { padding: 0; }
+  .crm-main .crm-profile-banner { height: 84px; }
+  .crm-main .crm-profile-body { padding: 0 16px 18px; }
+  .crm-main .crm-profile-avatar { width: 60px; height: 60px; margin-top: -30px; font-size: 26px; }
+  .crm-main .crm-profile-body h2 { font-size: 20px; line-height: 1.35; overflow-wrap: anywhere; }
+  .crm-main .crm-profile-stat { gap: 12px; font-size: 13px; }
+  .crm-main .crm-profile-stat strong { text-align: right; overflow-wrap: anywhere; }
+  .crm-main .crm-account-details { padding: 16px; }
+  .crm-main .crm-detail-row { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 14px 0; font-size: 14px; }
+  .crm-main .crm-detail-row strong { text-align: left; overflow-wrap: anywhere; }
+  .crm-main .crm-store-item { gap: 10px; padding: 14px 0; }
+  .crm-main .crm-store-icon { flex: 0 0 34px; }
+  .crm-main .crm-store-item > span:nth-child(2) { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .crm-main .crm-store-item strong { font-size: 13px; line-height: 1.45; }
+  .crm-main .crm-store-access { flex: 0 0 auto; }
+  .crm-main .crm-consultant-period { display: grid; gap: 6px; width: 100%; font-size: 13px; }
+  .crm-main .crm-consultant-period select { width: 100%; margin: 0; }
+  .crm-main .crm-consultant-sales-table { display: none; }
+  .crm-main .crm-consultant-cards { display: grid; gap: 12px; }
+  .crm-main .crm-consultant-sale-card { min-width: 0; padding: 14px; border: 1px solid var(--ks-color-border); border-radius: 8px; background: var(--ks-color-surface); }
+  .crm-consultant-sale-card header { display: grid; gap: 4px; }
+  .crm-consultant-sale-card time { color: var(--ks-color-text-muted); font-size: 12px; }
+  .crm-consultant-sale-card :is(p, ul) { margin: 10px 0; font-size: 13px; overflow-wrap: anywhere; }
+  .crm-consultant-sale-card ul { padding-left: 18px; }
+  .crm-consultant-sale-card dl { display: grid; gap: 8px; margin: 12px 0 0; border-top: 1px solid var(--ks-color-border); padding-top: 10px; }
+  .crm-consultant-sale-card dl > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; }
+  .crm-consultant-sale-card dt { color: var(--ks-color-text-muted); font-size: 12px; }
+  .crm-consultant-sale-card dd { margin: 0; font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+  .crm-main .crm-pagination { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .crm-main .crm-pagination > span { grid-column: 1 / -1; grid-row: 1; text-align: center; font-size: 13px; }
+
+  .crm-main .crm-dashboard-filters,
+  .crm-main .crm-dashboard-filters label { min-width: 0; max-width: 100%; width: 100%; }
+  .crm-main .crm-dashboard-filters select { min-width: 0; width: 100%; max-width: 100%; }
+  .crm-main .crm-dashboard-sales > div { padding: 14px 12px; }
+  .crm-main .crm-dashboard-sales strong { font-size: 17px; line-height: 1.4; }
+  .crm-main .crm-shifts { grid-template-columns: minmax(0, 1fr); }
+  .crm-main :is(.crm-shifts-toolbar, .crm-shifts-tools, .crm-chips) { min-width: 0; max-width: 100%; width: 100%; flex-wrap: wrap; gap: 10px; }
+  .crm-main .crm-chip { flex: 1 1 180px; min-width: 0; max-width: 100%; }
+  .crm-main .crm-chip.is-wide { flex-basis: 100%; }
+  .crm-main .crm-chip-value { min-width: 0; min-height: 44px; gap: 8px; }
+  .crm-main .crm-chip.crm-chip.crm-chip .crm-chip-value :is(input, select) { flex: 1 1 0; min-width: 0; min-height: 44px; height: auto; max-width: 100%; font-size: 16px; }
+  .crm-main .crm-chip-value button { flex: 0 0 44px; width: 44px; height: 44px; }
+  .crm-main .crm-columns-menu { margin-left: auto; }
+  .crm-main .crm-columns-popover { left: auto; right: 0; top: 48px; max-width: calc(100vw - 32px); max-height: min(420px, calc(100dvh - 100px)); }
+  .crm-main :is(.crm-shifts-table-wrap, .crm-products-table-wrap, .crm-purchase-table-scroll, .crm-report-table-wrap, .crm-table-region, .overflow-x-auto) { min-width: 0; max-width: 100%; overflow-x: auto; overscroll-behavior-x: contain; }
+  .crm-main :is(.overflow-x-auto, .crm-table-region) > table { min-width: 600px; border-collapse: collapse; }
+  .crm-main :is(.overflow-x-auto, .crm-table-region) > table :is(th, td) { padding: 12px; line-height: 1.5; vertical-align: top; }
+  .crm-main :is(.overflow-x-auto, .crm-table-region) > table th { font-size: 12px; text-transform: none; white-space: nowrap; }
+  .crm-main .crm-shifts-pages { flex-wrap: wrap; justify-content: space-between; row-gap: 10px; }
+  .crm-main .crm-shifts-tools > .ks-button:not(.ks-button--icon) { flex: 1 1 140px; }
+  .crm-main table.crm-mobile-cards td { height: auto; min-height: 44px; white-space: normal; }
+  .crm-main .crm-products-overview table.crm-mobile-cards td.sticky-name { height: auto; overflow: visible; }
+  .crm-main .crm-products-overview .crm-catalog-item { height: auto; min-width: 0; }
+  .crm-main .crm-products-overview table.crm-mobile-cards td[data-label] > a { display: inline-flex; align-items: center; min-height: 44px; }
+  .crm-main .crm-payment-methods li { display: grid; grid-template-columns: 44px minmax(0, 1fr); gap: 12px; }
+  .crm-main .crm-payment-methods li > :is(button, label) { grid-column: 2; justify-self: start; }
+  .crm-main .crm-payment-methods li > span:first-child { grid-row: 1 / span 3; }
+  .crm-main .crm-report-filters > * { min-width: 0; max-width: 100%; }
+  .crm-main .crm-report-field { width: 100%; }
+  .crm-main .crm-report-filters.crm-report-filters.crm-report-filters .crm-report-field :is(select, input),
+  .crm-main .crm-report-filters.crm-report-filters.crm-report-filters .crm-report-dates input { width: 100%; min-width: 0; min-height: 44px; height: auto; font-size: 16px; }
+  .crm-main .crm-report-dates { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; }
+  .crm-main .crm-report-dates label { display: grid; gap: 6px; }
+  .crm-main .crm-report-check { height: auto; min-height: 44px; }
+  .crm-main .crm-periods { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); max-width: 100%; overflow: visible; }
+  .crm-main .crm-periods button { min-width: 0; padding-inline: 6px; }
+  .crm-main .crm-report-card-table .crm-products-card-head { flex-wrap: wrap; padding: 14px; }
+  .crm-main .crm-report-back { min-height: 44px; }
+
+  .crm-main .crm-doc-editor { grid-template-columns: minmax(0, 1fr); }
+  .crm-main :is(.crm-doc-sheet, .crm-doc-picker, .crm-doc-parties, .crm-doc-fields, .crm-doc-comment-field) { min-width: 0; max-width: 100%; }
+  .crm-main .crm-doc-sheet { padding: 16px; }
+  .crm-main .crm-doc-title.crm-doc-title { flex-wrap: wrap; gap: 8px; align-items: flex-start; }
+  .crm-main .crm-doc-title.crm-doc-title input { flex: 1 1 150px; min-width: 0; max-width: 100%; }
+  .crm-main .crm-doc-parties { grid-template-columns: minmax(0, 1fr); }
+  .crm-main .crm-doc-sheet.crm-doc-sheet :is(.crm-doc-parties, .crm-doc-comment-field, .crm-doc-payment) :is(input, select, textarea),
+  .crm-main .crm-document-drawer.crm-document-drawer.crm-document-drawer :is(.crm-shift-actions, .crm-shift-open) :is(input, select) { min-height: 44px; height: auto; font-size: 16px; min-width: 0; max-width: 100%; }
+  .crm-main .crm-doc-actions { flex-wrap: wrap; gap: 12px; }
+  .crm-main .crm-doc-actions > * { min-width: 0; max-width: 100%; }
+
+  .crm-main .crm-document-drawer { width: 100%; max-width: 100vw; height: 100dvh; max-height: 100dvh; margin: 0; inset: 0; border-radius: 0; padding: 0; }
+  .crm-main .crm-document-drawer-head { align-items: flex-start; gap: 12px; padding: 12px; }
+  .crm-main .crm-document-drawer-head h2 { min-width: 0; font-size: 18px; line-height: 1.4; overflow-wrap: anywhere; }
+  .crm-main .crm-document-drawer-head button { flex: 0 0 44px; }
+  .crm-main .crm-document-drawer-body { min-height: 0; padding: 16px; padding-bottom: calc(24px + env(safe-area-inset-bottom)); }
+  .crm-main .crm-bulk-products-dialog { max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); padding: 16px; border-radius: 12px; }
+  .crm-main :is(.crm-bulk-products-header, .crm-bulk-products-footer) { gap: 12px; }
+  .crm-main .pos-code-print-card { padding: 14px; }
+  .crm-main .pos-code-print-card > div:first-child { flex-wrap: wrap; }
+}
+
+@media (max-width: 360px) {
+  .crm-main .crm-dashboard-sales { grid-template-columns: minmax(0, 1fr); }
+  .crm-main .crm-chip-value:has(input[type='date']) { flex-wrap: wrap; }
+  .crm-main .crm-chip.crm-chip.crm-chip .crm-chip-value input[type='date'] { flex-basis: 100%; width: 100%; }
+}

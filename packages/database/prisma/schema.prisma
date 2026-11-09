@@ -15,6 +15,7 @@ model User {
   pinHash       String?
   posQrHash     String?        @unique
   posEanHash    String?        @unique
+  posCodesEncrypted String?
   active        Boolean        @default(true)
   deletedAt     DateTime?
   allStores     Boolean        @default(false)

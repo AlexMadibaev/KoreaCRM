@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AccessGuard, RequirePermission } from '../auth/guards';
@@ -12,6 +12,8 @@ type AuthorizedRequest = Request & { access: AccessContext };
 @ApiTags('employees') @ApiBearerAuth() @UseGuards(AccessGuard) @Controller('employees')
 export class EmployeesController {
   constructor(private readonly service: EmployeesService, private readonly consultant: ConsultantService) {}
+  @Get('me/pos-codes') @Header('Cache-Control', 'no-store') @RequirePermission('sales.create') myPosCodes(@Req() req: AuthorizedRequest) { return this.service.getPosCodes(req.access.userId, req.access); }
+  @Post('me/pos-codes') @Header('Cache-Control', 'no-store') @RequirePermission('sales.create') issueMyPosCodes(@Req() req: AuthorizedRequest) { return this.service.issuePosCodes(req.access.userId, req.access); }
   @Get('me/performance') @RequirePermission('sales.create') performance(@Req() req: AuthorizedRequest) { return this.consultant.performance(req.access); }
   @Get('me/sales') @RequirePermission('sales.create') mySales(@Query() query: unknown, @Req() req: AuthorizedRequest) { const parsed = parseEmployeeInput(employeeActivitySchema, query); return this.consultant.sales(req.access, parsed.page, parsed.limit); }
   @Get() @RequirePermission('employees.view') list(@Query() query: unknown, @Req() req: AuthorizedRequest) { return this.service.list(req.access, parseEmployeeInput(employeeListSchema, query)); }
@@ -21,7 +23,8 @@ export class EmployeesController {
   @Post() @RequirePermission('employees.create') create(@Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.create(parseEmployeeInput(employeeCreateSchema, body), req.access); }
   @Patch(':id') @RequirePermission('employees.edit') update(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.update(id, parseEmployeeInput(employeePatchSchema, body), req.access); }
   @Delete(':id') @RequirePermission('employees.edit') remove(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.removeEmployee(id, req.access); }
-  @Post(':id/pos-codes') @RequirePermission('employees.edit') issuePosCodes(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.issuePosCodes(id, req.access); }
+  @Post(':id/pos-codes') @Header('Cache-Control', 'no-store') @RequirePermission('employees.edit') issuePosCodes(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.issuePosCodes(id, req.access); }
+  @Get(':id/pos-codes') @Header('Cache-Control', 'no-store') @RequirePermission('employees.edit') getPosCodes(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.getPosCodes(id, req.access); }
   @Delete(':id/pos-codes') @RequirePermission('employees.edit') revokePosCodes(@Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) { return this.service.revokePosCodes(id, req.access); }
 }
 
