@@ -22,6 +22,9 @@ function dateRange(from: string, to: string) {
   return { gte: start, lt: new Date(end.getTime() + 86_400_000) };
 }
 
+// Prisma DateTime columns store UTC without a timezone; bind matching SQL timestamps.
+const sqlTimestamp = (date: Date) => Prisma.sql`${date.toISOString()}::timestamp`;
+
 @Injectable()
 export class FinanceService {
   constructor(private readonly db: DatabaseService) {}
@@ -294,16 +297,16 @@ export class FinanceService {
       rows = await this.db.$queryRaw<Row[]>`
         SELECT day, SUM("salesMinor") AS "salesMinor", SUM("returnsMinor") AS "returnsMinor", SUM("checksCount") AS "checksCount"
         FROM (
-          SELECT to_char("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+          SELECT to_char("createdAt", 'YYYY-MM-DD') AS day,
                  SUM("totalMinor") AS "salesMinor", 0::numeric AS "returnsMinor", COUNT(*) AS "checksCount"
           FROM "Sale"
-          WHERE status = 'COMPLETED' AND "createdAt" >= ${range.gte} AND "createdAt" < ${range.lt} ${storeScope}
+          WHERE status = 'COMPLETED' AND "createdAt" >= ${sqlTimestamp(range.gte)} AND "createdAt" < ${sqlTimestamp(range.lt)} ${storeScope}
           GROUP BY day
           UNION ALL
-          SELECT to_char("createdAt" AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+          SELECT to_char("createdAt", 'YYYY-MM-DD') AS day,
                  0::numeric AS "salesMinor", SUM("amountMinor") AS "returnsMinor", 0::bigint AS "checksCount"
           FROM "SaleReturn"
-          WHERE "createdAt" >= ${range.gte} AND "createdAt" < ${range.lt} ${storeScope}
+          WHERE "createdAt" >= ${sqlTimestamp(range.gte)} AND "createdAt" < ${sqlTimestamp(range.lt)} ${storeScope}
           GROUP BY day
         ) events
         GROUP BY day ORDER BY day
@@ -321,6 +324,42 @@ export class FinanceService {
     return { from: input.from, to: input.to, storeId: input.storeId ?? null, days };
   }
 
+  async topCustomers(input: z.infer<typeof summarySchema>, access: AccessContext) {
+    if (!access.permissions.includes('finance.view') || !access.permissions.includes('customers.view')) throw new ForbiddenException('Customer ranking access denied');
+    const range = dateRange(input.from, input.to);
+    const selectedStores = await this.reportStores(input, access);
+    type Row = { customerId: string; name: string; checksCount: bigint; netRevenueMinor: Prisma.Decimal };
+    let rows: Row[] = [];
+    if (!Array.isArray(selectedStores) || selectedStores.length) {
+      const ids = Array.isArray(selectedStores) ? selectedStores.map(id => Prisma.sql`${id}::uuid`) : [];
+      const saleScope = typeof selectedStores === 'string' ? Prisma.sql`AND s."storeId" = ${selectedStores}::uuid` : selectedStores === undefined ? Prisma.empty : Prisma.sql`AND s."storeId" IN (${Prisma.join(ids)})`;
+      const returnScope = typeof selectedStores === 'string' ? Prisma.sql`AND r."storeId" = ${selectedStores}::uuid` : selectedStores === undefined ? Prisma.empty : Prisma.sql`AND r."storeId" IN (${Prisma.join(ids)})`;
+      rows = await this.db.$queryRaw<Row[]>`
+        SELECT c.id AS "customerId", TRIM(c."firstName" || ' ' || COALESCE(c."lastName", '')) AS name,
+               SUM(events.checks)::bigint AS "checksCount", SUM(events.revenue) AS "netRevenueMinor"
+        FROM (
+          SELECT s."customerId", COUNT(*)::bigint AS checks, SUM(s."totalMinor") AS revenue
+          FROM "Sale" s
+          WHERE s.status = 'COMPLETED' AND s."customerId" IS NOT NULL
+            AND s."createdAt" >= ${sqlTimestamp(range.gte)} AND s."createdAt" < ${sqlTimestamp(range.lt)} ${saleScope}
+          GROUP BY s."customerId"
+          UNION ALL
+          SELECT s."customerId", 0::bigint AS checks, -SUM(r."amountMinor") AS revenue
+          FROM "SaleReturn" r JOIN "Sale" s ON s.id = r."saleId"
+          WHERE s.status = 'COMPLETED' AND s."customerId" IS NOT NULL
+            AND r."createdAt" >= ${sqlTimestamp(range.gte)} AND r."createdAt" < ${sqlTimestamp(range.lt)} ${returnScope}
+          GROUP BY s."customerId"
+        ) events
+        JOIN "Customer" c ON c.id = events."customerId" AND c."deletedAt" IS NULL
+        GROUP BY c.id, c."firstName", c."lastName"
+        HAVING SUM(events.revenue) > 0
+        ORDER BY "netRevenueMinor" DESC, "checksCount" DESC, c.id
+        LIMIT 5
+      `;
+    }
+    return { from: input.from, to: input.to, storeId: input.storeId ?? null, items: rows.map(row => ({ customerId: row.customerId, name: row.name, checksCount: Number(row.checksCount), revenueMinor: row.netRevenueMinor.toString() })) };
+  }
+
   async topProducts(input: z.infer<typeof summarySchema>, access: AccessContext) {
     const range = dateRange(input.from, input.to);
     const selectedStores = await this.reportStores(input, access);
@@ -336,14 +375,14 @@ export class FinanceService {
         FROM (
           SELECT si."productId", SUM(si.quantity)::numeric AS quantity, SUM(si."totalMinor") AS revenue
           FROM "SaleItem" si JOIN "Sale" s ON s.id = si."saleId"
-          WHERE s.status = 'COMPLETED' AND s."createdAt" >= ${range.gte} AND s."createdAt" < ${range.lt} ${saleScope}
+          WHERE s.status = 'COMPLETED' AND s."createdAt" >= ${sqlTimestamp(range.gte)} AND s."createdAt" < ${sqlTimestamp(range.lt)} ${saleScope}
           GROUP BY si."productId"
           UNION ALL
           SELECT si."productId", -SUM(ri.quantity)::numeric AS quantity, -SUM(ri."amountMinor") AS revenue
           FROM "SaleReturnItem" ri
           JOIN "SaleReturn" r ON r.id = ri."saleReturnId"
           JOIN "SaleItem" si ON si.id = ri."saleItemId"
-          WHERE r."createdAt" >= ${range.gte} AND r."createdAt" < ${range.lt} ${returnScope}
+          WHERE r."createdAt" >= ${sqlTimestamp(range.gte)} AND r."createdAt" < ${sqlTimestamp(range.lt)} ${returnScope}
           GROUP BY si."productId"
         ) events
         JOIN "Product" p ON p.id = events."productId"

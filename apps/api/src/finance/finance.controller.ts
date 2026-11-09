@@ -24,6 +24,7 @@ export class FinanceSummaryController {
   @Get('summary') @RequirePermission('finance.view') summary(@Query() query: unknown, @Req() req: AuthorizedRequest) { return this.service.summary(parseInput(summarySchema, query), req.access); }
   @Get('sales-trend') @RequirePermission('finance.view') salesTrend(@Query() query: unknown, @Req() req: AuthorizedRequest) { return this.service.salesTrend(parseInput(summarySchema, query), req.access); }
   @Get('top-products') @RequirePermission('finance.view') topProducts(@Query() query: unknown, @Req() req: AuthorizedRequest) { return this.service.topProducts(parseInput(summarySchema, query), req.access); }
+  @Get('top-customers') @RequirePermission('finance.view') topCustomers(@Query() query: unknown, @Req() req: AuthorizedRequest) { return this.service.topCustomers(parseInput(summarySchema, query), req.access); }
 }
 
 @ApiTags('finance') @ApiBearerAuth() @UseGuards(AccessGuard, StoreScopeGuard) @Controller('stores/:storeId/finance')

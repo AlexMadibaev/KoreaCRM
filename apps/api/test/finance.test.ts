@@ -11,6 +11,20 @@ const categoryId = '33333333-3333-4333-8333-333333333333';
 const purchaseId = '44444444-4444-4444-8444-444444444444';
 const operationId = '55555555-5555-4555-8555-555555555555';
 
+test('top customers requires both finance and customer permissions before querying', async () => {
+  const service = new FinanceService({} as DatabaseService);
+  for (const permissions of [[], ['finance.view'], ['customers.view']]) {
+    await assert.rejects(service.topCustomers({ from: '2026-11-01', to: '2026-11-09' }, { userId: 'u', permissions, allStores: true, storeIds: [] }), ForbiddenException);
+  }
+});
+
+test('top customers respects empty and foreign store scopes', async () => {
+  const service = new FinanceService({} as DatabaseService);
+  const access = { userId: 'u', permissions: ['finance.view', 'customers.view'], allStores: false, storeIds: [] };
+  assert.deepEqual((await service.topCustomers({ from: '2026-11-01', to: '2026-11-09' }, access)).items, []);
+  await assert.rejects(service.topCustomers({ from: '2026-11-01', to: '2026-11-09', storeId }, access), ForbiddenException);
+});
+
 test('open shift query filters before pagination and keeps the store boundary', async () => {
   const observed: unknown[] = [];
   const db = {
