@@ -6,6 +6,7 @@ import { DatabaseService } from '../database.service';
 import type { AccessContext } from '../auth/policy';
 import { hashPosCode, newPosCodes } from '../auth/pos-code';
 import { openPosCodes, sealPosCodes } from '../auth/pos-code-vault';
+import { employeeDirectoryWhere, isBootstrapAccount } from './directory-visibility';
 import { employeeActivitySchema, employeeCreateSchema, employeeListSchema, employeePatchSchema, roleCreateSchema, rolePatchSchema } from './employees.schemas';
 
 const userPublic = { id: true, name: true, login: true, active: true, deletedAt: true, allStores: true, primaryStoreId: true, rewardPercent: true, createdAt: true, roleId: true, role: { select: { id: true, code: true, name: true, permissions: { select: { permission: { select: { code: true } } } } } }, stores: { select: { storeId: true } } } as const;
@@ -19,7 +20,7 @@ export class EmployeesService {
 
   async list(actor: AccessContext, query: z.infer<typeof employeeListSchema>) {
     const where: Prisma.UserWhereInput = {
-      deletedAt: null,
+      ...employeeDirectoryWhere(),
       ...(actor.allStores ? {} : { allStores: false, stores: { some: { storeId: { in: actor.storeIds } } } }),
       ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { login: { contains: query.search, mode: 'insensitive' } }] } : {}),
     };
@@ -32,8 +33,8 @@ export class EmployeesService {
 
   async rewards(id: string, actor: AccessContext) {
     if (id !== actor.userId && !actor.permissions.includes('employees.view')) throw new ForbiddenException();
-    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, name: true, rewardBalanceMinor: true, allStores: true, stores: { select: { storeId: true } } } });
-    if (!employee) throw new NotFoundException('Employee not found');
+    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, name: true, login: true, rewardBalanceMinor: true, allStores: true, stores: { select: { storeId: true } } } });
+    if (!employee || id !== actor.userId && isBootstrapAccount(employee.login)) throw new NotFoundException('Employee not found');
     if (id !== actor.userId && !actor.allStores && (employee.allStores || !employee.stores.length || employee.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
     const [sales, returns, transactions, payouts] = await Promise.all([
       this.db.sale.aggregate({ where: { employeeId: id }, _count: { id: true }, _sum: { totalMinor: true } }),
@@ -46,8 +47,8 @@ export class EmployeesService {
   }
 
   async activity(id: string, actor: AccessContext, query: z.infer<typeof employeeActivitySchema>) {
-    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, allStores: true, stores: { select: { storeId: true } } } });
-    if (!employee) throw new NotFoundException('Employee not found');
+    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, login: true, allStores: true, stores: { select: { storeId: true } } } });
+    if (!employee || id !== actor.userId && isBootstrapAccount(employee.login)) throw new NotFoundException('Employee not found');
     if (!actor.allStores && (employee.allStores || !employee.stores.length || employee.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
     const where: Prisma.AuditLogWhereInput = { OR: [{ userId: id }, { entityType: 'User', entityId: id }] };
     const [items, total] = await this.db.$transaction([
@@ -58,8 +59,8 @@ export class EmployeesService {
   }
 
   private async posCodeTarget(id: string, actor: AccessContext) {
-    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, name: true, active: true, deletedAt: true, allStores: true, stores: { select: { storeId: true } }, role: { select: { permissions: { select: { permission: { select: { code: true } } } } } } } });
-    if (!employee || employee.deletedAt) throw new NotFoundException('Employee not found');
+    const employee = await this.db.user.findUnique({ where: { id }, select: { id: true, name: true, login: true, active: true, deletedAt: true, allStores: true, stores: { select: { storeId: true } }, role: { select: { permissions: { select: { permission: { select: { code: true } } } } } } } });
+    if (!employee || employee.deletedAt || id !== actor.userId && isBootstrapAccount(employee.login)) throw new NotFoundException('Employee not found');
     if (!actor.allStores && (employee.allStores || !employee.stores.length || employee.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
     if (employee.role.permissions.some(item => !actor.permissions.includes(item.permission.code))) throw new ForbiddenException('Employee has permissions outside your role');
     return employee;
@@ -145,7 +146,7 @@ export class EmployeesService {
   async update(id: string, input: z.infer<typeof employeePatchSchema>, actor: AccessContext) {
     if (id === actor.userId) throw new ConflictException('Edit your own account through profile settings');
     const current = await this.db.user.findUnique({ where: { id }, select: userPublic });
-    if (!current || current.deletedAt) throw new NotFoundException('Employee not found');
+    if (!current || current.deletedAt || isBootstrapAccount(current.login)) throw new NotFoundException('Employee not found');
     if (!actor.allStores && (current.allStores || current.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
     await this.allowedRole(current.roleId, actor);
     const roleId = input.roleId ?? current.roleId;
@@ -177,7 +178,7 @@ export class EmployeesService {
   async removeEmployee(id: string, actor: AccessContext) {
     if (id === actor.userId) throw new ConflictException('Вы не можете удалить свою учётную запись');
     const current = await this.db.user.findUnique({ where: { id }, select: userPublic });
-    if (!current || current.deletedAt) throw new NotFoundException('Сотрудник не найден');
+    if (!current || current.deletedAt || isBootstrapAccount(current.login)) throw new NotFoundException('Сотрудник не найден');
     if (!actor.allStores && (current.allStores || current.stores.some(item => !actor.storeIds.includes(item.storeId)))) throw new ForbiddenException();
     await this.allowedRole(current.roleId, actor);
     await this.db.$transaction(async tx => {
