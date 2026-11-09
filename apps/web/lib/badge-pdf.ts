@@ -1,9 +1,9 @@
 const encode = (text: string) => new TextEncoder().encode(text);
 const mmToPt = (mm: number) => mm * 72 / 25.4;
 
-/** One physical 86 x 54 mm page; the badge image is rendered at 300 dpi. */
+/** One physical portrait 54 x 86 mm page; the badge image is rendered at 300 dpi. */
 export function createBadgePdf(jpeg: Uint8Array, pixelWidth: number, pixelHeight: number): Uint8Array {
-  const width = mmToPt(86).toFixed(5), height = mmToPt(54).toFixed(5);
+  const width = mmToPt(54).toFixed(5), height = mmToPt(86).toFixed(5);
   const chunks: Uint8Array[] = [], offsets = [0];
   let length = 0;
   const append = (part: string | Uint8Array) => { const bytes = typeof part === 'string' ? encode(part) : part; chunks.push(bytes); length += bytes.length; };
@@ -34,7 +34,7 @@ export async function downloadBadgePdf(svg: string, employeeName: string) {
     const image = new Image();
     await new Promise<void>((resolve, reject) => { image.onload = () => resolve(); image.onerror = () => reject(new Error('Не удалось подготовить бейдж.')); image.src = source; });
     const canvas = document.createElement('canvas');
-    canvas.width = Math.round(86 / 25.4 * 300); canvas.height = Math.round(54 / 25.4 * 300);
+    canvas.width = Math.round(54 / 25.4 * 300); canvas.height = Math.round(86 / 25.4 * 300);
     const context = canvas.getContext('2d');
     if (!context) throw new Error('Не удалось подготовить PDF.');
     context.fillStyle = '#fff'; context.fillRect(0, 0, canvas.width, canvas.height);
