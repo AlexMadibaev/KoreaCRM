@@ -35,7 +35,7 @@ export class AuthService {
   private async preparePosLogin(userId: string, deviceId?: string, storeCode?: string) {
     if (!deviceId?.startsWith('POS-')) return;
     const store = storeCode ? await this.posStore(storeCode) : null;
-    const access = await this.context(userId);
+    const access = await this.context(userId, undefined, true);
     if (!access.permissions.includes('sales.create')) throw new ForbiddenException('POS sales permission required');
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
@@ -138,7 +138,7 @@ export class AuthService {
     return { success: true };
   }
 
-  async context(userId: string, posDeviceId?: string): Promise<AccessContext & { login: string; name: string; role: string }> {
+  async context(userId: string, posDeviceId?: string, preparingPosLogin = false): Promise<AccessContext & { login: string; name: string; role: string }> {
     const user = await this.db.user.findUnique({ where: { id: userId }, include: userInclude });
     if (!user?.active) throw new UnauthorizedException();
     const access = {
@@ -147,7 +147,7 @@ export class AuthService {
       name: user.name,
       role: user.role.code,
       primaryStoreId: user.primaryStoreId,
-      permissions: user.role.permissions.map((item) => item.permission.code),
+      permissions: user.role.code === 'KOREA_POS_MANAGER' && !posDeviceId && !preparingPosLogin ? [] : user.role.permissions.map((item) => item.permission.code),
       allStores: user.allStores,
       storeIds: user.stores.map((item) => item.storeId),
     };

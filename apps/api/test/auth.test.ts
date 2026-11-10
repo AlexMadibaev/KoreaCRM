@@ -7,6 +7,18 @@ import { ean13CheckDigit, hashPosCode, newPosCodes, validPosCode } from '../src/
 import type { DatabaseService } from '../src/database.service';
 import type { JwtService } from '@nestjs/jwt';
 
+test('POS managers have no cabinet permissions but retain permissions on their assigned POS', async () => {
+  const db = {
+    user: { findUnique: async () => ({ id: 'manager', active: true, login: 'manager', name: 'Manager', primaryStoreId: 'store', allStores: false, stores: [{ storeId: 'store' }], role: { code: 'KOREA_POS_MANAGER', permissions: [{ permission: { code: 'sales.create' } }, { permission: { code: 'finance.cash' } }] } }) },
+    posDevice: { findUnique: async () => ({ storeId: 'store', status: 'ACTIVE', store: { status: 'ACTIVE', deletedAt: null } }) },
+  } as unknown as DatabaseService;
+  const service = new AuthService(db, {} as JwtService);
+  assert.deepEqual((await service.context('manager')).permissions, []);
+  assert.deepEqual((await service.context('manager', 'POS-test')).permissions, ['sales.create', 'finance.cash']);
+  assert.deepEqual((await service.context('manager', undefined, true)).permissions, ['sales.create', 'finance.cash']);
+  assert.deepEqual((await service.context('manager', 'POS-test')).storeIds, ['store']);
+});
+
 test('login verifies Argon2 password and issues tokens', async () => {
   const created: unknown[] = [];
   const db = {
