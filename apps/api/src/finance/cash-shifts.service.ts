@@ -42,7 +42,7 @@ export class CashShiftsService {
     if (!storeIds.length) return empty;
     const scope = sql`cs."storeId" IN (${Prisma.join(storeIds.map(id => sql`${id}::uuid`))})`;
     const period = query.from && query.to ? localPeriod(query.from, query.to).range : null;
-    const where = sql`WHERE TRUE
+    const where = sql`WHERE n."archivedAt" IS NULL
       ${period ? sql`AND n."openedAt" >= ${period.gte} AND n."openedAt" < ${period.lt}` : Prisma.empty}
       ${query.employeeId ? sql`AND n."openedById" = ${query.employeeId}::uuid` : Prisma.empty}
       ${query.deviceId ? sql`AND n."deviceId" = ${query.deviceId}` : Prisma.empty}
@@ -76,9 +76,9 @@ export class CashShiftsService {
         ORDER BY n."openedAt" DESC, n.id DESC
         LIMIT ${query.limit} OFFSET ${(query.page - 1) * query.limit}`,
       this.db.$queryRaw<{ kind: string; id: string; name: string; storeId: string | null }[]>`
-        SELECT DISTINCT 'cashier' AS kind, u.id::text AS id, u.name, NULL::text AS "storeId" FROM "CashShift" cs JOIN "User" u ON u.id = cs."openedById" WHERE ${scope}
+        SELECT DISTINCT 'cashier' AS kind, u.id::text AS id, u.name, NULL::text AS "storeId" FROM "CashShift" cs JOIN "User" u ON u.id = cs."openedById" WHERE ${scope} AND cs."archivedAt" IS NULL
         UNION ALL
-        SELECT DISTINCT 'device', cs."deviceId", cs."deviceId", cs."storeId"::text FROM "CashShift" cs WHERE ${scope}`,
+        SELECT DISTINCT 'device', cs."deviceId", cs."deviceId", cs."storeId"::text FROM "CashShift" cs WHERE ${scope} AND cs."archivedAt" IS NULL`,
     ]);
     const total = rows.length ? Number(rows[0]!.__total) : 0;
     return {

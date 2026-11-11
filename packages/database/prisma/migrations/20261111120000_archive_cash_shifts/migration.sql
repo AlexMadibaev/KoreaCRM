@@ -1,0 +1,1 @@
+ALTER TABLE "CashShift" ADD COLUMN "archivedAt" TIMESTAMP(3);

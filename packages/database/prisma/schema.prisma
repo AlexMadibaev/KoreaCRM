@@ -511,6 +511,7 @@ model CashShift {
   closingComment    String?
   openedAt          DateTime        @default(now())
   closedAt          DateTime?
+  archivedAt        DateTime?
   operations        CashOperation[]
   sales             Sale[]
   saleReturns       SaleReturn[]
