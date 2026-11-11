@@ -11,9 +11,26 @@ type CatalogItem = { id: string; name: string; sku?: string };
 const endpoint: Record<Kind, string> = { PRODUCT: 'products', BRAND: 'brands', CATEGORY: 'categories' };
 const label: Record<Kind, string> = { PRODUCT: 'Товар', BRAND: 'Бренд', CATEGORY: 'Категория' };
 const dayNames = ['Вс', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+type Promotion = LoyaltySettings['promotions'][number];
+type PromotionTarget = Pick<Promotion, 'id' | 'targetType' | 'targetId'>;
+type Campaign = Omit<Promotion, keyof PromotionTarget> & { id: string; targets: PromotionTarget[] };
+
+function groupPromotions(promotions: Promotion[]): Campaign[] {
+  const campaigns = new Map<string, Campaign>();
+  for (const { id, targetType, targetId, percent, startDate, endDate, daysOfWeek, active } of promotions) {
+    const days = [...new Set(daysOfWeek)].sort();
+    const key = JSON.stringify([Number(percent), startDate, endDate, days, active]);
+    const target = { id, targetType, targetId };
+    const campaign = campaigns.get(key);
+    if (campaign) campaign.targets.push(target);
+    else campaigns.set(key, { id, percent, startDate, endDate, daysOfWeek: days, active, targets: [target] });
+  }
+  return [...campaigns.values()];
+}
+
 const percentPattern = /^\d{1,3}(?:[.,]\d{1,2})?$/;
 
-function CatalogPicker({ kind, selected, onAdd, onRemove, single = false }: { kind: Kind; selected: string[]; onAdd: (id: string) => void; onRemove: (id: string) => void; single?: boolean }) {
+function CatalogPicker({ kind, selected, onAdd, onRemove, disabled = false }: { kind: Kind; selected: string[]; onAdd: (id: string) => void; onRemove: (id: string) => void; disabled?: boolean }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<CatalogItem[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -27,27 +44,48 @@ function CatalogPicker({ kind, selected, onAdd, onRemove, single = false }: { ki
     return () => { active = false; };
   }, [kind, selected.join(',')]);
   useEffect(() => {
+    if (disabled) return;
     let active = true;
     const timer = window.setTimeout(() => { api<Page<CatalogItem>>(`/${endpoint[kind]}?limit=20&search=${encodeURIComponent(query)}`).then(page => { if (active) setResults(page.items); }).catch(() => { if (active) setResults([]); }); }, 200);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [kind, query]);
-  return <div className="space-y-2"><div className="flex flex-wrap gap-2">{selected.map(id => <span key={id} className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-sm text-rose-900">{names[id] ?? id.slice(0, 8)}<button className="ks-button ks-button--ghost ks-button--icon" type="button" aria-label={`Убрать ${names[id] ?? id}`} onClick={() => onRemove(id)}>×</button></span>)}</div><input aria-label={`Найти ${label[kind].toLowerCase()}`} className="w-full rounded-xl border border-slate-200 p-3" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={`Найти ${label[kind].toLowerCase()}`} /><div className="max-h-36 overflow-y-auto rounded-xl border border-slate-100">{results.filter(item => !selected.includes(item.id)).map(item => <button key={item.id} type="button" className="ks-control block w-full border-b border-slate-100 px-3 py-2 text-left text-sm hover:bg-rose-50" onClick={() => { setNames(previous => ({ ...previous, [item.id]: item.name })); onAdd(item.id); setQuery(''); }}>{item.name}{item.sku ? ` · ${item.sku}` : ''}</button>)}{!results.length && <p className="p-3 text-sm text-slate-500">Нет совпадений</p>}</div>{single && selected.length > 0 && <p className="text-xs text-slate-500">Чтобы заменить, сначала уберите выбранный объект.</p>}</div>;
+  }, [kind, query, disabled]);
+  return <div className="space-y-2"><div className="flex flex-wrap gap-2">{selected.map(id => <span key={id} className="inline-flex items-center gap-2 rounded-full bg-rose-50 px-3 py-1 text-sm text-rose-900">{names[id] ?? id.slice(0, 8)}<button disabled={disabled} className="ks-button ks-button--ghost ks-button--icon" type="button" aria-label={`Убрать ${names[id] ?? id}`} onClick={() => onRemove(id)}>×</button></span>)}</div>{!disabled && <><input aria-label={`Найти ${label[kind].toLowerCase()}`} className="w-full rounded-xl border border-slate-200 p-3" type="search" value={query} onChange={event => setQuery(event.target.value)} placeholder={`Найти ${label[kind].toLowerCase()}`} /><div className="max-h-36 overflow-y-auto rounded-xl border border-slate-100">{results.filter(item => !selected.includes(item.id)).map(item => <button key={item.id} type="button" className="ks-control block w-full border-b border-slate-100 px-3 py-2 text-left text-sm hover:bg-rose-50" onClick={() => { setNames(previous => ({ ...previous, [item.id]: item.name })); onAdd(item.id); setQuery(''); }}>{item.name}{item.sku ? ` · ${item.sku}` : ''}</button>)}{!results.length && <p className="p-3 text-sm text-slate-500">Нет совпадений</p>}</div></>}</div>;
 }
 
 export default function LoyaltyPage() {
   const [settings, setSettings] = useState<LoyaltySettings | null>(null);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+  const [expanded, setExpanded] = useState<string[]>([]);
   const [allowed, setAllowed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  useEffect(() => { Promise.all([api<{ permissions: string[] }>('/auth/me'), api<LoyaltySettings>('/loyalty/settings')]).then(([me, rules]) => { setAllowed(me.permissions.includes('settings.edit')); setSettings(rules); }).catch(caught => setError(caught instanceof Error ? caught.message : 'Не удалось загрузить настройки.')); }, []);
+  useEffect(() => { Promise.all([api<{ permissions: string[] }>('/auth/me'), api<LoyaltySettings>('/loyalty/settings')]).then(([me, rules]) => { setAllowed(me.permissions.includes('settings.edit')); setSettings(rules); setCampaigns(groupPromotions(rules.promotions)); }).catch(caught => setError(caught instanceof Error ? caught.message : 'Не удалось загрузить настройки.')); }, []);
   function update(changes: Partial<LoyaltySettings>) { setSettings(current => current ? { ...current, ...changes } : current); setNotice(''); }
+  function editCampaign(id: string, change: (campaign: Campaign) => Campaign) {
+    setCampaigns(current => current.map(campaign => campaign.id === id ? change(campaign) : campaign));
+    setNotice('');
+  }
+  function addCampaign() {
+    const id = crypto.randomUUID();
+    setCampaigns(current => [...current, { id, targets: [], percent: '0', daysOfWeek: [], startDate: null, endDate: null, active: false }]);
+    setExpanded(current => [...current, id]);
+    setNotice('');
+  }
   async function save(event: FormEvent) {
     event.preventDefault(); if (!settings || !allowed) return;
     setError(''); setNotice('');
     if (settings.mode === 'BONUS' && Number(settings.bonusEarnPercent) <= 0) { setError('Укажите процент начисления бонусов.'); return; }
     if (settings.tiers.some((tier, index) => !percentPattern.test(tier.percent) || Number(tier.percent.replace(',', '.')) > 100 || index > 0 && BigInt(tier.minimumMinor) <= BigInt(settings.tiers[index - 1]!.minimumMinor))) { setError('Проверьте пороги и проценты: суммы должны возрастать.'); return; }
-    const normalized: LoyaltySettings = { ...settings, tiers: settings.tiers.map(tier => ({ ...tier, percent: tier.percent.replace(',', '.') })), bonusEarnPercent: settings.bonusEarnPercent.replace(',', '.'), consultantEarnPercent: settings.consultantEarnPercent.replace(',', '.'), maxManualDiscountPercent: (settings.maxManualDiscountPercent ?? '100').replace(',', '.'), promotions: settings.promotions.map(promotion => ({ ...promotion, percent: promotion.percent.replace(',', '.') })) };
+    if (campaigns.some(({ targets, percent, startDate, endDate }) => !targets.length || !percentPattern.test(percent) || Number(percent.replace(',', '.')) > 100 || Boolean(startDate && endDate && startDate > endDate))) {
+      setError('В каждой акции выберите хотя бы один объект и проверьте процент и даты.');
+      return;
+    }
+    const promotions = campaigns.flatMap(({ targets, percent, startDate, endDate, daysOfWeek, active }) => targets.map(target => ({
+      ...target, percent: percent.replace(',', '.'), startDate, endDate, daysOfWeek, active,
+    })));
+    if (promotions.length > 200) { setError('Всего можно выбрать до 200 объектов акций.'); return; }
+    const normalized: LoyaltySettings = { ...settings, tiers: settings.tiers.map(tier => ({ ...tier, percent: tier.percent.replace(',', '.') })), bonusEarnPercent: settings.bonusEarnPercent.replace(',', '.'), consultantEarnPercent: settings.consultantEarnPercent.replace(',', '.'), maxManualDiscountPercent: (settings.maxManualDiscountPercent ?? '100').replace(',', '.'), promotions };
     setBusy(true);
     try { setSettings(await api<LoyaltySettings>('/loyalty/settings', { method: 'PATCH', body: JSON.stringify(normalized) })); setNotice('Настройки лояльности сохранены. На кассе они обновятся при следующем входе.'); }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось сохранить настройки.'); }
@@ -72,8 +110,52 @@ export default function LoyaltyPage() {
     <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="text-xl font-semibold">Бонусная система</h2><p className="mt-1 text-sm text-slate-500">При включении режима бонусы начисляются с суммы, оплаченной деньгами. 1 бонус = 1 сомони. Оплата бонусами доступна только в бонусном режиме.</p><label className="mt-4 block text-sm">Начисление, %<input className="mt-1 block w-32 rounded-xl border border-slate-200 p-3" inputMode="decimal" value={settings.bonusEarnPercent} onChange={event => update({ bonusEarnPercent: event.target.value })} disabled={!allowed} /></label></section>
     <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="text-xl font-semibold">Вознаграждение сотрудников</h2><p className="mt-2 text-sm">Процент задаётся отдельно для каждого сотрудника в разделе <a className="underline" href="/employees">Сотрудники и роли</a>.</p></section>
     <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="text-xl font-semibold">Лимит ручной скидки</h2><p className="mt-1 text-sm text-slate-500">Сколько процентов от суммы чека кассир может скинуть вручную сверх автоматических скидок. Больше разрешено только ролям с правом «скидка без лимита»: владелец, директор, менеджер. 100 — без ограничения.</p><label className="mt-4 block text-sm">Максимум, %<input className="mt-1 block w-32 rounded-xl border border-slate-200 p-3" inputMode="decimal" value={settings.maxManualDiscountPercent ?? '100'} onChange={event => update({ maxManualDiscountPercent: event.target.value })} disabled={!allowed} /></label></section>
-    <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="text-xl font-semibold">Исключения из автоматической скидки</h2><p className="mt-1 text-sm text-slate-500">Ручная скидка консультанта остаётся доступной. Акционные правила также не действуют на исключённые позиции.</p><div className="mt-4 grid gap-5 lg:grid-cols-3">{(['PRODUCT', 'BRAND', 'CATEGORY'] as const).map(kind => { const field = kind === 'PRODUCT' ? 'excludedProductIds' : kind === 'BRAND' ? 'excludedBrandIds' : 'excludedCategoryIds'; return <div key={kind}><h3 className="mb-2 font-medium">{kind === 'PRODUCT' ? 'Товары' : kind === 'BRAND' ? 'Бренды' : 'Категории'}</h3><CatalogPicker kind={kind} selected={settings[field]} onAdd={id => update({ [field]: [...settings[field], id] })} onRemove={id => update({ [field]: settings[field].filter(value => value !== id) })} /></div>; })}</div></section>
-    <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="text-xl font-semibold">Акционные дни</h2><p className="mt-1 text-sm text-slate-500">Для каждого товара, бренда или категории укажите процент и дни. При пересечении правил действует наибольший процент.</p><div className="mt-4 space-y-4">{settings.promotions.map((promotion, index) => <div key={promotion.id} className="rounded-xl border border-slate-200 p-4"><div className="mb-3 flex items-center justify-between gap-3"><strong>Акция {index + 1}</strong><button type="button" className="ks-button ks-button--ghost ks-button--sm ks-button--danger-text" onClick={() => update({ promotions: settings.promotions.filter(rule => rule.id !== promotion.id) })} disabled={!allowed}>Удалить</button></div><div className="grid gap-3 sm:grid-cols-3"><label className="text-sm">Для<select className="mt-1 block w-full rounded-xl border border-slate-200 p-3" value={promotion.targetType} onChange={event => update({ promotions: settings.promotions.map(rule => rule.id === promotion.id ? { ...rule, targetType: event.target.value as Kind, targetId: '' } : rule) })} disabled={!allowed}><option value="PRODUCT">Товара</option><option value="BRAND">Бренда</option><option value="CATEGORY">Категории</option></select></label><label className="text-sm">Скидка, %<input className="mt-1 block w-full rounded-xl border border-slate-200 p-3" inputMode="decimal" value={promotion.percent} onChange={event => update({ promotions: settings.promotions.map(rule => rule.id === promotion.id ? { ...rule, percent: event.target.value } : rule) })} disabled={!allowed} /></label><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={promotion.active} onChange={event => update({ promotions: settings.promotions.map(rule => rule.id === promotion.id ? { ...rule, active: event.target.checked } : rule) })} disabled={!allowed} />Акция активна</label></div><div className="mt-3"><CatalogPicker kind={promotion.targetType} single selected={promotion.targetId ? [promotion.targetId] : []} onAdd={targetId => update({ promotions: settings.promotions.map(rule => rule.id === promotion.id ? { ...rule, targetId } : rule) })} onRemove={() => update({ promotions: settings.promotions.map(rule => rule.id === promotion.id ? { ...rule, targetId: '' } : rule) })} /></div><div className="mt-3 flex flex-wrap gap-3">{dayNames.map((name, day) => <label key={name} className="flex items-center gap-1 text-sm"><input type="checkbox" checked={promotion.daysOfWeek.includes(day)} onChange={event => update({ promotions: settings.promotions.map(rule => rule.id === promotion.id ? { ...rule, daysOfWeek: event.target.checked ? [...rule.daysOfWeek, day].sort() : rule.daysOfWeek.filter(value => value !== day) } : rule) })} disabled={!allowed} />{name}</label>)}</div><p className="mt-1 text-xs text-slate-500">Если дни не выбраны, акция действует каждый день.</p><div className="mt-3 flex flex-wrap gap-3"><label className="text-sm">Начало<input type="date" className="mt-1 block rounded-xl border border-slate-200 p-3" value={promotion.startDate ?? ''} onChange={event => update({ promotions: settings.promotions.map(rule => rule.id === promotion.id ? { ...rule, startDate: event.target.value || null } : rule) })} disabled={!allowed} /></label><label className="text-sm">Окончание<input type="date" className="mt-1 block rounded-xl border border-slate-200 p-3" value={promotion.endDate ?? ''} onChange={event => update({ promotions: settings.promotions.map(rule => rule.id === promotion.id ? { ...rule, endDate: event.target.value || null } : rule) })} disabled={!allowed} /></label></div></div>)}</div>{allowed && <button type="button" className="ks-button ks-button--secondary mt-4" onClick={() => update({ promotions: [...settings.promotions, { id: crypto.randomUUID(), targetType: 'PRODUCT', targetId: '', percent: '0', daysOfWeek: [], startDate: null, endDate: null, active: false }] })}>Добавить акцию</button>}</section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5"><h2 className="text-xl font-semibold">Исключения из автоматической скидки</h2><p className="mt-1 text-sm text-slate-500">Ручная скидка консультанта остаётся доступной. Акционные правила также не действуют на исключённые позиции.</p><div className="mt-4 grid gap-5 lg:grid-cols-3">{(['PRODUCT', 'BRAND', 'CATEGORY'] as const).map(kind => { const field = kind === 'PRODUCT' ? 'excludedProductIds' : kind === 'BRAND' ? 'excludedBrandIds' : 'excludedCategoryIds'; return <div key={kind}><h3 className="mb-2 font-medium">{kind === 'PRODUCT' ? 'Товары' : kind === 'BRAND' ? 'Бренды' : 'Категории'}</h3><CatalogPicker kind={kind} selected={settings[field]} disabled={!allowed || busy} onAdd={id => update({ [field]: [...settings[field], id] })} onRemove={id => update({ [field]: settings[field].filter(value => value !== id) })} /></div>; })}</div></section>
+    <section className="rounded-2xl border border-slate-200 bg-white p-5">
+      <h2 className="text-xl font-semibold">Акционные дни</h2>
+      <p className="mt-1 text-sm text-slate-500">Одна акция может включать несколько брендов, категорий и товаров. При пересечении действует наибольшая скидка.</p>
+      <div className="mt-4 space-y-3">
+        {campaigns.map(campaign => {
+          const isOpen = expanded.includes(campaign.id);
+          const disabled = !allowed || busy;
+          const patch = (changes: Partial<Campaign>) => editCampaign(campaign.id, current => ({ ...current, ...changes }));
+          const counts = (['BRAND', 'CATEGORY', 'PRODUCT'] as const).map(kind => campaign.targets.filter(target => target.targetType === kind).length);
+          const schedule = [campaign.startDate, campaign.endDate].filter(Boolean).join(' – ');
+          return <div key={campaign.id} className="rounded-xl border border-slate-200">
+            <button type="button" aria-expanded={isOpen} aria-controls={`campaign-${campaign.id}`} className="ks-control flex w-full flex-wrap items-center gap-x-4 gap-y-1 p-4 text-left" onClick={() => setExpanded(current => isOpen ? current.filter(id => id !== campaign.id) : [...current, campaign.id])}>
+              <strong>Скидка {campaign.percent || '0'}%</strong>
+              <span className="text-sm text-slate-600">{schedule || 'Без ограничения по датам'} · {campaign.active ? 'Включена' : 'Выключена'}</span>
+              <span className="text-sm text-slate-600">Бренды {counts[0]} · Категории {counts[1]} · Товары {counts[2]}</span>
+              <span className="ml-auto text-sm">{isOpen ? 'Свернуть' : 'Открыть'}</span>
+            </button>
+            <div id={`campaign-${campaign.id}`} hidden={!isOpen} className="border-t border-slate-100 p-4">
+              {isOpen && <div className="space-y-4">
+                <div className="flex flex-wrap items-end gap-3">
+                  <label className="text-sm">Скидка, %<input className="mt-1 block w-28 rounded-xl border border-slate-200 p-3" inputMode="decimal" value={campaign.percent} onChange={event => patch({ percent: event.target.value })} disabled={disabled} /></label>
+                  <label className="text-sm">Начало<input type="date" className="mt-1 block rounded-xl border border-slate-200 p-3" value={campaign.startDate ?? ''} onChange={event => patch({ startDate: event.target.value || null })} disabled={disabled} /></label>
+                  <label className="text-sm">Окончание<input type="date" className="mt-1 block rounded-xl border border-slate-200 p-3" value={campaign.endDate ?? ''} onChange={event => patch({ endDate: event.target.value || null })} disabled={disabled} /></label>
+                  <label className="flex items-center gap-2 pb-3 text-sm"><input type="checkbox" checked={campaign.active} onChange={event => patch({ active: event.target.checked })} disabled={disabled} />Акция включена</label>
+                </div>
+                <fieldset disabled={disabled} className="flex flex-wrap gap-3">
+                  <legend className="mb-2 text-sm">Дни недели · без выбора действует ежедневно</legend>
+                  {dayNames.map((name, day) => <label key={name} className="flex items-center gap-1 text-sm"><input type="checkbox" checked={campaign.daysOfWeek.includes(day)} onChange={event => patch({ daysOfWeek: event.target.checked ? [...campaign.daysOfWeek, day].sort() : campaign.daysOfWeek.filter(value => value !== day) })} />{name}</label>)}
+                </fieldset>
+                <div className="grid gap-4 lg:grid-cols-3">
+                  {(['BRAND', 'CATEGORY', 'PRODUCT'] as const).map(kind => <div key={kind}>
+                    <h3 className="mb-2 font-medium">{kind === 'BRAND' ? 'Бренды' : kind === 'CATEGORY' ? 'Категории' : 'Товары'}</h3>
+                    <CatalogPicker kind={kind} selected={campaign.targets.filter(target => target.targetType === kind).map(target => target.targetId)} disabled={disabled}
+                      onAdd={targetId => editCampaign(campaign.id, current => current.targets.some(target => target.targetType === kind && target.targetId === targetId) ? current : { ...current, targets: [...current.targets, { id: crypto.randomUUID(), targetType: kind, targetId }] })}
+                      onRemove={targetId => editCampaign(campaign.id, current => ({ ...current, targets: current.targets.filter(target => target.targetType !== kind || target.targetId !== targetId) }))} />
+                  </div>)}
+                </div>
+                {allowed && <button type="button" disabled={busy} className="ks-button ks-button--ghost ks-button--danger-text" onClick={() => { setCampaigns(current => current.filter(item => item.id !== campaign.id)); setNotice(''); }}>Удалить акцию</button>}
+              </div>}
+            </div>
+          </div>;
+        })}
+      </div>
+      {allowed && <button type="button" disabled={busy} className="ks-button ks-button--secondary mt-4" onClick={addCampaign}>Добавить акцию</button>}
+    </section>
     {allowed && <button disabled={busy} className="ks-button ks-button--primary">{busy ? 'Сохраняем…' : 'Сохранить настройки'}</button>}
   </form>}</div></CatalogShell>;
 }
