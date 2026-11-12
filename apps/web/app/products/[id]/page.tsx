@@ -63,7 +63,7 @@ export default function ProductDetailPage() {
             </dl>
             {product.description && <div className="crm-product-description"><span>Описание</span><p>{product.description}</p></div>}
           </section>
-          <ProductPriceEditor productId={product.id} readOnly />
+          <ProductPriceEditor productId={product.id} />
         </div>
       </div>
       <section className="crm-panel crm-product-attributes"><div className="crm-product-section-head"><span className="crm-eyebrow">ХАРАКТЕРИСТИКИ</span><h2>Дополнительные данные</h2></div>

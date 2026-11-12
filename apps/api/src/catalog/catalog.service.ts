@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { DatabaseService } from '../database.service';
 import type { z } from 'zod';
@@ -311,22 +311,64 @@ export class CatalogService {
     return { success: true };
   }
 
+  async productPrice(productId: string, canEdit: boolean) {
+    await this.product(productId);
+    const stores = await this.db.store.findMany({
+      where: { deletedAt: null },
+      select: { productSettings: { where: { productId }, select: { priceMinor: true } } },
+    });
+    const prices = new Set(stores.map(store => store.productSettings[0]?.priceMinor ?? null));
+    return { priceMinor: prices.size === 1 ? prices.values().next().value ?? null : null, mixed: prices.size > 1, canEdit };
+  }
+
+  private async writeProductPrice(tx: Prisma.TransactionClient, productId: string, priceMinor: number | null, actor: { userId: string; allStores: boolean }) {
+    if (!actor.allStores) throw new ForbiddenException('Менять общую цену может сотрудник с доступом ко всем магазинам');
+    // Store creation reads prices to initialize the new store, so serialize it with this change.
+    await tx.$executeRaw`LOCK TABLE "Store" IN SHARE MODE`;
+    const products = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "Product" WHERE id = ${productId}::uuid AND "deletedAt" IS NULL FOR UPDATE`;
+    if (!products.length) throw new NotFoundException('Product not found');
+    const stores = await tx.store.findMany({ where: { deletedAt: null }, select: { id: true } });
+    if (!stores.length) throw new BadRequestException('Сначала создайте магазин');
+    const oldPrices = await tx.storeProductSettings.findMany({
+      where: { productId, storeId: { in: stores.map(store => store.id) } },
+      select: { storeId: true, priceMinor: true },
+    });
+    const changed = await tx.$executeRaw`
+      INSERT INTO "StoreProductSettings" AS existing ("storeId", "productId", "priceMinor", active, "updatedAt")
+      SELECT id, ${productId}::uuid, ${priceMinor}::int, true, CURRENT_TIMESTAMP FROM "Store" WHERE "deletedAt" IS NULL
+      ON CONFLICT ("storeId", "productId") DO UPDATE
+      SET "priceMinor" = excluded."priceMinor", "updatedAt" = excluded."updatedAt"
+      WHERE existing."priceMinor" IS DISTINCT FROM excluded."priceMinor"
+    `;
+    if (changed) await tx.auditLog.create({
+      data: { userId: actor.userId, action: 'PRODUCT_PRICE_UPDATED', entityType: 'Product', entityId: productId, oldValue: oldPrices, newValue: { priceMinor, storeCount: stores.length } },
+    });
+    return { priceMinor, mixed: false, canEdit: true };
+  }
+
+  async saveProductPrice(productId: string, priceMinor: number, actor: { userId: string; allStores: boolean }) {
+    return this.db.$transaction(tx => this.writeProductPrice(tx, productId, priceMinor, actor));
+  }
+
   async storeSettings(storeId: string, productId: string) {
     await this.product(productId);
     const store = await this.db.store.findFirst({ where: { id: storeId, deletedAt: null } });
     if (!store) throw new NotFoundException('Store not found');
-    return this.db.storeProductSettings.findUnique({ where: { storeId_productId: { storeId, productId } } });
+    return (await this.db.storeProductSettings.findUnique({ where: { storeId_productId: { storeId, productId } } }))
+      ?? { storeId, productId, priceMinor: null, costBasisMinor: null, minStock: 0, active: false };
   }
 
-  async saveStoreSettings(storeId: string, productId: string, input: StoreSettingsInput, userId: string) {
-    const old = await this.storeSettings(storeId, productId);
+  async saveStoreSettings(storeId: string, productId: string, input: StoreSettingsInput, actor: { userId: string; allStores: boolean }) {
+    await this.storeSettings(storeId, productId);
     return this.db.$transaction(async (tx) => {
+      const old = await tx.storeProductSettings.findUnique({ where: { storeId_productId: { storeId, productId } } });
+      if (input.priceMinor !== undefined) await this.writeProductPrice(tx, productId, input.priceMinor, actor);
       const item = await tx.storeProductSettings.upsert({
         where: { storeId_productId: { storeId, productId } },
         create: { storeId, productId, priceMinor: input.priceMinor ?? null, costBasisMinor: input.costBasisMinor ?? null, minStock: input.minStock ?? 0, active: input.active ?? true },
         update: input,
       });
-      await tx.auditLog.create({ data: { userId, action: old ? 'STORE_PRODUCT_SETTINGS_UPDATED' : 'STORE_PRODUCT_SETTINGS_CREATED', entityType: 'StoreProductSettings', entityId: `${storeId}:${productId}`, oldValue: old ? auditValue(old) : undefined, newValue: auditValue(item) } });
+      await tx.auditLog.create({ data: { userId: actor.userId, action: old ? 'STORE_PRODUCT_SETTINGS_UPDATED' : 'STORE_PRODUCT_SETTINGS_CREATED', entityType: 'StoreProductSettings', entityId: `${storeId}:${productId}`, oldValue: old ? auditValue(old) : undefined, newValue: auditValue(item) } });
       return item;
     });
   }

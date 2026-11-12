@@ -6,7 +6,7 @@ import { AccessGuard, RequirePermission, StoreScopeGuard } from '../auth/guards'
 import { CatalogService } from './catalog.service';
 import { brandSchema, categorySchema, limitSchema, pageSchema, parseInput, posProductQuerySchema, productQuerySchema, productSchema, productUpdateSchema, storeSettingsSchema } from './catalog.schemas';
 
-type AuthorizedRequest = Request & { access: { userId: string } };
+type AuthorizedRequest = Request & { access: { userId: string; allStores: boolean; permissions: string[] } };
 const listQuerySchema = z.object({ page: pageSchema, limit: limitSchema, search: z.string().trim().max(255).optional() });
 
 @ApiTags('brands')
@@ -114,6 +114,20 @@ export class ProductController {
   @RequirePermission('products.view')
   get(@Param('id', ParseUUIDPipe) id: string) { return this.catalog.product(id); }
 
+  @Get(':id/price')
+  @RequirePermission('products.view')
+  getPrice(@Param('id', ParseUUIDPipe) id: string, @Req() request: AuthorizedRequest) {
+    const canEdit = request.access.allStores && request.access.permissions.includes('products.edit');
+    return this.catalog.productPrice(id, canEdit);
+  }
+
+  @Patch(':id/price')
+  @RequirePermission('products.edit')
+  updatePrice(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() request: AuthorizedRequest) {
+    const { priceMinor } = parseInput(z.object({ priceMinor: z.number().int().min(0).max(2_147_483_647) }), body);
+    return this.catalog.saveProductPrice(id, priceMinor, request.access);
+  }
+
   @Post()
   @RequirePermission('products.create')
   create(@Body() body: unknown, @Req() request: AuthorizedRequest) {
@@ -175,6 +189,6 @@ export class StoreProductSettingsController {
   @Patch()
   @RequirePermission('products.edit')
   update(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('productId', ParseUUIDPipe) productId: string, @Body() body: unknown, @Req() request: AuthorizedRequest) {
-    return this.catalog.saveStoreSettings(storeId, productId, parseInput(storeSettingsSchema, body), request.access.userId);
+    return this.catalog.saveStoreSettings(storeId, productId, parseInput(storeSettingsSchema, body), request.access);
   }
 }

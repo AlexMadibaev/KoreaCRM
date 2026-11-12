@@ -12,7 +12,7 @@ const fieldLabels = {
   gender: 'Пол', skinType: 'Тип кожи', productType: 'Тип товара',
 } as const;
 type Field = keyof typeof fieldLabels;
-type Store = { id: string; name: string };
+type SalePrice = { priceMinor: number | null; mixed: boolean; canEdit: boolean };
 type PendingImage = { id: string; blob: Blob; url: string };
 const fields = Object.keys(fieldLabels) as Field[];
 const maxBytes = 5_000_000;
@@ -25,11 +25,8 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
   const [barcodes, setBarcodes] = useState(product.barcodes.map(item => item.value).join('\n'));
   const [brands, setBrands] = useState<Brand[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [stores, setStores] = useState<Store[]>([]);
-  const [storeId, setStoreId] = useState('');
-  const [savedPrices, setSavedPrices] = useState<Record<string, number | null>>({});
-  const [priceDrafts, setPriceDrafts] = useState<Record<string, string>>({});
-  const [priceLoading, setPriceLoading] = useState(false);
+  const [savedPrice, setSavedPrice] = useState<SalePrice | null>(null);
+  const [priceDraft, setPriceDraft] = useState('');
   const [pendingImages, setPendingImages] = useState<PendingImage[]>([]);
   const pendingRef = useRef<PendingImage[]>([]);
   const [removedImages, setRemovedImages] = useState<string[]>([]);
@@ -37,30 +34,26 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
   const input = useRef<HTMLInputElement>(null);
   const completedRemovals = useRef(new Set<string>());
   const completedAdds = useRef(new Set<string>());
-  const completedPrices = useRef(new Set<string>());
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    Promise.all([api<Page<Brand>>('/brands?limit=100'), api<Page<Category>>('/categories?limit=100'), api<Store[]>('/stores')])
-      .then(([brandPage, categoryPage, storeList]) => { setBrands(brandPage.items); setCategories(categoryPage.items); setStores(storeList); setStoreId(storeList[0]?.id ?? ''); })
+    Promise.all([api<Page<Brand>>('/brands?limit=100'), api<Page<Category>>('/categories?limit=100')])
+      .then(([brandPage, categoryPage]) => { setBrands(brandPage.items); setCategories(categoryPage.items); })
       .catch(caught => setError(caught instanceof Error ? caught.message : 'Не удалось загрузить справочники'));
   }, []);
 
   useEffect(() => {
-    if (!storeId || Object.hasOwn(savedPrices, storeId)) return;
     let active = true;
-    setPriceLoading(true);
-    api<{ priceMinor: number | null } | null>(`/stores/${storeId}/products/${product.id}/settings`)
-      .then(settings => { if (active) {
-        const price = settings?.priceMinor ?? null;
-        setSavedPrices(current => ({ ...current, [storeId]: price }));
-        setPriceDrafts(current => ({ ...current, [storeId]: price === null ? '' : String(price) }));
-      } })
-      .catch(caught => { if (active) setError(caught instanceof Error ? caught.message : 'Не удалось загрузить цену'); })
-      .finally(() => { if (active) setPriceLoading(false); });
+    api<SalePrice>(`/products/${product.id}/price`)
+      .then(price => {
+        if (!active) return;
+        setSavedPrice(price);
+        setPriceDraft(price.priceMinor === null ? '' : String(price.priceMinor));
+      })
+      .catch(caught => { if (active) setError(caught instanceof Error ? caught.message : 'Не удалось загрузить цену'); });
     return () => { active = false; };
-  }, [storeId, product.id, savedPrices]);
+  }, [product.id]);
 
   useEffect(() => { pendingRef.current = pendingImages; }, [pendingImages]);
   useEffect(() => () => { pendingRef.current.forEach(item => URL.revokeObjectURL(item.url)); }, []);
@@ -68,14 +61,15 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
   const changedFields = fields.filter(key => values[key].trim() !== String(product[key] ?? ''));
   const cleanBarcodes = barcodes.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
   const oldBarcodes = product.barcodes.map(item => item.value);
-  const changedPrices = stores.filter(store => Object.hasOwn(savedPrices, store.id) && priceDrafts[store.id] !== (savedPrices[store.id] === null ? '' : String(savedPrices[store.id])));
+  const priceChanged = Boolean(savedPrice?.canEdit && priceDraft !== (savedPrice.priceMinor === null ? '' : String(savedPrice.priceMinor)));
+  const currentPrice = savedPrice?.mixed ? 'Разная по магазинам' : savedPrice?.priceMinor != null ? formatCurrencyMinor(String(savedPrice.priceMinor)) : 'Не установлена';
   const changes = [
     ...changedFields.map(key => fieldLabels[key]),
     ...(brandId !== (product.brandId ?? '') ? ['Бренд'] : []),
     ...(categoryId !== (product.categoryId ?? '') ? ['Категория'] : []),
     ...(status !== product.status ? ['Статус'] : []),
     ...(JSON.stringify(cleanBarcodes) !== JSON.stringify(oldBarcodes) ? ['Штрихкоды'] : []),
-    ...changedPrices.map(store => `Цена · ${store.name}`),
+    ...(priceChanged ? ['Цена продажи'] : []),
     ...(pendingImages.length ? [`Новые фото · ${pendingImages.length}`] : []),
     ...(removedImages.length ? [`Удалить фото · ${removedImages.length}`] : []),
   ];
@@ -85,7 +79,7 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
     ...(categoryId !== (product.categoryId ?? '') ? [{ label: 'Категория', before: product.category?.name ?? '—', after: categories.find(item => item.id === categoryId)?.name ?? '—' }] : []),
     ...(status !== product.status ? [{ label: 'Статус', before: product.status === 'ACTIVE' ? 'Активен' : 'Неактивен', after: status === 'ACTIVE' ? 'Активен' : 'Неактивен' }] : []),
     ...(JSON.stringify(cleanBarcodes) !== JSON.stringify(oldBarcodes) ? [{ label: 'Штрихкоды', before: oldBarcodes.join(', ') || '—', after: cleanBarcodes.join(', ') || '—' }] : []),
-    ...changedPrices.map(store => ({ label: `Цена · ${store.name}`, before: savedPrices[store.id] === null ? '—' : formatCurrencyMinor(String(savedPrices[store.id])), after: priceDrafts[store.id] ? formatCurrencyMinor(priceDrafts[store.id]) : '—' })),
+    ...(priceChanged ? [{ label: 'Цена для всех магазинов', before: currentPrice, after: priceDraft ? formatCurrencyMinor(priceDraft) : '—' }] : []),
     ...(pendingImages.length || removedImages.length ? [{ label: 'Фотографии', before: `${product.images.length} шт.`, after: `${product.images.length - removedImages.length + pendingImages.length} шт.` }] : []),
   ];
   const productChanged = changedFields.length > 0 || brandId !== (product.brandId ?? '') || categoryId !== (product.categoryId ?? '') || status !== product.status || JSON.stringify(cleanBarcodes) !== JSON.stringify(oldBarcodes);
@@ -121,9 +115,10 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
   async function save() {
     if (!changes.length || saving) return;
     if (!values.name.trim() || !values.sku.trim() || !values.unit.trim()) { setError('Укажите название, артикул и единицу товара'); return; }
-    for (const store of changedPrices) {
-      const value = Number(priceDrafts[store.id]);
-      if (!priceDrafts[store.id] || !Number.isSafeInteger(value) || value < 0 || value > 2_147_483_647) { setError(`Укажите корректную цену для магазина «${store.name}»`); return; }
+    const price = Number(priceDraft);
+    if (priceChanged && (!priceDraft || !Number.isSafeInteger(price) || price < 0 || price > 2_147_483_647)) {
+      setError('Укажите корректную цену продажи');
+      return;
     }
     setSaving(true); setError('');
     try {
@@ -135,11 +130,9 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
         if (JSON.stringify(cleanBarcodes) !== JSON.stringify(oldBarcodes)) body.barcodes = cleanBarcodes;
         await api<Product>(`/products/${product.id}`, { method: 'PATCH', body: JSON.stringify(body) });
       }
-      for (const store of changedPrices) {
-        const priceKey = `${store.id}:${priceDrafts[store.id]}`;
-        if (completedPrices.current.has(priceKey)) continue;
-        await api(`/stores/${store.id}/products/${product.id}/settings`, { method: 'PATCH', body: JSON.stringify({ priceMinor: Number(priceDrafts[store.id]), active: true }) });
-        completedPrices.current.add(priceKey);
+      if (priceChanged) {
+        const saved = await api<SalePrice>(`/products/${product.id}/price`, { method: 'PATCH', body: JSON.stringify({ priceMinor: price }) });
+        setSavedPrice(saved);
       }
       for (const imageId of removedImages) {
         if (completedRemovals.current.has(imageId)) continue;
@@ -175,11 +168,10 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
           <label className="crm-product-form-wide">Описание<textarea rows={3} value={values.description} onChange={event => setValues(current => ({ ...current, description: event.target.value }))} disabled={saving} /></label>
           <label className="crm-product-form-wide">Штрихкоды, по одному в строке<textarea rows={2} value={barcodes} onChange={event => setBarcodes(event.target.value)} disabled={saving} /></label>
         </div></section>
-        <section className="crm-panel crm-product-price crm-product-edit-section"><div className="crm-product-section-head"><span className="crm-eyebrow">ПРОДАЖИ</span><h2>Цена продажи</h2><p>Цена задаётся отдельно для каждого магазина.</p></div>
-          <div className="crm-product-edit-price"><label>Магазин<select value={storeId} onChange={event => setStoreId(event.target.value)} disabled={saving || !stores.length}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select></label>
-          <label>Новая цена, сомони<MoneyInput aria-label="Новая цена, сомони" valueMinor={priceDrafts[storeId] ?? ''} onMinorChange={value => setPriceDrafts(current => ({ ...current, [storeId]: value }))} disabled={saving || priceLoading || !storeId} placeholder="0,00" /></label></div>
-          {storeId && Object.hasOwn(savedPrices, storeId) && <p className="crm-product-price-caption">Сейчас: {savedPrices[storeId] === null ? 'цена не установлена' : formatCurrencyMinor(String(savedPrices[storeId]))}</p>}
-        </section>
+        <section className="crm-panel crm-product-price crm-product-edit-section"><div className="crm-product-section-head"><span className="crm-eyebrow">ПРОДАЖИ</span><h2>Цена продажи</h2><p>Цена сохраняется для всех магазинов.</p></div>
+          <label>Новая цена, сомони<MoneyInput aria-label="Новая цена, сомони" valueMinor={priceDraft} onMinorChange={setPriceDraft} disabled={saving || !savedPrice?.canEdit} placeholder="0,00" /></label>
+          {savedPrice && <p className="crm-product-price-caption">Сейчас: {currentPrice}</p>}
+                </section>
       </div>
     </div>
     <section className="crm-panel crm-product-edit-section"><div className="crm-product-section-head"><span className="crm-eyebrow">ХАРАКТЕРИСТИКИ</span><h2>Дополнительные данные</h2></div><div className="crm-product-form-grid">{fields.filter(key => !['name', 'sku', 'unit', 'description'].includes(key)).map(key => <label key={key}>{fieldLabels[key]}<input value={values[key]} onChange={event => setValues(current => ({ ...current, [key]: event.target.value }))} disabled={saving} /></label>)}</div></section>
