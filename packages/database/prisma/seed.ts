@@ -21,14 +21,14 @@ const permissionCodes = [
   'suppliers.view', 'suppliers.create', 'suppliers.edit', 'suppliers.delete',
   'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel',
   'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel',
-  'reports.view', 'settings.edit',
+  'reports.view', 'settings.edit', 'loyalty.edit',
   'stores.view', 'stores.create', 'stores.edit', 'stores.archive',
 ];
 const roleCodes = ['SUPERUSER', 'OWNER', 'DIRECTOR', 'MANAGER', 'ADMIN', 'ACCOUNTANT', 'WAREHOUSE', 'CASHIER', 'SELLER'];
 const roleGrants: Record<string, string[]> = {
   SUPERUSER: permissionCodes,
   OWNER: permissionCodes,
-  DIRECTOR: permissionCodes.filter((code) => code !== 'settings.edit'),
+  DIRECTOR: permissionCodes.filter((code) => code !== 'settings.edit' && code !== 'loyalty.edit'),
   MANAGER: [...orderPermissions, 'customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'sales.return_no_receipt', 'sales.discount.unlimited', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay', 'reports.view', 'stores.view', 'stores.edit'],
   ADMIN: ['orders.view', 'orders.create', 'orders.edit', 'orders.confirm', 'customers.discount.edit', 'products.view', 'products.create', 'products.edit', 'brands.view', 'brands.create', 'brands.edit', 'categories.view', 'categories.create', 'categories.edit', 'sales.view', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'employees.create', 'employees.edit', 'inventory.view', 'inventory.adjust', 'reports.view', 'stores.view', 'stores.edit'],
   ACCOUNTANT: ['orders.view', 'orders.pay', 'sales.view', 'customers.view', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.supplier_pay', 'finance.customer_pay', 'suppliers.view', 'purchases.view', 'reports.view'],

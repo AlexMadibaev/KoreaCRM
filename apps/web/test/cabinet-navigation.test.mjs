@@ -20,6 +20,12 @@ test('company audit link is restricted to the superuser role', () => {
   assert.ok(visibleCabinetLinks(links, [], 'SUPERUSER').some(link => link.href === '/audit'));
 });
 
+test('loyalty editors see loyalty without gaining payment settings', () => {
+  const links = cabinetGroups.flatMap(group => group.links);
+  assert.deepEqual(visibleCabinetLinks(links, ['loyalty.edit'], 'ACCOUNTANT').map(link => link.href), ['/loyalty']);
+  assert.ok(visibleCabinetLinks(links, ['settings.edit'], 'OWNER').some(link => link.href === '/loyalty'));
+});
+
 test('finance and shifts have distinct active navigation states', () => {
   assert.equal(cabinetLinkActive('/cash-shifts', '/cash-shifts', ''), true);
   assert.equal(cabinetLinkActive('/finance', '/cash-shifts', ''), false);

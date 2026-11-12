@@ -1,4 +1,6 @@
-export type CabinetLink = { href: string; label: string; permission?: string; superuser?: boolean };
+import { loyaltyEditPermissions, meetsPermission, type PermissionRequirement } from './access.ts';
+
+export type CabinetLink = { href: string; label: string; permission?: PermissionRequirement; superuser?: boolean };
 export type CabinetGroup = { title: string; icon: string; links: CabinetLink[] };
 
 export const cabinetGroups: CabinetGroup[] = [
@@ -35,7 +37,7 @@ export const cabinetGroups: CabinetGroup[] = [
     { href: '/employees', label: 'Сотрудники и роли', permission: 'employees.view' },
     { href: '/stores', label: 'Магазины и устройства', permission: 'stores.view' },
     { href: '/accounts', label: 'Счета', permission: 'finance.view' },
-    { href: '/loyalty', label: 'Лояльность', permission: 'settings.edit' },
+    { href: '/loyalty', label: 'Лояльность', permission: loyaltyEditPermissions },
     { href: '/payment-methods', label: 'Способы оплаты', permission: 'settings.edit' },
     { href: '/audit', label: 'Журнал действий', superuser: true },
   ] },
@@ -56,7 +58,7 @@ export const createLinks: CabinetLink[] = [
 ];
 
 export function visibleCabinetLinks(links: CabinetLink[], permissions: string[], role: string) {
-  return links.filter(link => link.superuser ? role === 'SUPERUSER' : !link.permission || permissions.includes(link.permission));
+  return links.filter(link => link.superuser ? role === 'SUPERUSER' : meetsPermission(permissions, link.permission));
 }
 
 export function cabinetLinkActive(href: string, pathname: string, hash: string) {

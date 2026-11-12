@@ -3,6 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { CatalogShell } from '../../components/catalog-shell';
 import { api, type Page } from '../../lib/api';
+import { loyaltyEditPermissions, meetsPermission } from '../../lib/access';
 import type { LoyaltySettings } from '../../lib/loyalty';
 import { MoneyInput } from '@koreacrm/ui';
 
@@ -60,7 +61,7 @@ export default function LoyaltyPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  useEffect(() => { Promise.all([api<{ permissions: string[] }>('/auth/me'), api<LoyaltySettings>('/loyalty/settings')]).then(([me, rules]) => { setAllowed(me.permissions.includes('settings.edit')); setSettings(rules); setCampaigns(groupPromotions(rules.promotions)); }).catch(caught => setError(caught instanceof Error ? caught.message : 'Не удалось загрузить настройки.')); }, []);
+  useEffect(() => { Promise.all([api<{ permissions: string[] }>('/auth/me'), api<LoyaltySettings>('/loyalty/settings')]).then(([me, rules]) => { setAllowed(meetsPermission(me.permissions, loyaltyEditPermissions)); setSettings(rules); setCampaigns(groupPromotions(rules.promotions)); }).catch(caught => setError(caught instanceof Error ? caught.message : 'Не удалось загрузить настройки.')); }, []);
   function update(changes: Partial<LoyaltySettings>) { setSettings(current => current ? { ...current, ...changes } : current); setNotice(''); }
   function editCampaign(id: string, change: (campaign: Campaign) => Campaign) {
     setCampaigns(current => current.map(campaign => campaign.id === id ? change(campaign) : campaign));

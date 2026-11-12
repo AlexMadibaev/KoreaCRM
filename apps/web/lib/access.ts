@@ -1,4 +1,12 @@
-export const routePermission: Record<string, string> = {
+export const loyaltyEditPermissions = ['settings.edit', 'loyalty.edit'] as const;
+export type PermissionRequirement = string | readonly string[];
+
+export function meetsPermission(permissions: string[], requirement?: PermissionRequirement) {
+  if (!requirement) return true;
+  return typeof requirement === 'string' ? permissions.includes(requirement) : requirement.some(code => permissions.includes(code));
+}
+
+export const routePermission: Record<string, PermissionRequirement> = {
   '/orders': 'orders.view',
   '/dashboard': 'finance.view',
   '/reports': 'reports.view',
@@ -7,7 +15,7 @@ export const routePermission: Record<string, string> = {
   '/notifications': 'inventory.view',
   '/sales': 'sales.view',
   '/customers': 'customers.view',
-  '/loyalty': 'settings.edit',
+  '/loyalty': loyaltyEditPermissions,
   '/payment-methods': 'settings.edit',
   '/brands': 'brands.view',
   '/categories': 'categories.view',
@@ -22,5 +30,5 @@ export const routePermission: Record<string, string> = {
 };
 
 export function firstCabinetPath(permissions: string[]) {
-  return ['/dashboard', '/sales', '/orders', '/products', '/stock', '/customers', '/stores', '/employees', '/account'].find(path => !routePermission[path] || permissions.includes(routePermission[path])) ?? '/account';
+  return ['/dashboard', '/sales', '/orders', '/products', '/stock', '/customers', '/stores', '/employees', '/account'].find(path => meetsPermission(permissions, routePermission[path])) ?? '/account';
 }
