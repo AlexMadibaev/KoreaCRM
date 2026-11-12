@@ -5,7 +5,7 @@ import { AccessGuard, RequirePermission, StoreScopeGuard } from '../auth/guards'
 import { canAccessStore, type AccessContext } from '../auth/policy';
 import { z } from 'zod';
 import { SalesService } from './sales.service';
-import { parseInput, paymentMethodPatchSchema, paymentMethodSchema, receiptlessReturnSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
+import { parseInput, paymentMethodPatchSchema, paymentMethodSchema, receiptlessReturnSchema, receiptEditSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
 type AuthorizedRequest = Request & { access: AccessContext };
 
 @ApiTags('sales') @ApiBearerAuth() @UseGuards(AccessGuard, StoreScopeGuard) @Controller('stores/:storeId/sales')
@@ -19,6 +19,19 @@ export class SalesController {
   editSellers(@Param('storeId', ParseUUIDPipe) storeId: string, @Req() req: AuthorizedRequest) {
     if (req.access.role !== 'SUPERUSER' || req.access.posDeviceId) throw new ForbiddenException();
     return this.service.editSellers(storeId);
+  }
+  @Get(':id/editor')
+  @RequirePermission('sales.view')
+  receiptEditor(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) {
+    if (req.access.role !== 'SUPERUSER' || req.access.posDeviceId) throw new ForbiddenException();
+    return this.service.receiptEditor(storeId, id);
+  }
+
+  @Patch(':id/editor')
+  @RequirePermission('sales.view')
+  editReceipt(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
+    if (req.access.role !== 'SUPERUSER' || req.access.posDeviceId) throw new ForbiddenException();
+    return this.service.editReceipt(storeId, id, parseInput(receiptEditSchema, body), req.access.userId);
   }
   @Patch(':id/details')
   @RequirePermission('sales.view')

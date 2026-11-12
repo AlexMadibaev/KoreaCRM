@@ -9,14 +9,28 @@ import { StockService } from '../stock/stock.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { automaticPercent, defaultLoyaltySettings, loyaltySettingsSchema, percentBasisPoints } from '../loyalty/loyalty.rules';
 import { allocateRefund } from './return-refunds';
-import { paymentMethodPatchSchema, paymentMethodSchema, receiptlessReturnSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
+import { paymentMethodPatchSchema, paymentMethodSchema, receiptlessReturnSchema, receiptEditSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
 
 type SaleInput = z.infer<typeof saleSchema>;
 const maximum = new Prisma.Decimal('999999999999999999');
 const sum = (values: Prisma.Decimal[]) => values.reduce((value, part) => value.plus(part), new Prisma.Decimal(0));
 const retryable = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
 const derivedOperationId = (id: string, kind: string) => { const hex = createHash('sha256').update(`${id}:${kind}`).digest('hex'); return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`; };
-const saleInclude = { items: { include: { product: { select: { name: true, sku: true } } } }, payments: { include: { paymentMethod: true } }, customer: { select: { id: true, firstName: true, lastName: true, phone: true } }, store: { select: { name: true, code: true, address: true, phone: true } }, employee: { select: { name: true } }, seller: { select: { id: true, name: true } }, returns: { include: { items: true, payments: { include: { paymentMethod: true } } }, orderBy: { createdAt: 'asc' } } } as const;
+const saleInclude = { items: { include: { product: { select: { id: true, name: true, sku: true } } } }, payments: { include: { paymentMethod: true } }, customer: { select: { id: true, firstName: true, lastName: true, phone: true } }, store: { select: { name: true, code: true, address: true, phone: true } }, employee: { select: { name: true } }, seller: { select: { id: true, name: true } }, returns: { include: { items: true, payments: { include: { paymentMethod: true } } }, orderBy: { createdAt: 'asc' } } } as const;
+
+type ReceiptEdit = z.infer<typeof receiptEditSchema>;
+type Receipt = Prisma.SaleGetPayload<{ include: typeof saleInclude }>;
+
+function receiptRevision(sale: Receipt) {
+  return createHash('sha256').update(JSON.stringify([
+    sale.id, sale.status, sale.sellerId, sale.customerId, sale.comment,
+    sale.items.map(item => item.id).sort(),
+    sale.payments.map(payment => payment.id).sort(),
+    sale.returns.map(record => record.id).sort(),
+  ])).digest('hex');
+}
+
+const editablePayment = (kind: string) => kind !== 'BONUS' && kind !== 'DEBT';
 
 @Injectable()
 export class SalesService {
@@ -90,6 +104,179 @@ export class SalesService {
       return tx.sale.findUniqueOrThrow({ where: { id }, include: saleInclude });
     });
   }
+  async receiptEditor(storeId: string, id: string) {
+    const sale = await this.get(storeId, id);
+    const [methods, linkedOrder] = await Promise.all([
+      this.methods(storeId),
+      this.db.customerOrder.findUnique({ where: { saleId: id }, select: { id: true } }),
+    ]);
+    const blocked = sale.status !== 'COMPLETED' ? 'Чек аннулирован'
+      : sale.returns.length ? 'По чеку есть возврат'
+      : linkedOrder ? 'Чек связан с заказом'
+      : sale.payments.some(payment => !editablePayment(payment.paymentMethod.kind)) ? 'В чеке использованы бонусы или долг'
+      : null;
+    return { sale, revision: receiptRevision(sale), methods: methods.filter(method => editablePayment(method.kind)), blocked };
+  }
+
+  async editReceipt(storeId: string, id: string, input: ReceiptEdit, actorId: string) {
+    const requestHash = createHash('sha256').update(JSON.stringify({ id, storeId, ...input })).digest('hex');
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await this.db.$transaction(async tx => {
+          const replay = await tx.auditLog.findUnique({ where: { id: input.operationId } });
+          if (replay) {
+            const recorded = replay.newValue as { requestHash?: string } | null;
+            if (replay.action !== 'RECEIPT_CORRECTED' || replay.entityId !== id || recorded?.requestHash !== requestHash) throw new ConflictException('Код операции уже использован');
+            return;
+          }
+          const sale = await tx.sale.findFirst({ where: { id, storeId }, include: saleInclude });
+          if (!sale) throw new NotFoundException('Чек не найден');
+          if (receiptRevision(sale) !== input.revision) throw new ConflictException('Чек изменился. Откройте редактор снова');
+          if (sale.status !== 'COMPLETED' || sale.returns.length || await tx.customerOrder.findUnique({ where: { saleId: id } })) {
+            throw new ConflictException('Аннулированные чеки, чеки с возвратами и чеки заказов требуют отдельной корректировки');
+          }
+          if (!sale.debtMinor.isZero() || sale.payments.some(payment => !editablePayment(payment.paymentMethod.kind))
+            || await tx.bonusTransaction.findFirst({ where: { operationId: { in: [sale.operationId, derivedOperationId(sale.operationId, 'earn')] } } })) {
+            throw new ConflictException('Чеки с долгом или бонусными операциями требуют отдельной корректировки');
+          }
+          await this.applyReceiptEdit(tx, sale, input, actorId, requestHash);
+        }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 20000 });
+        return await this.get(storeId, id);
+      } catch (error) {
+        if (retryable(error) && attempt < 2) continue;
+        if (retryable(error)) throw new ConflictException('Чек изменился. Откройте редактор снова');
+        throw error;
+      }
+    }
+    throw new ConflictException('Не удалось сохранить чек');
+  }
+
+  private async applyReceiptEdit(tx: Prisma.TransactionClient, sale: Receipt, input: ReceiptEdit, actorId: string, requestHash: string) {
+    const { storeId } = sale;
+    const items = input.void ? [] : input.items;
+    const payments = input.void ? [] : input.payments;
+    if (!input.void && (!items.length || !payments.length)) throw new BadRequestException('Добавьте товары и оплату');
+    if (new Set(items.map(item => item.productId)).size !== items.length) throw new BadRequestException('Один товар можно указать только один раз');
+    const sellerId = input.void ? sale.sellerId : input.sellerId;
+    const customerId = input.void ? sale.customerId : input.customerId;
+    const rewardOwnerId = sellerId ?? sale.employeeId;
+    const rewardOwner = await tx.user.findUniqueOrThrow({ where: { id: rewardOwnerId }, include: { stores: { select: { storeId: true } } } });
+    if (sellerId && sellerId !== sale.sellerId && (!rewardOwner.active || rewardOwner.deletedAt || (!rewardOwner.allStores && !rewardOwner.stores.some(store => store.storeId === storeId)))) {
+      throw new BadRequestException('Продавец не работает в этом магазине');
+    }
+    if (customerId && customerId !== sale.customerId && !await tx.customer.findFirst({ where: { id: customerId, deletedAt: null } })) throw new NotFoundException('Клиент не найден');
+
+    const previousItems = new Map(sale.items.map(item => [item.productId, item]));
+    const lines = [];
+    for (const item of items) {
+      const previous = previousItems.get(item.productId);
+      if (!previous && !await tx.product.findFirst({ where: { id: item.productId, deletedAt: null, status: 'ACTIVE' }, select: { id: true } })) throw new NotFoundException('Товар не найден');
+      const batch = previous ? null : await tx.productBatch.findFirst({ where: { productId: item.productId, storeId }, orderBy: { receivedAt: 'desc' } });
+      const settings = previous || batch ? null : await tx.storeProductSettings.findUnique({ where: { storeId_productId: { storeId, productId: item.productId } } });
+      const priceMinor = new Prisma.Decimal(item.priceMinor);
+      const discountMinor = new Prisma.Decimal(item.discountMinor);
+      const gross = priceMinor.mul(item.quantity);
+      if (discountMinor.gt(gross)) throw new BadRequestException('Скидка превышает стоимость позиции');
+      const purchasePriceMinor = previous?.purchasePriceMinor ?? batch?.purchasePriceMinor ?? new Prisma.Decimal(settings?.costBasisMinor ?? 0);
+      const totalMinor = gross.minus(discountMinor);
+      lines.push({ productId: item.productId, quantity: item.quantity, priceMinor, discountMinor, totalMinor, purchasePriceMinor, profitMinor: totalMinor.minus(purchasePriceMinor.mul(item.quantity)), batchId: previous?.batchId ?? batch?.id ?? null });
+    }
+    const subtotalMinor = sum(lines.map(line => line.priceMinor.mul(line.quantity)));
+    const discountMinor = sum(lines.map(line => line.discountMinor));
+    const costMinor = sum(lines.map(line => line.purchasePriceMinor.mul(line.quantity)));
+    const totalMinor = subtotalMinor.minus(discountMinor);
+    if (subtotalMinor.gt(maximum) || costMinor.gt(maximum)) throw new BadRequestException('Сумма чека слишком большая');
+    const methodIds = [...new Set(payments.map(payment => payment.paymentMethodId))];
+    const previousMethods = new Map(sale.payments.map(payment => [payment.paymentMethodId, payment.paymentMethod]));
+    const allowedMethods = await tx.salePaymentMethod.findMany({ where: { id: { in: methodIds }, active: true, ...paymentMethodStoreFilter(storeId) } });
+    const methods = new Map([...previousMethods, ...allowedMethods.map(method => [method.id, method] as const)]);
+    const tenders = payments.map(payment => {
+      const method = methods.get(payment.paymentMethodId);
+      const amountMinor = new Prisma.Decimal(payment.amountMinor);
+      if (!method || !editablePayment(method.kind) || amountMinor.lte(0)) throw new BadRequestException('Проверьте способы и суммы оплаты');
+      return { ...payment, amountMinor, kind: method.kind };
+    });
+    if (!sum(tenders.map(payment => payment.amountMinor)).eq(totalMinor)) throw new BadRequestException('Оплаты должны совпадать с итогом чека');
+
+    const newQuantities = new Map(lines.map(line => [line.productId, line.quantity]));
+    for (const productId of new Set([...previousItems.keys(), ...newQuantities.keys()])) {
+      const delta = (previousItems.get(productId)?.quantity ?? 0) - (newQuantities.get(productId) ?? 0);
+      if (delta) await this.stock.applyMovementInTransaction(tx, { storeId, productId, type: 'CORRECTION', delta, sourceType: 'RECEIPT_EDIT', sourceId: input.operationId, actorId, comment: input.reason });
+    }
+    const oldCash = await tx.cashOperation.findMany({ where: { sourceType: 'SALE_PAYMENT', sourceId: { in: sale.payments.map(payment => payment.id) } } });
+    const cashDelta = sum(tenders.filter(payment => payment.kind === 'CASH').map(payment => payment.amountMinor)).minus(sum(oldCash.map(payment => payment.amountMinor)));
+    const shift = sale.cashShiftId ? await tx.cashShift.findFirst({ where: { id: sale.cashShiftId, storeId } }) : null;
+    if ((!cashDelta.isZero() || oldCash.length) && (!shift || oldCash.some(operation => operation.cashShiftId !== shift.id))) throw new ConflictException('У чека нет подходящей исходной смены');
+    let previousVariance: Prisma.Decimal | null = null;
+    if (shift && !cashDelta.isZero()) {
+      if (shift.status === 'OPEN') {
+        const expectedCashMinor = shift.expectedCashMinor.plus(cashDelta);
+        if (expectedCashMinor.lt(0) || expectedCashMinor.gt(maximum)) throw new ConflictException('Остаток наличных выходит за допустимые пределы');
+        await tx.cashShift.update({ where: { id: shift.id }, data: { expectedCashMinor } });
+      } else {
+        // The physically counted cash and paid rewards stay recorded. Reconcile against the new tender total.
+        if (!shift.closedAt || shift.actualCashMinor === null) throw new ConflictException('В закрытой смене нет фактического остатка');
+        const variance = await tx.cashOperation.findUnique({ where: { sourceType_sourceId: { sourceType: 'SHIFT_CLOSE_VARIANCE', sourceId: shift.id } } });
+        previousVariance = variance?.amountMinor ?? null;
+        const amountMinor = (variance?.amountMinor ?? new Prisma.Decimal(0)).minus(cashDelta);
+        const data = { amountMinor, comment: input.reason };
+        if (variance) await tx.cashOperation.update({ where: { id: variance.id }, data });
+        else await tx.cashOperation.create({ data: { ...data, cashShiftId: shift.id, storeId, employeeId: actorId, sourceType: 'SHIFT_CLOSE_VARIANCE', sourceId: shift.id, type: 'CORRECTION', createdAt: shift.closedAt } });
+      }
+    }
+    await tx.cashOperation.deleteMany({ where: { id: { in: oldCash.map(operation => operation.id) } } });
+    await tx.payment.deleteMany({ where: { saleId: sale.id } });
+    for (const { kind, ...payment } of tenders) {
+      const record = await tx.payment.create({ data: { ...payment, saleId: sale.id, createdAt: sale.createdAt } });
+      if (kind === 'CASH' && shift) await tx.cashOperation.create({ data: {
+        cashShiftId: shift.id, storeId, employeeId: sale.employeeId, type: 'SALE', amountMinor: payment.amountMinor,
+        sourceType: 'SALE_PAYMENT', sourceId: record.id, createdAt: sale.createdAt,
+      } });
+    }
+    await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
+    if (lines.length) await tx.saleItem.createMany({ data: lines.map(line => ({ ...line, saleId: sale.id })) });
+
+    for (const id of new Set([sale.customerId, input.void ? null : customerId])) {
+      if (!id) continue;
+      const customer = await tx.customer.findUniqueOrThrow({ where: { id } });
+      const was = id === sale.customerId;
+      const now = !input.void && id === customerId;
+      const ordersCount = customer.ordersCount + Number(now) - Number(was);
+      const totalSpentMinor = customer.totalSpentMinor.minus(was ? sale.totalMinor : 0).plus(now ? totalMinor : 0);
+      if (ordersCount < 0 || totalSpentMinor.lt(0) || totalSpentMinor.gt(maximum)) throw new ConflictException('Итоги клиента требуют сверки');
+      await tx.customer.update({ where: { id }, data: { ordersCount, totalSpentMinor, averageCheckMinor: ordersCount ? totalSpentMinor.div(ordersCount).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP) : 0 } });
+    }
+
+    const operationId = derivedOperationId(sale.operationId, 'employee-earn');
+    const reward = await tx.employeeRewardTransaction.findUnique({ where: { operationId } });
+    const previousReward = reward?.deltaMinor ?? new Prisma.Decimal(0);
+    const nextReward = input.void ? new Prisma.Decimal(0)
+      : sellerId === sale.sellerId && sale.totalMinor.eq(totalMinor) ? previousReward
+      : totalMinor.mul(rewardOwner.rewardPercent).div(100).floor();
+    const creditedId = sellerId === sale.sellerId && sale.totalMinor.eq(totalMinor) ? reward?.employeeId ?? rewardOwnerId : rewardOwnerId;
+    if (!nextReward.eq(previousReward) || (reward && reward.employeeId !== creditedId)) {
+      let creditedBalance = rewardOwner.rewardBalanceMinor;
+      for (const userId of new Set([reward?.employeeId, creditedId])) {
+        if (!userId) continue;
+        const change = (userId === creditedId ? nextReward : new Prisma.Decimal(0)).minus(userId === reward?.employeeId ? previousReward : 0);
+        if (!change.isZero()) {
+          const account = await tx.user.update({ where: { id: userId }, data: { rewardBalanceMinor: { increment: change } } });
+          if (userId === creditedId) creditedBalance = account.rewardBalanceMinor;
+        }
+      }
+      const data = { employeeId: creditedId, deltaMinor: nextReward, balanceAfterMinor: creditedBalance };
+      if (reward) await tx.employeeRewardTransaction.update({ where: { id: reward.id }, data });
+      else if (nextReward.gt(0)) await tx.employeeRewardTransaction.create({ data: { ...data, saleId: sale.id, operationId, reason: 'Продажа ' + sale.number, createdAt: sale.createdAt } });
+    }
+    const status = input.void ? 'VOIDED' : 'COMPLETED';
+    await tx.sale.update({ where: { id: sale.id }, data: { sellerId, customerId, status, comment: input.void ? sale.comment : input.comment || null, subtotalMinor, discountMinor, costMinor, totalMinor, profitMinor: totalMinor.minus(costMinor) } });
+    await tx.auditLog.create({ data: {
+      id: input.operationId, userId: actorId, action: 'RECEIPT_CORRECTED', entityType: 'Sale', entityId: sale.id,
+      oldValue: { sellerId: sale.sellerId, customerId: sale.customerId, comment: sale.comment, status: sale.status, items: JSON.parse(JSON.stringify(sale.items)), payments: JSON.parse(JSON.stringify(sale.payments)), reward: JSON.parse(JSON.stringify(reward)), cashOperations: JSON.parse(JSON.stringify(oldCash)), closingVarianceMinor: previousVariance?.toString() ?? null },
+      newValue: { ...input, requestHash, totalMinor: totalMinor.toString(), cashDeltaMinor: cashDelta.toString(), rewardMinor: nextReward.toString(), shiftId: sale.cashShiftId },
+    } });
+  }
+
   async returnWithoutReceipt(storeId: string, input: z.infer<typeof receiptlessReturnSchema>, actorId: string) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try { return await this.db.$transaction(async tx => {
