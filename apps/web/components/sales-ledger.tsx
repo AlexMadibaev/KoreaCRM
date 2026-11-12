@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { api, queryString, type Page } from '../lib/api';
 import { CabinetDrawer } from './cabinet-drawer';
+import { SaleDetailsForm } from './sale-details-form';
 import { SaleReturnForm } from './sale-return-form';
 
 type Product = { id: string; name: string; sku: string };
@@ -13,7 +14,7 @@ export type Sale = {
   id: string; number: string; status: 'COMPLETED' | 'VOIDED'; totalMinor: string; discountMinor: string; costMinor: string; createdAt: string;
   items: { id: string; quantity: number; priceMinor: string; discountMinor: string; totalMinor: string; product: Product }[];
   payments: { id: string; amountMinor: string; paymentMethod: { name: string; kind: string } }[];
-  customer: Customer | null; returns: ReturnRecord[];
+  customer: Customer | null; returns: ReturnRecord[]; seller?: { id: string; name: string } | null; comment?: string | null;
 };
 type ReturnEntry = ReturnRecord & { sale: { id: string; number: string; createdAt: string; totalMinor: string; customer: Customer | null } };
 type Tab = 'sales' | 'returns';
@@ -22,9 +23,9 @@ const returned = (sale: Sale) => (sale.returns ?? []).reduce((total, record) => 
 const fullyReturned = (sale: Sale) => sale.items.every(item => (sale.returns ?? []).reduce((total, record) => total + record.items.filter(line => line.saleItemId === item.id).reduce((sum, line) => sum + line.quantity, 0), 0) >= item.quantity);
 const saleStatus = (sale: Sale) => sale.status === 'VOIDED' ? 'Аннулирована' : fullyReturned(sale) && sale.returns?.length ? 'Возвращена' : sale.returns?.length ? 'Частичный возврат' : 'Завершена';
 
-export function SalesLedger({ storeId, revision, onReceipt, deviceId, deviceReady, cashShiftId, canReturn, canOpenShift, onShiftOpened, onReturned }: {
+export function SalesLedger({ storeId, revision, onReceipt, deviceId, deviceReady, cashShiftId, canReturn, canOpenShift, onShiftOpened, onReturned, canEdit }: {
   storeId: string; revision: number; onReceipt: (sale: Sale) => void; deviceId: string; deviceReady: boolean; cashShiftId: string;
-  canReturn: boolean; canOpenShift: boolean; onShiftOpened: (shift: { id: string; deviceId: string; status: string; expectedCashMinor: string }) => void;
+  canEdit: boolean; canReturn: boolean; canOpenShift: boolean; onShiftOpened: (shift: { id: string; deviceId: string; status: string; expectedCashMinor: string }) => void;
   onReturned: (sale: Sale) => void;
 }) {
   const [tab, setTab] = useState<Tab>('sales');
@@ -72,7 +73,7 @@ export function SalesLedger({ storeId, revision, onReceipt, deviceId, deviceRead
         const open = selectedSaleId === sale.id;
         return <article key={sale.id} className="py-4">
           <div className="flex flex-wrap items-center justify-between gap-3"><div><strong className="text-sm text-slate-800">{sale.number}</strong><p className="mt-1 text-xs text-slate-500">{new Date(sale.createdAt).toLocaleString('ru-RU')} · {sale.customer?.phone ?? 'Без клиента'}</p><span className={`mt-2 inline-block rounded-full px-2 py-1 text-xs ${refunded > 0n ? 'bg-amber-50 text-amber-800' : 'bg-emerald-50 text-emerald-700'}`}>{saleStatus(sale)}</span></div><div className="flex items-center gap-4"><div className="text-right"><strong className="block text-sm text-slate-800">{money(sale.totalMinor)}</strong>{refunded > 0n && <small className="text-xs text-amber-700">Возвращено {money(refunded)}</small>}</div><button type="button" className="ks-button ks-button--secondary" aria-expanded={open} onClick={() => setSelectedSaleId(open ? '' : sale.id)}>{open ? 'Скрыть' : 'Подробнее'}</button></div></div>
-          {open && <CabinetDrawer title={`Продажа №${sale.number}`} onClose={() => setSelectedSaleId('')}><div className="flex flex-wrap justify-between gap-2"><strong>Чек и состав</strong><button type="button" className="ks-button ks-button--ghost ks-button--sm" onClick={() => { setSelectedSaleId(''); onReceipt(sale); }}>Показать чек для печати</button></div><ul className="mt-3 divide-y divide-slate-200">{sale.items.map(item => <li key={item.id} className="flex justify-between gap-3 py-2"><span>{item.product.name} · {item.product.sku} × {item.quantity}</span><strong>{money(item.totalMinor)}</strong></li>)}</ul><p className="mt-3 text-slate-600">Оплата: {sale.payments.map(payment => `${payment.paymentMethod.name} ${money(payment.amountMinor)}`).join(' · ')}</p>{(sale.returns ?? []).map(record => <div key={record.id} className="mt-3 rounded-lg border border-amber-100 bg-amber-50 p-3"><strong className="text-amber-800">Возврат {money(record.amountMinor)}</strong><p className="mt-1 text-xs text-slate-600">{new Date(record.createdAt).toLocaleString('ru-RU')} · {record.reason}</p><p className="mt-1 text-xs text-slate-600">{record.items.map(line => `${sale.items.find(item => item.id === line.saleItemId)?.product.name ?? 'Товар'} × ${line.quantity}`).join(' · ')}</p></div>)}<p className="mt-3 font-semibold">После возвратов: {money(BigInt(sale.totalMinor) - refunded)}</p>{canReturn && <SaleReturnForm sale={sale} storeId={storeId} deviceId={deviceId} deviceReady={deviceReady} cashShiftId={cashShiftId} canOpenShift={canOpenShift} onShiftOpened={onShiftOpened} onReturned={onReturned} />}</CabinetDrawer>}
+          {open && <CabinetDrawer title={`Продажа №${sale.number}`} onClose={() => setSelectedSaleId('')}><div className="flex flex-wrap justify-between gap-2"><strong>Чек и состав</strong><button type="button" className="ks-button ks-button--ghost ks-button--sm" onClick={() => { setSelectedSaleId(''); onReceipt(sale); }}>Показать чек для печати</button></div><ul className="mt-3 divide-y divide-slate-200">{sale.items.map(item => <li key={item.id} className="flex justify-between gap-3 py-2"><span>{item.product.name} · {item.product.sku} × {item.quantity}</span><strong>{money(item.totalMinor)}</strong></li>)}</ul><p className="mt-3 text-slate-600">Оплата: {sale.payments.map(payment => `${payment.paymentMethod.name} ${money(payment.amountMinor)}`).join(' · ')}</p>{(sale.returns ?? []).map(record => <div key={record.id} className="mt-3 rounded-lg border border-amber-100 bg-amber-50 p-3"><strong className="text-amber-800">Возврат {money(record.amountMinor)}</strong><p className="mt-1 text-xs text-slate-600">{new Date(record.createdAt).toLocaleString('ru-RU')} · {record.reason}</p><p className="mt-1 text-xs text-slate-600">{record.items.map(line => `${sale.items.find(item => item.id === line.saleItemId)?.product.name ?? 'Товар'} × ${line.quantity}`).join(' · ')}</p></div>)}<p className="mt-3 font-semibold">После возвратов: {money(BigInt(sale.totalMinor) - refunded)}</p>{canEdit && <SaleDetailsForm key={sale.id} sale={sale} storeId={storeId} onSaved={updated => setSales(current => current ? { ...current, items: current.items.map(item => item.id === updated.id ? updated : item) } : current)} />}{canReturn && <SaleReturnForm sale={sale} storeId={storeId} deviceId={deviceId} deviceReady={deviceReady} cashShiftId={cashShiftId} canOpenShift={canOpenShift} onShiftOpened={onShiftOpened} onReturned={onReturned} />}</CabinetDrawer>}
         </article>;
       })}
       {!sales.items.length && <p className="py-8 text-center text-sm text-slate-500">Продажи не найдены</p>}

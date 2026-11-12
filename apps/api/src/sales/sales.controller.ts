@@ -14,6 +14,23 @@ export class SalesController {
   @Get() @RequirePermission('sales.view') list(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.list(storeId, parseInput(saleListSchema, query)); }
   @Get('returns') @RequirePermission('sales.view') returns(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.listReturns(storeId, parseInput(saleReturnListSchema, query)); }
   @Get(':id') @RequirePermission('sales.view') get(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string) { return this.service.get(storeId, id); }
+  @Get('edit/sellers')
+  @RequirePermission('sales.view')
+  editSellers(@Param('storeId', ParseUUIDPipe) storeId: string, @Req() req: AuthorizedRequest) {
+    if (req.access.role !== 'SUPERUSER' || req.access.posDeviceId) throw new ForbiddenException();
+    return this.service.editSellers(storeId);
+  }
+  @Patch(':id/details')
+  @RequirePermission('sales.view')
+  editDetails(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
+    if (req.access.role !== 'SUPERUSER' || req.access.posDeviceId) throw new ForbiddenException();
+    const input = parseInput(z.object({
+      sellerId: z.string().uuid().nullable(),
+      comment: z.string().trim().max(500),
+      reason: z.string().trim().min(5).max(500),
+    }), body);
+    return this.service.editDetails(storeId, id, input, req.access.userId);
+  }
   @Post('returns/no-receipt') @RequirePermission('sales.return_no_receipt') returnWithoutReceipt(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.returnWithoutReceipt(storeId, parseInput(receiptlessReturnSchema, body), req.access.userId); }
   @Post(':id/return') @RequirePermission('sales.return') returnSale(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.returnSale(storeId, id, parseInput(returnSaleSchema, body), req.access.userId); }
   @Post('sync') @RequirePermission('sales.create') sync(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.create(storeId, parseInput(saleSchema, body), req.access.userId, true, req.access.permissions.includes('sales.discount.unlimited')); }

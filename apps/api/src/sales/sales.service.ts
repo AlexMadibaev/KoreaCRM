@@ -61,6 +61,35 @@ export class SalesService {
     if (!sale) throw new NotFoundException('Sale not found');
     return sale;
   }
+  editSellers(storeId: string) {
+    return this.db.user.findMany({
+      where: { active: true, deletedAt: null, OR: [{ allStores: true }, { stores: { some: { storeId } } }] },
+      select: { id: true, name: true }, orderBy: { name: 'asc' },
+    });
+  }
+  async editDetails(storeId: string, id: string, input: { sellerId: string | null; comment: string; reason: string }, actorId: string) {
+    return this.db.$transaction(async tx => {
+      const sale = await tx.sale.findFirst({ where: { id, storeId }, select: { sellerId: true, comment: true } });
+      if (!sale) throw new NotFoundException('Sale not found');
+      if (input.sellerId && input.sellerId !== sale.sellerId) {
+        const seller = await tx.user.findFirst({
+          where: { id: input.sellerId, active: true, deletedAt: null, OR: [{ allStores: true }, { stores: { some: { storeId } } }] },
+          select: { id: true },
+        });
+        if (!seller) throw new BadRequestException('Продавец не работает в этом магазине');
+      }
+      const data = { sellerId: input.sellerId, comment: input.comment || null };
+      if (data.sellerId === sale.sellerId && data.comment === sale.comment) {
+        return tx.sale.findUniqueOrThrow({ where: { id }, include: saleInclude });
+      }
+      const changed = await tx.sale.updateMany({ where: { id, storeId, ...sale }, data });
+      if (changed.count !== 1) throw new ConflictException('Чек изменился. Обновите страницу');
+      await tx.auditLog.create({
+        data: { userId: actorId, action: 'SALE_DETAILS_UPDATED', entityType: 'Sale', entityId: id, oldValue: sale, newValue: { ...data, reason: input.reason } },
+      });
+      return tx.sale.findUniqueOrThrow({ where: { id }, include: saleInclude });
+    });
+  }
   async returnWithoutReceipt(storeId: string, input: z.infer<typeof receiptlessReturnSchema>, actorId: string) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try { return await this.db.$transaction(async tx => {
