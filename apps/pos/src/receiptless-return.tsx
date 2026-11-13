@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import type { createApiClient } from '@koreacrm/api-client';
-import { MoneyInput } from '@koreacrm/ui';
+import { MoneyInput, TypedInput } from '@koreacrm/ui';
 import type { PosProduct, PosSettings, PosShift } from '@koreacrm/types';
 import { formatMinor } from './calculations';
 import { lookupBarcode } from './barcode-lookup';
@@ -57,7 +57,7 @@ export function ReceiptlessReturn({ client, storeId, deviceId, shift, errorText,
       <form className="receiptless-lookup" onSubmit={lookup}><label>Штрихкод или артикул<input value={code} onChange={event => setCode(event.target.value)} placeholder="Сканируйте товар" disabled={busy} /></label><button type="submit" disabled={busy || !code.trim()}>Найти</button></form>
       {found && <form className="sales-return-form" onSubmit={submit}>
         <p><strong>{found.product.name}</strong> · {found.product.sku} · цена {formatMinor(found.priceMinor)}</p>
-        <label>Количество<input type="number" min="1" max="1000" step="1" value={draft.quantity} disabled={busy} onChange={event => { const quantity = Math.max(1, Math.min(1000, Math.trunc(Number(event.target.value) || 1))); setDraft(current => ({ ...current, quantity, amountMinor: String(found.priceMinor * quantity) })); }} /></label>
+        <label>Количество<TypedInput type="number" min="1" max="1000" step="1" value={draft.quantity} disabled={busy} onChange={event => { const quantity = Math.max(1, Math.min(1000, Math.trunc(Number(event.target.value) || 1))); setDraft(current => ({ ...current, quantity, amountMinor: String(found.priceMinor * quantity) })); }} /></label>
         <label>Сумма к выдаче, сомони<MoneyInput required valueMinor={draft.amountMinor} onMinorChange={amountMinor => setDraft(current => ({ ...current, amountMinor }))} disabled={busy} /></label>
         <label>Причина возврата<input required minLength={5} maxLength={500} value={draft.reason} onChange={event => setDraft(current => ({ ...current, reason: event.target.value }))} placeholder="Например, брак, покупатель потерял чек" disabled={busy} /></label>
         <button type="submit" disabled={busy || amount <= 0n || amount > maxAmount}>{busy ? 'Оформляем…' : `Вернуть ${formatMinor(amount)} наличными`}</button>

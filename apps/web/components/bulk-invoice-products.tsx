@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { api, type Product } from '../lib/api';
+import { TypedInput } from '@koreacrm/ui';
 
 type Source = { line: number; name: string; characteristic: string; sku: string; barcode: string; price: string; discountPercent: string };
 type Draft = Source & { selected: boolean; unit: string; error: string; created: boolean };
@@ -76,7 +77,7 @@ export function BulkInvoiceProducts({ rows, currency, onCreated, onClose }: { ro
         <td><input type="checkbox" aria-label={`Добавить строку ${item.line}`} checked={item.selected} disabled={saving || item.created} onChange={(event) => edit(item.line, { selected: event.target.checked })} /><small>Строка {item.line}</small></td>
         <td><input aria-label={`Название строки ${item.line}`} maxLength={255} value={item.name} disabled={saving || item.created} onChange={(event) => edit(item.line, { name: event.target.value })} /></td>
         <td><input aria-label={`Артикул строки ${item.line}`} maxLength={100} value={item.sku} disabled={saving || item.created} onChange={(event) => edit(item.line, { sku: event.target.value })} /></td>
-        <td><input aria-label={`Штрихкод строки ${item.line}`} maxLength={120} value={item.barcode} disabled={saving || item.created} onChange={(event) => edit(item.line, { barcode: event.target.value })} /></td>
+        <td><TypedInput aria-label={`Штрихкод строки ${item.line}`} inputMode="numeric" pattern=".*" maxLength={120} value={item.barcode} disabled={saving || item.created} onChange={(event) => edit(item.line, { barcode: event.target.value })} /></td>
         <td><input aria-label={`Единица строки ${item.line}`} maxLength={32} value={item.unit} disabled={saving || item.created} onChange={(event) => edit(item.line, { unit: event.target.value })} /></td>
         <td>{item.price} {currency}<small>Скидка {item.discountPercent}%</small></td>
         <td>{item.created ? 'Создан и связан' : item.error ? <span role="alert">{item.error}</span> : 'Готов к созданию'}</td>

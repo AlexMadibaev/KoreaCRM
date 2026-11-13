@@ -1,9 +1,11 @@
 'use client';
 
+import { BarcodeField } from './barcode-field';
 import { useEffect, useRef, useState } from 'react';
 import { MoneyInput, formatCurrencyMinor } from '@koreacrm/ui';
 import { api, productImageUrl, type Brand, type Category, type Page, type Product } from '../lib/api';
 import { ProductImageCropper } from './product-image-cropper';
+import { ProductImageSearch } from './product-image-search';
 import { ProductGallery } from './product-gallery';
 
 const fieldLabels = {
@@ -22,7 +24,8 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
   const [brandId, setBrandId] = useState(product.brandId ?? '');
   const [categoryId, setCategoryId] = useState(product.categoryId ?? '');
   const [status, setStatus] = useState(product.status);
-  const [barcodes, setBarcodes] = useState(product.barcodes.map(item => item.value).join('\n'));
+  const [barcodes, setBarcodes] = useState(() => product.barcodes.map(item => item.value));
+  const [barcodeDraft, setBarcodeDraft] = useState('');
   const [brands, setBrands] = useState<Brand[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [savedPrice, setSavedPrice] = useState<SalePrice | null>(null);
@@ -31,6 +34,7 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
   const pendingRef = useRef<PendingImage[]>([]);
   const [removedImages, setRemovedImages] = useState<string[]>([]);
   const [imageQueue, setImageQueue] = useState<File[]>([]);
+  const [searchOpen, setSearchOpen] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const completedRemovals = useRef(new Set<string>());
   const completedAdds = useRef(new Set<string>());
@@ -59,7 +63,7 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
   useEffect(() => () => { pendingRef.current.forEach(item => URL.revokeObjectURL(item.url)); }, []);
 
   const changedFields = fields.filter(key => values[key].trim() !== String(product[key] ?? ''));
-  const cleanBarcodes = barcodes.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
+  const cleanBarcodes = [...new Set([...barcodes, barcodeDraft.trim()].filter(Boolean))];
   const oldBarcodes = product.barcodes.map(item => item.value);
   const priceChanged = Boolean(savedPrice?.canEdit && priceDraft !== (savedPrice.priceMinor === null ? '' : String(savedPrice.priceMinor)));
   const currentPrice = savedPrice?.mixed ? 'Разная по магазинам' : savedPrice?.priceMinor != null ? formatCurrencyMinor(String(savedPrice.priceMinor)) : 'Не установлена';
@@ -97,7 +101,7 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
     } else setRemovedImages(current => [...current, imageId]);
   }
 
-  function selectImages(files: FileList | null) {
+  function selectImages(files: FileList | File[] | null) {
     if (!files?.length) return;
     const selected = Array.from(files);
     if (visibleImages.length + pendingImages.length + selected.length > 20) { setError('У товара может быть не более 20 фото'); return; }
@@ -115,6 +119,10 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
   async function save() {
     if (!changes.length || saving) return;
     if (!values.name.trim() || !values.sku.trim() || !values.unit.trim()) { setError('Укажите название, артикул и единицу товара'); return; }
+    if (JSON.stringify(cleanBarcodes) !== JSON.stringify(oldBarcodes) && (cleanBarcodes.length > 30 || cleanBarcodes.some(value => value.length > 120))) {
+      setError('Можно добавить до 30 штрихкодов длиной до 120 символов.');
+      return;
+    }
     const price = Number(priceDraft);
     if (priceChanged && (!priceDraft || !Number.isSafeInteger(price) || price < 0 || price > 2_147_483_647)) {
       setError('Укажите корректную цену продажи');
@@ -157,7 +165,7 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
         <div className="crm-product-section-head"><span className="crm-eyebrow">ГАЛЕРЕЯ</span><h2>Фото товара</h2><p>Фото появятся в карточке после сохранения изменений.</p></div>
         <span className="crm-product-image-count">{visibleImages.length + pendingImages.length} / 20</span>
         <ProductGallery images={galleryImages} empty={<div className="crm-product-image-empty">Добавьте фото товара</div>} onRemove={removeImage} disabled={saving} />
-        <div className="crm-product-image-toolbar"><p>Квадрат 360 × 360 · WebP после сохранения</p><label className="crm-outline-button crm-product-upload">＋ Добавить фото<input ref={input} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={saving || imageQueue.length > 0 || visibleImages.length + pendingImages.length >= 20} onChange={event => selectImages(event.target.files)} /></label></div>
+        <div className="crm-product-image-toolbar"><p>Квадрат 360 × 360 · WebP после сохранения</p><button type="button" className="crm-outline-button ks-control" disabled={saving || imageQueue.length > 0 || visibleImages.length + pendingImages.length >= 20} onClick={() => setSearchOpen(true)}>Найти фото</button><label className="crm-outline-button crm-product-upload">＋ Добавить фото<input ref={input} className="sr-only" type="file" accept="image/jpeg,image/png,image/webp" multiple disabled={saving || imageQueue.length > 0 || visibleImages.length + pendingImages.length >= 20} onChange={event => selectImages(event.target.files)} /></label></div>
       </section>
       <div className="crm-product-detail-side">
         <section className="crm-panel crm-product-edit-section"><div className="crm-product-section-head"><span className="crm-eyebrow">ОСНОВНОЕ</span><h2>О товаре</h2></div><div className="crm-product-form-grid">
@@ -166,7 +174,7 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
           <label>Категория<select value={categoryId} onChange={event => setCategoryId(event.target.value)} disabled={saving}><option value="">Без категории</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label>Статус<select value={status} onChange={event => setStatus(event.target.value as Product['status'])} disabled={saving}><option value="ACTIVE">Активен</option><option value="INACTIVE">Неактивен</option></select></label>
           <label className="crm-product-form-wide">Описание<textarea rows={3} value={values.description} onChange={event => setValues(current => ({ ...current, description: event.target.value }))} disabled={saving} /></label>
-          <label className="crm-product-form-wide">Штрихкоды, по одному в строке<textarea rows={2} value={barcodes} onChange={event => setBarcodes(event.target.value)} disabled={saving} /></label>
+          <BarcodeField barcodes={barcodes} draft={barcodeDraft} onDraftChange={setBarcodeDraft} onChange={setBarcodes} disabled={saving} />
         </div></section>
         <section className="crm-panel crm-product-price crm-product-edit-section"><div className="crm-product-section-head"><span className="crm-eyebrow">ПРОДАЖИ</span><h2>Цена продажи</h2><p>Цена сохраняется для всех магазинов.</p></div>
           <label>Новая цена, сомони<MoneyInput aria-label="Новая цена, сомони" valueMinor={priceDraft} onMinorChange={setPriceDraft} disabled={saving || !savedPrice?.canEdit} placeholder="0,00" /></label>
@@ -178,6 +186,7 @@ export function ProductDetailEditor({ product, onSaved, onCancel }: { product: P
     {changeRows.length > 0 && <section className="crm-panel crm-product-change-preview"><div className="crm-product-section-head"><span className="crm-eyebrow">ПЕРЕД СОХРАНЕНИЕМ</span><h2>Что изменится</h2></div><div className="crm-product-change-grid">{changeRows.map(row => <div key={row.label}><strong>{row.label}</strong><span>{row.before}</span><span aria-hidden="true">→</span><b>{row.after}</b></div>)}</div></section>}
     <div className="crm-product-save-bar"><div><strong>{changes.length ? `Изменений: ${changes.length}` : 'Изменений пока нет'}</strong><p>{changes.length ? changes.join(' · ') : 'Измените поля, цену или фотографии — здесь появится список изменений.'}</p></div><div><button type="button" className="ks-button ks-button--secondary crm-outline-button" disabled={saving} onClick={onCancel}>Отмена</button><button type="button" className="ks-button ks-button--primary crm-primary-button" disabled={saving || !changes.length || imageQueue.length > 0} onClick={() => void save()}>{saving ? 'Сохраняем…' : 'Сохранить изменения'}</button></div></div>
     {error && <p role="alert" className="crm-alert">{error}</p>}
+    {searchOpen && <ProductImageSearch initialQuery={[brands.find(brand => brand.id === brandId)?.name ?? (brandId === product.brandId ? product.brand?.name : ''), values.name].filter(Boolean).join(' ')} onClose={() => setSearchOpen(false)} onSelect={file => { setSearchOpen(false); selectImages([file]); }} />}
     {imageQueue[0] && <ProductImageCropper key={imageQueue[0].name + imageQueue[0].lastModified} file={imageQueue[0]} busy={false} onSave={stageImage} onCancel={() => { setImageQueue([]); if (input.current) input.current.value = ''; }} />}
   </div>;
 }

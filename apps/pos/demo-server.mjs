@@ -4,7 +4,12 @@ import { randomUUID } from 'node:crypto';
 const host = '127.0.0.1';
 const port = Number(process.env.KOREACRM_DEMO_PORT ?? 3001);
 const store = { id: 'demo-store', code: 'DEMO', name: 'Демо-магазин' };
-const brands = [{ id: 'demo-brand', name: 'K-Beauty Lab' }];
+const brands = [
+  { id: 'demo-brand', name: 'K-Beauty Lab' },
+  { id: 'demo-cosrx', name: 'COSRX' },
+  { id: 'demo-beauty-of-joseon', name: 'Beauty of Joseon' },
+  { id: 'demo-skin1004', name: 'SKIN1004' },
+];
 const categories = [
   { id: 'demo-category', name: 'Кремы', parentId: null },
   { id: 'demo-serums', name: 'Сыворотки и ампулы', parentId: null },
@@ -14,6 +19,9 @@ const categories = [
   { id: 'demo-hair', name: 'Волосы', parentId: null },
 ];
 const products = [
+  { id: '5b420e28-fac6-47a0-aa4d-62862475a315', brandId: 'demo-cosrx', categoryId: 'demo-serums', name: 'Advanced Snail 96 Mucin Power Essence 100 ml', sku: 'PHOTO-DEMO-01', status: 'ACTIVE', barcodes: [], priceMinor: 0, quantity: 0 },
+  { id: '590bce26-edf8-4851-9912-d2628841997d', brandId: 'demo-beauty-of-joseon', categoryId: 'demo-sun', name: 'Relief Sun Rice + Probiotics SPF50+ 50 ml', sku: 'PHOTO-DEMO-02', status: 'ACTIVE', barcodes: [], priceMinor: 0, quantity: 0 },
+  { id: 'ab0840b9-60f7-40c5-a4bf-649ec9fe4db0', brandId: 'demo-skin1004', categoryId: 'demo-serums', name: 'Madagascar Centella Ampoule 100 ml', sku: 'PHOTO-DEMO-03', status: 'ACTIVE', barcodes: [], priceMinor: 0, quantity: 0 },
   { id: 'demo-cream', name: 'Крем для лица Centella', sku: 'KR-001', status: 'ACTIVE', barcodes: [{ value: '4600000000011' }], priceMinor: 129000, quantity: 24 },
   { id: 'demo-serum', categoryId: 'demo-serums', name: 'Сыворотка с ниацинамидом', sku: 'KR-002', status: 'ACTIVE', barcodes: [{ value: '4600000000028' }], priceMinor: 189000, quantity: 18 },
   { id: 'demo-cleanser', categoryId: 'demo-cleansing', name: 'Очищающая пенка', sku: 'KR-003', status: 'ACTIVE', barcodes: [{ value: '4600000000035' }], priceMinor: 95000, quantity: 32 },
@@ -28,6 +36,7 @@ const products = [
   { id: 'demo-p8', categoryId: 'demo-category', name: 'Dr.Jart+ Ceramidin Moisturizing Cream', sku: 'KR-108', status: 'ACTIVE', barcodes: [{ value: '4600000000108' }], priceMinor: 289000, quantity: 7 },
   { id: 'demo-p9', categoryId: 'demo-masks', name: 'Mary&May Collagen Peptide Wash Off Mask', sku: 'KR-109', status: 'ACTIVE', barcodes: [{ value: '4600000000109' }], priceMinor: 112000, quantity: 11 },
 ];
+const productPhotoFiles = new Map();
 const customers = [
   { id: 'demo-customer-1', firstName: 'Анна', lastName: 'Иванова', phone: '+998901234567', email: null, birthday: '1995-04-12T00:00:00.000Z', gender: 'Женский', address: null, notes: 'Предпочитает уход для чувствительной кожи', discountPercent: '0', bonusBalanceMinor: '15000', debtBalanceMinor: '0', totalSpentMinor: '0', averageCheckMinor: '0', ordersCount: 0 },
   { id: 'demo-customer-2', firstName: 'Мария', lastName: 'Ким', phone: '+998909876543', email: null, birthday: null, gender: null, address: 'Ташкент, Чиланзар', notes: null, discountPercent: '0', bonusBalanceMinor: '0', debtBalanceMinor: '0', totalSpentMinor: '0', averageCheckMinor: '0', ordersCount: 0 },
@@ -119,16 +128,33 @@ const server = createServer(async (request, response) => {
   if (request.method === 'OPTIONS') return send(response, 204, null);
   const url = new URL(request.url ?? '/', `http://${host}:${port}`);
   const path = url.pathname;
+  const imageUpload = path.match(/^\/products\/([^/]+)\/images$/);
   let body = {};
   if (request.method === 'POST' || request.method === 'PATCH') {
     try {
       const chunks = [];
-      for await (const chunk of request) chunks.push(chunk);
-      body = JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}');
-    } catch { return error(response, 400, 'Неверный JSON'); }
+      let size = 0;
+      for await (const chunk of request) {
+        size += chunk.length;
+        if (size > 5_100_000 && imageUpload) return error(response, 413, 'Фото слишком большое');
+        chunks.push(chunk);
+      }
+      const bytes = Buffer.concat(chunks);
+      body = request.method === 'POST' && imageUpload
+        ? await new Response(bytes, { headers: { 'Content-Type': request.headers['content-type'] ?? '' } }).formData()
+        : JSON.parse(bytes.toString('utf8') || '{}');
+    } catch { return error(response, 400, imageUpload ? 'Не удалось прочитать фото' : 'Неверный JSON'); }
   }
 
   if (request.method === 'GET' && path === '/health') return send(response, 200, { status: 'ok', service: 'koreacrm-pos-demo' });
+  const storedPhoto = path.match(/^\/product-images\/([a-f0-9-]+)$/);
+  if (request.method === 'GET' && storedPhoto) {
+    const photo = productPhotoFiles.get(storedPhoto[1]);
+    if (!photo) return error(response, 404, 'Фото не найдено');
+    response.writeHead(200, { 'Content-Type': photo.type, 'Access-Control-Allow-Origin': '*', 'X-Content-Type-Options': 'nosniff' });
+    return response.end(Buffer.from(await photo.arrayBuffer()));
+  }
+  if (request.method === 'POST' && path === '/auth/pos-store' && body.storeCode === store.code) return send(response, 200, store);
   if (request.method === 'POST' && path === '/auth/login') {
     const employee = demoEmployees.find(value => value.login === body.login && value.active && demoPasswords.get(value.id) === body.password);
     if (!employee) return error(response, 401, 'Неверный логин или пароль');
@@ -150,6 +176,31 @@ const server = createServer(async (request, response) => {
   const sessionEmployee = demoEmployees.find(value => value.id === sessionId && value.active);
   if (!request.headers.authorization?.startsWith('Bearer ') || !sessionEmployee) return error(response, 401, 'Войдите в демо-режим');
   const canDemo = code => sessionEmployee.id === 'demo-user' || sessionEmployee.role.permissions.some(item => item.permission.code === code);
+
+  const imageRemoval = path.match(/^\/products\/([^/]+)\/images\/([^/]+)$/);
+  if ((request.method === 'POST' && imageUpload) || (request.method === 'DELETE' && imageRemoval)) {
+    if (!canDemo('products.edit')) return error(response, 403, 'Недостаточно прав');
+    const product = products.find(item => item.id === (imageUpload ?? imageRemoval)[1]);
+    if (!product) return error(response, 404, 'Товар не найден');
+    product.images ??= [];
+    if (imageRemoval) {
+      const image = product.images.find(item => item.id === imageRemoval[2]);
+      if (!image) return error(response, 404, 'Фото не найдено');
+      product.images = product.images.filter(item => item.id !== image.id);
+      productPhotoFiles.delete(image.storageKey);
+      return send(response, 200, { ok: true });
+    }
+    const photo = body.get('file');
+    if (!(photo instanceof File) || !photo.size || photo.size > 5_000_000 || !['image/png', 'image/jpeg', 'image/webp'].includes(photo.type)) {
+      return error(response, 400, 'Выберите JPEG, PNG или WebP до 5 МБ');
+    }
+    if (product.images.length >= 20) return error(response, 400, 'У товара может быть не более 20 фото');
+    const id = randomUUID();
+    const image = { id, storageKey: id, sortOrder: (product.images.at(-1)?.sortOrder ?? -1) + 1 };
+    productPhotoFiles.set(id, photo);
+    product.images.push(image);
+    return send(response, 201, image);
+  }
 
   if (request.method === 'GET' && path === '/auth/me') return send(response, 200, { userId: sessionEmployee.id, login: sessionEmployee.login, name: sessionEmployee.name, role: sessionEmployee.role.code, permissions: sessionEmployee.id === 'demo-user' ? [...permissions, 'finance.view'] : sessionEmployee.role.permissions.map(item => item.permission.code), allStores: sessionEmployee.allStores, storeIds: sessionEmployee.stores.map(item => item.storeId) });
   if (request.method === 'GET' && path === '/stores') return send(response, 200, [store]);
@@ -476,6 +527,42 @@ const server = createServer(async (request, response) => {
   function catalogProduct(product) {
     return { ...product, brandId: product.brandId ?? brands[0].id, categoryId: product.categoryId ?? categories[0].id, brand: brands.find(item => item.id === (product.brandId ?? brands[0].id)) ?? null, category: categories.find(item => item.id === (product.categoryId ?? categories[0].id)) ?? null, unit: product.unit ?? 'шт.', description: product.description ?? null, country: product.country ?? null, shade: product.shade ?? null, volume: product.volume ?? null, weight: product.weight ?? null, line: product.line ?? null, collection: product.collection ?? null, gender: product.gender ?? null, skinType: product.skinType ?? null, productType: product.productType ?? null, images: product.images ?? [] };
   }
+  if (request.method === 'GET' && path === '/products-overview') {
+    const search = (url.searchParams.get('search') ?? '').toLocaleLowerCase('ru');
+    const brandId = url.searchParams.get('brandId');
+    const categoryId = url.searchParams.get('categoryId');
+    const status = url.searchParams.get('status');
+    const number = Math.max(1, Number(url.searchParams.get('page')) || 1);
+    const limit = Math.max(1, Math.min(100, Number(url.searchParams.get('limit')) || 50));
+    const matches = products.map(catalogProduct).filter(product =>
+      (!brandId || product.brandId === brandId) &&
+      (!categoryId || product.categoryId === categoryId) &&
+      (!status || product.status === status) &&
+      [product.name, product.sku, ...product.barcodes.map(code => code.value)].some(value => value.toLocaleLowerCase('ru').includes(search)));
+    const items = matches.slice((number - 1) * limit, number * limit).map(product => ({
+      ...product, brand: product.brand?.name ?? null, category: product.category?.name ?? null,
+      barcode: product.barcodes[0]?.value ?? null, priceMinor: String(product.priceMinor ?? 0),
+      stock: { [store.id]: product.quantity ?? 0 },
+    }));
+    return send(response, 200, { stores: [store], priceStoreId: store.id, canSeeCost: false, items, total: matches.length, page: number, limit });
+  }
+  if (request.method === 'GET' && path === '/products/image-search') return send(response, 200, { status: 'unconfigured', items: [] });
+  const productPrice = path.match(/^\/products\/([^/]+)\/price$/);
+  if (productPrice && ['GET', 'PATCH'].includes(request.method)) {
+    const product = products.find(item => item.id === productPrice[1]);
+    if (!product) return error(response, 404, 'Товар не найден');
+    const canEdit = sessionEmployee.allStores && canDemo('products.edit');
+    if (request.method === 'PATCH') {
+      if (!canEdit) return error(response, 403, 'Недостаточно прав');
+      if (!Number.isInteger(body.priceMinor) || body.priceMinor < 0 || body.priceMinor > 2_147_483_647) {
+        return error(response, 400, 'Укажите корректную цену');
+      }
+      product.priceMinor = body.priceMinor;
+    } else if (!canDemo('products.view')) {
+      return error(response, 403, 'Недостаточно прав');
+    }
+    return send(response, 200, { priceMinor: product.priceMinor, mixed: false, canEdit });
+  }
   if (request.method === 'GET' && path === '/products') {
     const search = (url.searchParams.get('search') ?? '').toLocaleLowerCase('ru');
     const brandId = url.searchParams.get('brandId');
@@ -501,9 +588,22 @@ const server = createServer(async (request, response) => {
     if (index < 0) return error(response, 404, 'Товар не найден');
     if (request.method === 'GET') return send(response, 200, catalogProduct(products[index]));
     if (request.method === 'PATCH') {
-      if (!body.name?.trim() || !body.sku?.trim()) return error(response, 400, 'Укажите название и SKU');
-      if (products.some((product, position) => position !== index && product.sku === body.sku)) return error(response, 409, 'SKU уже используется');
-      const updated = { ...products[index], ...body, name: body.name.trim(), sku: body.sku.trim(), barcodes: (body.barcodes ?? []).map(value => ({ id: randomUUID(), value })) };
+      if (!canDemo('products.edit')) return error(response, 403, 'Недостаточно прав');
+      const product = products[index];
+      const updated = { ...product };
+      for (const key of ['name', 'sku', 'unit', 'description', 'country', 'shade', 'volume', 'weight', 'line', 'collection', 'gender', 'skinType', 'productType', 'brandId', 'categoryId', 'status']) {
+        if (Object.hasOwn(body, key)) updated[key] = typeof body[key] === 'string' ? body[key].trim() : body[key];
+      }
+      if (typeof updated.name !== 'string' || !updated.name || typeof updated.sku !== 'string' || !updated.sku) return error(response, 400, 'Укажите название и SKU');
+      if (products.some((other, position) => position !== index && other.sku === updated.sku)) return error(response, 409, 'SKU уже используется');
+      if (Object.hasOwn(body, 'barcodes')) {
+        if (!Array.isArray(body.barcodes) || body.barcodes.length > 30 || body.barcodes.some(value => typeof value !== 'string' || !value.trim() || value.trim().length > 120)) {
+          return error(response, 400, 'Укажите корректные штрихкоды');
+        }
+        const values = [...new Set(body.barcodes.map(value => value.trim()))];
+        if (products.some((other, position) => position !== index && other.barcodes.some(code => values.includes(code.value)))) return error(response, 409, 'Штрихкод уже используется');
+        updated.barcodes = values.map(value => product.barcodes.find(code => code.value === value) ?? { id: randomUUID(), value });
+      }
       products[index] = updated;
       return send(response, 200, catalogProduct(updated));
     }

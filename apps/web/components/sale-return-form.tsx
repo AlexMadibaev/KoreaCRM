@@ -1,7 +1,7 @@
 'use client';
 
+import { TypedInput, MoneyInput } from '@koreacrm/ui';
 import { useEffect, useState, type FormEvent } from 'react';
-import { MoneyInput } from '@koreacrm/ui';
 import { api, withDiscrepancyComment, type Page } from '../lib/api';
 import type { Sale } from './sales-ledger';
 
@@ -99,7 +99,7 @@ export function SaleReturnForm({ sale, storeId, deviceId, deviceReady, cashShift
       {canOpenShift && <form onSubmit={openShift} className="mt-3 flex flex-wrap items-end gap-2"><label>Начальный остаток, сомони<MoneyInput required className="mt-1 block w-40 rounded border border-amber-200 bg-white p-2" valueMinor={openingCash} onMinorChange={setOpeningCash} /></label><button type="submit" disabled={busy || !deviceReady} className="ks-button ks-button--secondary">Открыть смену</button></form>}
     </div>}
     <form onSubmit={submit} className="mt-3 space-y-3">
-      {remaining.map(({ item, available, selected }) => <label key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-sm"><span className="min-w-0">{item.product.name}<small className="ml-2 text-slate-500">Доступно для возврата: {available}</small></span><input aria-label={`Вернуть ${item.product.name}`} type="number" inputMode="numeric" min="0" max={available} step="1" disabled={!available || busy} className="w-20 rounded border border-slate-200 p-2 text-right" value={selected} onChange={event => setQuantities(current => ({ ...current, [item.id]: Number(event.target.value) }))} /></label>)}
+      {remaining.map(({ item, available, selected }) => <label key={item.id} className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-3 text-sm"><span className="min-w-0">{item.product.name}<small className="ml-2 text-slate-500">Доступно для возврата: {available}</small></span><TypedInput aria-label={`Вернуть ${item.product.name}`} type="number" inputMode="numeric" min="0" max={available} step="1" disabled={!available || busy} className="w-20 rounded border border-slate-200 p-2 text-right" value={selected} onChange={event => setQuantities(current => ({ ...current, [item.id]: Number(event.target.value) }))} /></label>)}
       <label className="block text-sm font-medium text-slate-700">Причина возврата<textarea required minLength={5} maxLength={500} className="mt-1 block w-full rounded border border-slate-200 p-2" rows={2} value={reason} onChange={event => setReason(event.target.value)} placeholder="Например, товар не подошёл покупателю" /></label>
       <div className="flex flex-wrap items-center justify-between gap-3"><strong className="text-sm">К выдаче: {money(amount)}</strong><button type="submit" disabled={busy || !validSelection || reason.trim().length < 5 || !returnShiftId || loadingShifts || !!shiftError} className="ks-button ks-button--primary">{busy ? 'Оформляем…' : 'Оформить возврат'}</button></div>
     </form>

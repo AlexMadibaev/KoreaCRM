@@ -1,5 +1,6 @@
 'use client';
 
+import { BarcodeField } from './barcode-field';
 import { FormEvent, useEffect, useState } from 'react';
 import { api, type Brand, type Category, type Page, type Product } from '../lib/api';
 
@@ -22,7 +23,8 @@ export function ProductForm({ product, initialDraft, onSaved, onSavingChange }: 
   const [brandId, setBrandId] = useState(product?.brandId ?? '');
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? '');
   const [status, setStatus] = useState(product?.status ?? 'ACTIVE');
-  const [barcodes, setBarcodes] = useState(product?.barcodes.map((item) => item.value).join('\n') ?? initialDraft?.barcodes?.join('\n') ?? '');
+  const [barcodes, setBarcodes] = useState(product?.barcodes.map((item) => item.value) ?? initialDraft?.barcodes ?? []);
+  const [barcodeDraft, setBarcodeDraft] = useState('');
   const [brands, setBrands] = useState<Brand[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [error, setError] = useState('');
@@ -35,12 +37,16 @@ export function ProductForm({ product, initialDraft, onSaved, onSavingChange }: 
   }, []);
 
   async function submit(event: FormEvent) {
-    event.preventDefault(); if (saving) return; setSaving(true); onSavingChange?.(true); setError('');
+    event.preventDefault();
+    if (saving) return;
+    const codes = [...new Set([...barcodes, barcodeDraft].filter(Boolean))];
+    if (codes.length > 30) { setError('Можно добавить до 30 штрихкодов.'); return; }
+    setSaving(true); onSavingChange?.(true); setError('');
     try {
       const body = {
         ...Object.fromEntries(Object.entries(values).map(([key, value]) => [key, value.trim() || (['name', 'sku', 'unit'].includes(key) ? '' : null)])),
         brandId: brandId || null, categoryId: categoryId || null, status,
-        barcodes: barcodes.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+        barcodes: codes,
       };
       const saved = await api<Product>(product ? `/products/${product.id}` : '/products', { method: product ? 'PATCH' : 'POST', body: JSON.stringify(body) });
       onSaved(saved);
@@ -58,8 +64,8 @@ export function ProductForm({ product, initialDraft, onSaved, onSavingChange }: 
         <label className="crm-product-form-wide">Описание<textarea rows={3} value={values.description} onChange={event => setValues({ ...values, description: event.target.value })} /></label>
       </div>
     </section>
-    <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ИДЕНТИФИКАЦИЯ</span><h2>Штрихкоды</h2><p>Каждый штрихкод укажите на новой строке.</p></div>
-      <label>Штрихкоды<textarea rows={3} value={barcodes} onChange={event => setBarcodes(event.target.value)} placeholder="Например, 4601234567890" /></label>
+    <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ИДЕНТИФИКАЦИЯ</span><h2>Штрихкоды</h2></div>
+      <BarcodeField barcodes={barcodes} draft={barcodeDraft} onDraftChange={setBarcodeDraft} onChange={setBarcodes} disabled={saving} />
     </section>
     <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ХАРАКТЕРИСТИКИ</span><h2>Дополнительные данные</h2><p>Заполняйте только те поля, которые нужны для этого товара.</p></div>
       <div className="crm-product-form-grid">{fields.filter(key => !['name', 'sku', 'unit', 'description'].includes(key)).map(key => <label key={key}>{labels[key]}<input value={values[key]} onChange={event => setValues({ ...values, [key]: event.target.value })} /></label>)}</div>

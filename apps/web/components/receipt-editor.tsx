@@ -1,7 +1,7 @@
 'use client';
 
+import { TypedInput, MoneyInput, formatCurrencyMinor } from '@koreacrm/ui';
 import { useEffect, useState } from 'react';
-import { MoneyInput, formatCurrencyMinor } from '@koreacrm/ui';
 import { api, queryString, type Page } from '../lib/api';
 import type { Sale } from './sales-ledger';
 
@@ -142,7 +142,7 @@ export function ReceiptEditor({ saleId, storeId, onSaved }: { saleId: string; st
         {lines.map(line => <div className="space-y-2 rounded border p-2" key={line.product.id}>
           <strong>{line.product.name} · {line.product.sku}</strong>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-            <label>Количество<input className="block w-full rounded border p-2" type="number" min="1" max="100000" value={line.quantity} onChange={event => editLine(line.product.id, { quantity: event.target.value })} /></label>
+            <label>Количество<TypedInput className="block w-full rounded border p-2" type="number" min="1" max="100000" value={line.quantity} onChange={event => editLine(line.product.id, { quantity: event.target.value })} /></label>
             <label>Цена за единицу<MoneyInput className="block w-full rounded border p-2" valueMinor={line.priceMinor} onMinorChange={priceMinor => editLine(line.product.id, { priceMinor })} /></label>
             <label>Скидка на позицию<MoneyInput className="block w-full rounded border p-2" valueMinor={line.discountMinor} onMinorChange={discountMinor => editLine(line.product.id, { discountMinor })} /></label>
           </div>

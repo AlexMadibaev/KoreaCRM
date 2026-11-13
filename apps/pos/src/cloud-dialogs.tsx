@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { createApiClient } from '@koreacrm/api-client';
-import { MoneyInput } from '@koreacrm/ui';
+import { MoneyInput, todayDateInput, TypedInput } from '@koreacrm/ui';
+import { maxIdleSeconds, minIdleSeconds, validIdleSeconds } from './pos-idle';
+import type { usePosUpdate } from './pos-update';
 import type { PosCustomer, PosLastClosedShift, PosShift } from '@koreacrm/types';
 import { formatMinor } from './calculations';
 import { Icon, Kbd, Modal, useOverlayKeys, type CardView } from './cloud-ui';
@@ -64,24 +66,23 @@ export function CustomerCreateModal({ initial, canDiscount, loyaltyMode, onCreat
     const phone = phones[0]!.replace(/[\s()-]/g, '');
     if (!first) { setError('Укажите имя покупателя.'); return; }
     if (!/^\+[1-9]\d{7,14}$/.test(phone)) { setError('Телефон с кодом страны, например +992901234567.'); return; }
-    const birth = birthday.trim() ? /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(birthday.trim()) : null;
-    if (birthday.trim() && !birth) { setError('Дата рождения в формате ДД.ММ.ГГГГ.'); return; }
+    if (birthday && (birthday.length !== 10 || birthday > todayDateInput())) { setError('Укажите корректную дату рождения.'); return; }
     const extraPhones = phones.slice(1).map(value => value.trim()).filter(Boolean).join(', ');
     const notes = [extraPhones ? `Доп. телефоны: ${extraPhones}` : '', card.trim() ? `Дисконтная карта: ${card.trim()}` : ''].filter(Boolean).join('\n');
     setBusy(true); setError('');
-    const problem = await onCreate({ firstName: first, lastName: rest.join(' ') || null, phone, email: email.trim() || null, birthday: birth ? `${birth[3]}-${birth[2]}-${birth[1]}` : null, notes: notes || null, ...(canDiscount && discount.trim() && discount.trim() !== '0' ? { discountPercent: discount.trim().replace(',', '.') } : {}) });
+    const problem = await onCreate({ firstName: first, lastName: rest.join(' ') || null, phone, email: email.trim() || null, birthday: birthday || null, notes: notes || null, ...(canDiscount && discount.trim() && discount.trim() !== '0' ? { discountPercent: discount.trim().replace(',', '.') } : {}) });
     setBusy(false);
     if (problem) setError(problem);
   }
   return <Modal title="Создание клиента" onClose={onClose} width={500} action={{ label: busy ? 'СОЗДАНИЕ…' : 'СОЗДАТЬ', tone: 'accent', onClick: () => void create(), disabled: busy }}>
     <label className="cs-outlined"><span>Имя покупателя *</span><input autoFocus value={name} onChange={event => setName(event.target.value)} maxLength={200} /><Icon name="userCircle" size={22} /></label>
     <div className="cs-row-head"><span>Телефон</span><button type="button" className="cs-text-button is-blue" onClick={() => setPhones(current => [...current, ''])}>+ ДОБАВИТЬ НОМЕР ТЕЛЕФОНА</button></div>
-    {phones.map((phone, index) => <label className="cs-outlined" key={index}><span>Телефон{index ? ` ${index + 1}` : ''}</span><input type="tel" value={phone} onChange={event => setPhones(current => current.map((value, position) => position === index ? event.target.value : value))} placeholder="+992901234567" /><Icon name="phone" size={22} /></label>)}
+    {phones.map((phone, index) => <label className="cs-outlined" key={index}><span>Телефон{index ? ` ${index + 1}` : ''}</span><TypedInput type="tel" value={phone} onChange={event => setPhones(current => current.map((value, position) => position === index ? event.target.value : value))} placeholder="+992901234567" /><Icon name="phone" size={22} /></label>)}
     <label className="cs-outlined"><span>Email</span><input type="email" value={email} onChange={event => setEmail(event.target.value)} /><Icon name="at" size={22} /></label>
     <div className="cs-radio-tiles"><span className={loyaltyMode === 'DISCOUNT' ? 'is-on' : ''}><i />Скидка</span><span className={loyaltyMode === 'BONUS' ? 'is-on' : ''}><i />Бонусы</span></div>
-    {loyaltyMode === 'DISCOUNT' && <div className="cs-panel"><p className="cs-group-label">Скидка</p>{canDiscount ? <label className="cs-outlined"><span>Персональная скидка</span><input inputMode="decimal" value={discount} onChange={event => setDiscount(event.target.value)} placeholder="0" /><em>%</em></label> : <p className="cs-warning">Персональную скидку может установить администратор.</p>}<p className="cs-caption">Накопительные скидки магазина учитываются автоматически.</p></div>}
+    {loyaltyMode === 'DISCOUNT' && <div className="cs-panel"><p className="cs-group-label">Скидка</p>{canDiscount ? <label className="cs-outlined"><span>Персональная скидка</span><TypedInput inputMode="decimal" value={discount} onChange={event => setDiscount(event.target.value)} placeholder="0" /><em>%</em></label> : <p className="cs-warning">Персональную скидку может установить администратор.</p>}<p className="cs-caption">Накопительные скидки магазина учитываются автоматически.</p></div>}
     <label className="cs-outlined"><span>Дисконтная карта</span><input value={card} onChange={event => setCard(event.target.value)} /><Icon name="idCard" size={22} /></label>
-    <label className="cs-outlined"><span>Дата рождения</span><input value={birthday} onChange={event => setBirthday(event.target.value)} placeholder="ДД.ММ.ГГГГ" /><Icon name="calendar" size={22} /></label>
+    <label className="cs-outlined"><span>Дата рождения</span><input type="date" max={todayDateInput()} value={birthday} onChange={event => setBirthday(event.target.value)} /></label>
     {error && <p className="cs-error" role="alert">{error}</p>}
   </Modal>;
 }
@@ -109,7 +110,7 @@ export function ReceiptDiscountModal({ baseMinor, currentMinor, onApply, onClose
     <div className="cs-discount-pop" role="dialog" aria-label="Размер скидки">
       <header><strong>Размер скидки</strong><span>{formatMinor(capped)}смн.</span></header>
       <div className="cs-segment">{(['percent', 'sum'] as const).map(option => <button type="button" key={option} className={unit === option ? 'is-on' : ''} onClick={() => setUnit(option)}>{option === 'percent' ? '%' : 'СМН.'}</button>)}</div>
-      {unit === 'percent' ? <label className="cs-outlined"><input autoFocus inputMode="decimal" value={text} onChange={event => setText(event.target.value)} /><em>%</em></label> : <label className="cs-outlined"><MoneyInput autoFocus valueMinor={sum} onMinorChange={setSum} /><em>смн.</em></label>}
+      {unit === 'percent' ? <label className="cs-outlined"><TypedInput autoFocus inputMode="decimal" value={text} onChange={event => setText(event.target.value)} /><em>%</em></label> : <label className="cs-outlined"><MoneyInput autoFocus valueMinor={sum} onMinorChange={setSum} /><em>смн.</em></label>}
       <button type="button" className="cs-action is-primary is-small" onClick={() => onApply(capped)}>ГОТОВО</button>
     </div>
   </div>;
@@ -135,21 +136,42 @@ export function PopoverMenu({ items, header, anchor, onClose }: { items: (MenuIt
   </div>;
 }
 
-export type PosSettingsState = CardView & { printByDefault: boolean; printerHost: string; sound: boolean };
+export type PosSettingsState = CardView & { printByDefault: boolean; printerHost: string; sound: boolean; idleSeconds: number };
 function RadioGroup<T extends string>({ title, value, options, onChange }: { title: string; value: T; options: [T, string][]; onChange: (value: T) => void }) {
   return <section className="cs-set-group"><h3>{title}</h3><div className="cs-set-box">{options.map(([key, label]) => <button type="button" key={key} role="radio" aria-checked={value === key} className={value === key ? 'is-on' : ''} onClick={() => onChange(key)}><i />{label}</button>)}</div></section>;
 }
 
 /** Till settings with the same sections as the cloud POS: general, equipment and product display. */
-export function SettingsPanel({ value, onChange, version }: { value: PosSettingsState; onChange: (value: PosSettingsState) => void; version: string }) {
-  const [tab, setTab] = useState<'main' | 'equipment' | 'products'>('main');
+export function SettingsPanel({ value, onChange, version, canEditIdle, update }: { value: PosSettingsState; onChange: (value: PosSettingsState) => void; version: string; canEditIdle: boolean; update: ReturnType<typeof usePosUpdate> }) {
+  const [tab, setTab] = useState<'main' | 'equipment' | 'products' | 'about'>('main');
+  const [idleDraft, setIdleDraft] = useState(String(value.idleSeconds));
+  const [idleSaved, setIdleSaved] = useState(false);
+  const idleSeconds = Number(idleDraft);
   const set = <K extends keyof PosSettingsState>(key: K, next: PosSettingsState[K]) => onChange({ ...value, [key]: next });
   const sample = useMemo(() => ({ name: 'Пример товара', price: '150,00' }), []);
-  const tabs = [['main', 'Основные', 'menu'], ['equipment', 'Оборудование', 'print'], ['products', 'Отображение товаров', 'tiles']] as const;
+  const tabs = [['main', 'Основные', 'menu'], ['equipment', 'Оборудование', 'print'], ['products', 'Отображение товаров', 'tiles'], ['about', 'О программе', 'settings']] as const;
   return <div className="cs-settings">
     <nav className="cs-set-tabs">{tabs.map(([key, label, icon]) => <button type="button" key={key} className={tab === key ? 'is-on' : ''} onClick={() => setTab(key)}><Icon name={icon} size={22} />{label}</button>)}</nav>
     <div className="cs-set-page">
       {tab === 'main' && <>
+        {canEditIdle && <section className="cs-set-group"><h3>Автовыход из аккаунта</h3>
+          <form className="cs-set-box is-padded pos-idle-settings" onSubmit={event => {
+            event.preventDefault();
+            if (validIdleSeconds(idleSeconds)) {
+              set('idleSeconds', idleSeconds);
+              setIdleSaved(true);
+            }
+          }}>
+            <label htmlFor="pos-idle-seconds">Бездействие до предупреждения, сек.</label>
+            <div className="pos-idle-settings-controls">
+              <TypedInput id="pos-idle-seconds" aria-describedby="pos-idle-settings-range pos-idle-settings-hint" inputMode="numeric" required min={minIdleSeconds} max={maxIdleSeconds} value={idleDraft} onChange={event => { setIdleDraft(event.target.value); setIdleSaved(false); }} />
+              <button type="submit" className="cs-action is-accent is-small" disabled={!validIdleSeconds(idleSeconds) || idleSeconds === value.idleSeconds}>Сохранить</button>
+            </div>
+            <p className="cs-caption" id="pos-idle-settings-range">От {minIdleSeconds} до {maxIdleSeconds} сек.</p>
+            {idleSaved && <p className="cs-caption" role="status">Сохранено</p>}
+            <p className="cs-caption" id="pos-idle-settings-hint">После предупреждения у управляющего или владельца будет 5 секунд, чтобы продолжить работу.</p>
+          </form>
+        </section>}
         <RadioGroup title="Оформление" value="brand" options={[['brand', 'Светлое, фирменные цвета']]} onChange={() => undefined} />
         <RadioGroup title="Печать чека" value={value.printByDefault ? 'yes' : 'no'} options={[['yes', 'Печатать чек по умолчанию'], ['no', 'Не печатать']]} onChange={next => set('printByDefault', next === 'yes')} />
         <RadioGroup title="Товары с нулевым остатком" value={value.hideEmpty ? 'hide' : 'show'} options={[['show', 'Показывать'], ['hide', 'Не показывать']]} onChange={next => set('hideEmpty', next === 'hide')} />
@@ -160,7 +182,27 @@ export function SettingsPanel({ value, onChange, version }: { value: PosSettings
         <section className="cs-set-group"><h3>Карточка товара</h3><div className="cs-set-box">{([['showStock', 'остаток на складе'], ['showImage', 'изображение'], ['showSku', 'артикул']] as const).map(([key, label]) => <button type="button" key={key} role="checkbox" aria-checked={value[key]} className={`is-check${value[key] ? ' is-on' : ''}`} onClick={() => set(key, !value[key])}><Icon name="check" size={20} />{label}</button>)}</div></section>
         <section className="cs-set-group"><div className="cs-set-box is-padded"><label className="cs-range"><span>Размер карточки</span><input type="range" min={150} max={350} step={50} value={value.size} onChange={event => set('size', Number(event.target.value))} /><em>{value.size}</em></label><div className="cs-sample" style={{ width: value.size }}>{value.showStock && <span className="cs-card-stock">12 шт</span>}{value.showImage && <span className="cs-card-photo"><Icon name="tiles" size={48} /></span>}<span className="cs-card-name">{sample.name}</span><strong>{sample.price} смн.</strong></div></div></section>
       </>}
-      <p className="cs-caption cs-version">Версия: {version}</p>
+      {tab === 'about' && <section className="cs-set-group"><h3>Korea CRM POS</h3>
+        <div className="cs-set-box is-padded">
+          <p className="cs-caption">Установлена версия {version}</p>
+          {update.available ? <>
+            <div className="pos-idle-settings-controls">
+              <button type="button" className="cs-action is-accent is-small" disabled={update.checking || update.installing} onClick={() => void update.check(true)}>
+                {update.checking ? 'Проверяем…' : 'Проверить обновления'}
+              </button>
+              {update.version && <button type="button" className="cs-action is-primary is-small" disabled={update.blocked || update.checking || update.installing} onClick={() => void update.install()}>
+                {update.installing ? 'Скачиваем…' : `Обновить до ${update.version}`}
+              </button>}
+            </div>
+            <div role="status">
+              {update.checkResult === 'current' && <p className="cs-caption">Установлена последняя версия.</p>}
+              {update.version && update.blocked && <p className="cs-caption">Завершите текущую операцию, чтобы обновить кассу.</p>}
+            </div>
+            {update.checkResult === 'failed' && <p className="cs-error" role="alert">Не удалось проверить обновления. Попробуйте ещё раз.</p>}
+            {update.error && <p className="cs-error" role="alert">{update.error}</p>}
+          </> : <p className="cs-caption">Обновления доступны в приложении для Windows.</p>}
+        </div>
+      </section>}
     </div>
   </div>;
 }

@@ -1,5 +1,6 @@
 'use client';
 
+import { TypedInput } from '@koreacrm/ui';
 import { FormEvent, useEffect, useState } from 'react';
 import { api, queryString, type Page } from '../../lib/api';
 
@@ -47,7 +48,7 @@ export function CustomerBonuses({ customerId, canCorrect, onUpdated }: { custome
     {canCorrect && <form onSubmit={submit} className="grid gap-3 rounded-lg border border-slate-200 bg-white p-3 sm:grid-cols-2">
       <h4 className="font-medium sm:col-span-2">Ручная корректировка</h4>
       <label className="text-sm">Действие<select value={direction} onChange={event => setDirection(event.target.value as 'increase' | 'decrease')} className="mt-1 block w-full rounded border p-2"><option value="increase">Увеличить баланс</option><option value="decrease">Уменьшить баланс</option></select></label>
-      <label className="text-sm">Сумма, сомони<input required inputMode="decimal" pattern="[0-9]{1,12}([.,][0-9]{1,2})?" value={amount} onChange={event => setAmount(event.target.value)} className="mt-1 block w-full rounded border p-2" /></label>
+      <label className="text-sm">Сумма, сомони<TypedInput required inputMode="decimal" pattern="[0-9]{1,12}([.,][0-9]{1,2})?" value={amount} onChange={event => setAmount(event.target.value)} className="mt-1 block w-full rounded border p-2" /></label>
       <label className="text-sm sm:col-span-2">Причина<textarea required minLength={5} maxLength={500} rows={2} value={reason} onChange={event => setReason(event.target.value)} className="mt-1 block w-full rounded border p-2" /></label>
       <button disabled={busy || !amount || !reason.trim() || /^0+(?:[.,]0{0,2})?$/.test(amount)} className="ks-button ks-button--primary sm:col-span-2">Сохранить корректировку</button>
     </form>}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { MoneyInput } from '@koreacrm/ui';
+import { MoneyInput, TypedInput } from '@koreacrm/ui';
 import { formatMinor } from './calculations';
 import { ProductImage, type CatalogItem } from './product-results';
 
@@ -8,6 +8,7 @@ type KeyHandlers = { escape?: () => void; enter?: () => void };
 const overlayStack: { current: KeyHandlers }[] = [];
 let listening = false;
 function onKey(event: KeyboardEvent) {
+  if (event.target instanceof Element && event.target.closest('.pos-idle-dialog')) return;
   const top = overlayStack.at(-1)?.current;
   if (!top) return;
   if (event.key === 'Escape' && top.escape) { event.preventDefault(); event.stopImmediatePropagation(); top.escape(); }
@@ -126,7 +127,7 @@ export function DiscountFields({ baseMinor, discountMinor, onChange }: { baseMin
   const [percentText, setPercentText] = useState(String(percent));
   useEffect(() => { setPercentText(current => Number(current.replace(',', '.')) === percent ? current : String(percent)); }, [percent]);
   return <div className="cs-discount-fields">
-    <label className="cs-outlined"><input inputMode="decimal" aria-label="Скидка в процентах" value={percentText} onChange={event => { setPercentText(event.target.value); const value = Number(event.target.value.replace(',', '.')); if (Number.isFinite(value) && value >= 0 && value <= 100) onChange(baseMinor * BigInt(Math.round(value * 100)) / 10000n); }} /><em>%</em></label>
+    <label className="cs-outlined"><TypedInput inputMode="decimal" aria-label="Скидка в процентах" value={percentText} onChange={event => { setPercentText(event.target.value); const value = Number(event.target.value.replace(',', '.')); if (Number.isFinite(value) && value >= 0 && value <= 100) onChange(baseMinor * BigInt(Math.round(value * 100)) / 10000n); }} /><em>%</em></label>
     <label className="cs-outlined"><MoneyInput aria-label="Скидка в сомони" valueMinor={discountMinor.toString()} onMinorChange={minor => { const value = BigInt(minor || '0'); onChange(value > baseMinor ? baseMinor : value); }} /><em>смн.</em></label>
   </div>;
 }

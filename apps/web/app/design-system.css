@@ -436,6 +436,24 @@ button, input, select, textarea { font-family: var(--ks-font-sans); }
 .crm-login-form label { margin: 17px 0; color: #403b3d; font-size: 13px; }
 .crm-login-form input:not([type='checkbox']) { min-height: 50px; margin-top: 7px; border: 1px solid #e9e5e6; border-radius: 12px; background: #faf8f8; font-size: 14px; }
 .crm-login-form input:not([type='checkbox']):focus { border-color: #d6828a; box-shadow: 0 0 0 3px #f2979c30; }
+.crm-login-password-field { position: relative; }
+.crm-login-form .crm-login-password-field input { padding-inline-end: 48px; }
+.crm-login-password-field input::-ms-reveal { display: none; }
+.crm-login-form .crm-login-password-field button {
+  position: absolute;
+  inset: 0 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 48px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--ks-color-ink);
+}
+.crm-login-form .crm-login-password-field button:focus-visible {
+  outline: 2px solid var(--ks-color-brand-strong);
+  outline-offset: -4px;
+}
 .crm-login-form .crm-remember { display: flex; align-items: center; gap: 10px; margin: 17px 0 21px; color: #716b70; font-size: 12px; font-weight: 500; }
 .crm-login-form .crm-remember input { width: 17px; height: 17px; margin: 0; accent-color: #a44f59; }
 .crm-login-submit,

@@ -1,5 +1,6 @@
 'use client';
 
+import { TypedInput, formatCurrencyMinor as money } from '@koreacrm/ui';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { BulkInvoiceProducts } from '../../../components/bulk-invoice-products';
@@ -16,7 +17,6 @@ import {
   invoiceRows,
   type InvoiceMapping,
 } from '../../../lib/invoice';
-import { formatCurrencyMinor as money } from '@koreacrm/ui';
 import { SearchCaption } from "../../../components/search-caption";
 
 type Named = { id: string; name: string };
@@ -371,7 +371,7 @@ export default function InvoiceImportPage() {
           </label>
           <label>
             Курс TJS за 1 {currency}
-            <input
+            <TypedInput fractionDigits={8}
               inputMode="decimal"
               disabled={currency === 'TJS'}
               className="block w-full rounded border p-2"
@@ -434,7 +434,7 @@ export default function InvoiceImportPage() {
               </label>
               <label>
                 Последняя строка товаров
-                <input
+                <TypedInput
                   type="number"
                   min={headerRow + 2}
                   max={matrix.length}

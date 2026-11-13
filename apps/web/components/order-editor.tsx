@@ -1,5 +1,6 @@
 'use client';
 
+import { TypedInput } from '@koreacrm/ui';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api, queryString, type Page } from '../lib/api';
 import type { CustomerOrder, OrderDraft } from '../lib/orders';
@@ -273,7 +274,7 @@ export function OrderEditor({
               <span className="min-w-0 flex-1">{names[item.productId]}</span>
               <label>
                 Количество
-                <input
+                <TypedInput
                   required
                   type="number"
                   min="1"

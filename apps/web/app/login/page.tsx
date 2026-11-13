@@ -3,6 +3,7 @@
 import { FormEvent, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Image from 'next/image';
+import { Eye, EyeOff } from 'lucide-react';
 import { api } from '../../lib/api';
 import { firstCabinetPath } from '../../lib/access';
 import { clearSession, saveSession } from '../../lib/session';
@@ -13,13 +14,14 @@ export default function LoginPage() {
   const router = useRouter();
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordVisible, setPasswordVisible] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [remember, setRemember] = useState(true);
   const [showSignup, setShowSignup] = useState(false);
 
   async function submit(event: FormEvent) {
-    event.preventDefault(); setLoading(true); setError('');
+    event.preventDefault(); setPasswordVisible(false); setLoading(true); setError('');
     try {
       const tokens = await api<{ accessToken: string; refreshToken: string }>('/auth/login', { method: 'POST', body: JSON.stringify({ login, password }) });
       saveSession(tokens, remember);
@@ -54,14 +56,22 @@ export default function LoginPage() {
           <button type="button" className="ks-button ks-button--ghost ks-button--sm crm-login-back" onClick={() => setShowSignup(false)}>Вернуться ко входу</button>
         </div> : <form onSubmit={submit} className="crm-login-form">
           <label>Логин<input value={login} onChange={event => setLogin(event.target.value)} required autoComplete="username" autoCapitalize="none" autoCorrect="off" spellCheck={false} enterKeyHint="next" placeholder="Ваш логин" /></label>
-          <label>Пароль<input value={password} onChange={event => setPassword(event.target.value)} required autoComplete="current-password" type="password" enterKeyHint="go" placeholder="Введите пароль" /></label>
+          <div>
+            <label htmlFor="crm-login-password">Пароль</label>
+            <div className="crm-login-password-field">
+              <input id="crm-login-password" value={password} onChange={event => setPassword(event.target.value)} required autoComplete="current-password" autoCapitalize="none" spellCheck={false} type={passwordVisible ? 'text' : 'password'} enterKeyHint="go" placeholder="Введите пароль" />
+              <button className="ks-control" type="button" aria-controls="crm-login-password" aria-label={passwordVisible ? 'Скрыть пароль' : 'Показать пароль'} onClick={() => setPasswordVisible(visible => !visible)}>
+                {passwordVisible ? <EyeOff size={20} aria-hidden /> : <Eye size={20} aria-hidden />}
+              </button>
+            </div>
+          </div>
           <label className="crm-remember"><input type="checkbox" checked={remember} onChange={event => setRemember(event.target.checked)} /><span>Оставаться в системе на этом устройстве</span></label>
           {error && <div className="crm-alert" role="alert">{error}</div>}
           <button disabled={loading} type="submit" className="ks-button ks-button--primary crm-login-submit">{loading ? 'Входим…' : 'Войти в кабинет'} <span aria-hidden="true">→</span></button>
         </form>}
         {showSignup
           ? <div className="crm-login-switch">Уже есть аккаунт? <button className="ks-button ks-button--secondary" type="button" onClick={() => setShowSignup(false)}>Войти</button></div>
-          : <button type="button" className="ks-button ks-button--secondary crm-login-signup-button" onClick={() => { setShowSignup(true); setError(''); }}>Sign up <span>Подключить магазин ↗</span></button>}
+          : <button type="button" className="ks-button ks-button--secondary crm-login-signup-button" onClick={() => { setShowSignup(true); setPasswordVisible(false); setError(''); }}>Sign up <span>Подключить магазин ↗</span></button>}
       </div>
     </div>
   </main>;

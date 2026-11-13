@@ -4,6 +4,7 @@ import type { Request } from 'express';
 import { z } from 'zod';
 import { AccessGuard, RequirePermission, StoreScopeGuard } from '../auth/guards';
 import { CatalogService } from './catalog.service';
+import { searchProductImages } from './product-image-search';
 import { brandSchema, categorySchema, limitSchema, pageSchema, parseInput, posProductQuerySchema, productQuerySchema, productSchema, productUpdateSchema, storeSettingsSchema } from './catalog.schemas';
 
 type AuthorizedRequest = Request & { access: { userId: string; allStores: boolean; permissions: string[] } };
@@ -96,6 +97,11 @@ export class CategoryController {
 @UseGuards(AccessGuard)
 @Controller('products')
 export class ProductController {
+  @Get('image-search')
+  @RequirePermission('products.edit')
+  imageSearch(@Query('q') query: unknown) {
+    return searchProductImages(parseInput(z.string().trim().min(2).max(255), query));
+  }
   constructor(private readonly catalog: CatalogService) {}
 
   @Get()

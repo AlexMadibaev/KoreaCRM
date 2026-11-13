@@ -52,7 +52,7 @@ corepack pnpm --filter @koreacrm/web dev
 
 Последние две команды запускаются в разных терминалах. По умолчанию API — `http://localhost:3001`, веб — `http://localhost:3000`, API health — `/health`, Swagger — `/docs`. Касса в режиме разработки: `corepack pnpm --filter @koreacrm/pos dev` на порту 5173; адрес API задаётся в `apps/pos/.env` через `VITE_API_URL` или в форме входа кассы.
 
-Для сборки Windows EXE установите Rust с целевым `stable-x86_64-pc-windows-msvc`, Microsoft C++ Build Tools с компонентом **Desktop development with C++** и WebView2 Runtime. Затем выполните `corepack pnpm --filter @koreacrm/pos tauri build` на Windows. Файлы сборки находятся в `apps/pos/src-tauri/target/release/`; путь можно изменить через `CARGO_TARGET_DIR`. WebView2 нужен также на машине, где запускается касса.
+Для сборки Windows EXE установите Rust с целевым `stable-x86_64-pc-windows-msvc`, Microsoft C++ Build Tools с компонентом **Desktop development with C++** и WebView2 Runtime. Затем выполните `powershell -NoProfile -ExecutionPolicy Bypass -File tools/build-pos-installer.ps1` на Windows. Файлы сборки находятся в `apps/pos/src-tauri/target/release/`; путь можно изменить через `CARGO_TARGET_DIR`. WebView2 нужен также на машине, где запускается касса.
 
 `tools/start-mvp.ps1` и `tools/backup-mvp.ps1` подготовлены для исходного Windows ПК: они ожидают PostgreSQL 16 в `C:\Program Files\PostgreSQL\16\bin` и уже созданный кластер `tools/pg-test-data` на порту 5433. Этот кластер **не хранится в GitHub**. Для чистого клона используйте порядок выше или VPS Compose.
 
@@ -82,7 +82,11 @@ corepack pnpm --filter @koreacrm/web dev
 
 ## Проверка после изменений
 
-Кнопка «Скачать кассу» использует постоянную ссылку `https://github.com/AlexMadibaev/KoreaCRM/releases/latest/download/KoreaCRM-POS-setup.exe`. **Новые релизы POS публикуйте через `tools/publish-pos-release.ps1`**, чтобы каждый Latest-релиз содержал файл с этим неизменным именем. После сборки выполните `powershell -NoProfile -ExecutionPolicy Bypass -File tools/publish-pos-release.ps1 -Title "Korea CRM POS — описание версии" -NotesFile "путь-к-описанию.txt"`: версия и путь EXE берутся из конфигурации Tauri. Команда сначала загружает установщики в черновик, затем публикует релиз как Latest. Для добавления постоянного имени в уже опубликованный текущий релиз используется `-ExistingRelease`.
+Кнопка «Скачать кассу» использует постоянную ссылку `https://github.com/AlexMadibaev/KoreaCRM/releases/latest/download/KoreaCRM-POS-setup.exe`. После сборки выполните `powershell -NoProfile -ExecutionPolicy Bypass -File tools/publish-pos-release.ps1 -Title "Korea CRM POS — описание версии" -NotesFile "путь-к-описанию.txt"`. Скрипт берёт версию и путь к EXE из конфигурации Tauri, загружает установщик и `latest.json` с его подписью в черновик, затем публикует релиз как Latest. Увеличивайте версию в `tauri.conf.json` и `Cargo.toml` перед каждой новой сборкой.
+
+Для подписания сборки скрипт читает ключ и пароль из `TAURI_SIGNING_PRIVATE_KEY` и `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. На компьютере, где подготовлен локальный ключ, скрипт может прочитать его из `%LOCALAPPDATA%\KoreaCRM\UpdaterSigning` и расшифровать пароль в учётной записи владельца ключа. Для всех обновлений используйте ключ, соответствующий публичному ключу в конфигурации Tauri. Храните закрытый ключ и пароль вне репозитория.
+
+Первую версию со встроенным обновлением установите поверх предыдущей. После этого касса показывает новые версии в верхнем уведомлении и запускает установку по кнопке «Обновить».
 
 ```bash
 corepack pnpm typecheck

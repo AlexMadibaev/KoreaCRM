@@ -1,10 +1,10 @@
 'use client';
 
+import { TypedInput, MoneyInput } from '@koreacrm/ui';
 import Link from 'next/link';
 import { FormEvent, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Check, Plus, Search, Trash2 } from 'lucide-react';
-import { MoneyInput } from '@koreacrm/ui';
 import { CatalogShell } from '../../../components/catalog-shell';
 import { amount } from '../../../components/shift-card';
 import { dushanbeDay } from '../../../components/filter-chip';
@@ -142,7 +142,7 @@ function GoodsDocument({ kind, stores, storeId, setStoreId, allowed, busy, setBu
             <thead><tr><th scope="col">#</th><th scope="col">Наименование</th><th scope="col">Код товара</th><th scope="col">Ед. изм.</th><th scope="col" className="num">Кол-во</th><th scope="col" className="num">{kind === 'PURCHASE' ? 'Цена закупки, смн.' : 'Себестоимость, смн.'}</th><th scope="col" className="num">Итог</th><th scope="col"><span className="sr-only">Удалить</span></th></tr></thead>
             <tbody>{visibleLines.map(line => <tr key={line.productId}>
               <td>{lines.indexOf(line) + 1}</td><td>{line.name}</td><td>{line.sku}</td><td>{unitTitle[line.unit] ?? line.unit}</td>
-              <td className="num"><input aria-label={`Количество: ${line.name}`} type="number" min={1} step={1} value={line.quantity} onChange={event => update(line.productId, { quantity: Math.max(1, Math.floor(Number(event.target.value) || 1)) })} /></td>
+              <td className="num"><TypedInput aria-label={`Количество: ${line.name}`} type="number" min={1} step={1} value={line.quantity} onChange={event => update(line.productId, { quantity: Math.max(1, Math.floor(Number(event.target.value) || 1)) })} /></td>
               <td className="num">{kind === 'PURCHASE' ? <MoneyInput aria-label={`Цена закупки: ${line.name}`} required valueMinor={line.priceMinor} onMinorChange={minor => update(line.productId, { priceMinor: minor || '0' })} /> : amount(line.priceMinor)}</td>
               <td className="num">{amount((BigInt(line.priceMinor || '0') * BigInt(line.quantity)).toString())}</td>
               <td><button type="button" className="ks-button ks-button--ghost ks-button--icon crm-icon-button" aria-label={`Удалить ${line.name}`} onClick={() => setLines(current => current.filter(item => item.productId !== line.productId))}><Trash2 size={14} aria-hidden /></button></td>

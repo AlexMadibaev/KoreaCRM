@@ -1,5 +1,6 @@
 'use client';
 
+import { TypedInput } from '@koreacrm/ui';
 import { FormEvent, useCallback, useEffect, useState } from 'react';
 import { Plus } from 'lucide-react';
 import { CatalogShell } from '../../components/catalog-shell';
@@ -74,7 +75,7 @@ export default function SuppliersPage() {
     </div>
     {editing && <CabinetDrawer title={editing === 'new' ? 'Новый поставщик' : form.name || 'Поставщик'} onClose={() => { setEditing(null); setError(''); }}>
       <form className="crm-shift-open crm-supplier-form" onSubmit={save}>
-        {(Object.keys(fieldLabels) as (keyof typeof fieldLabels)[]).map(field => <label key={field}>{fieldLabels[field]}<input type={field === 'phone' ? 'tel' : field === 'email' ? 'email' : 'text'} required={field === 'name'} value={form[field]} onChange={event => setForm({ ...form, [field]: event.target.value })} /></label>)}
+        {(Object.keys(fieldLabels) as (keyof typeof fieldLabels)[]).map(field => <label key={field}>{fieldLabels[field]}{field === 'phone' ? <TypedInput type="tel" value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} /> : <input type={field === 'email' ? 'email' : 'text'} required={field === 'name'} value={form[field]} onChange={event => setForm({ ...form, [field]: event.target.value })} />}</label>)}
         <label>Статус<select value={form.status} onChange={event => setForm({ ...form, status: event.target.value })}><option value="ACTIVE">Активен</option><option value="INACTIVE">Неактивен</option></select></label>
         {error && <p role="alert" className="crm-alert">{error}</p>}
         <button type="submit" disabled={busy} className="ks-button ks-button--primary crm-primary-button">{busy ? 'Сохраняем…' : 'Сохранить'}</button>

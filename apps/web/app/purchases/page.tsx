@@ -1,5 +1,6 @@
 'use client';
 
+import { TypedInput, formatCurrencyMinor as money, MoneyInput } from '@koreacrm/ui';
 import Link from 'next/link';
 import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import {
@@ -16,7 +17,6 @@ import {
 import { CatalogShell } from '../../components/catalog-shell';
 import { CabinetDrawer } from '../../components/cabinet-drawer';
 import { api, type Page } from '../../lib/api';
-import { formatCurrencyMinor as money, MoneyInput } from '@koreacrm/ui';
 
 type Named = { id: string; name: string };
 type Product = Named & { sku: string };
@@ -727,7 +727,7 @@ export default function PurchasesPage() {
                         </div>
                         <label>
                           Количество
-                          <input
+                          <TypedInput
                             required
                             type="number"
                             min={1}
@@ -971,7 +971,7 @@ export default function PurchasesPage() {
                       <div className="crm-editor-grid">
                         <label>
                           Количество · осталось {remaining} шт.
-                          <input
+                          <TypedInput
                             required
                             type="number"
                             min={1}

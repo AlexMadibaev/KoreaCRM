@@ -1,3 +1,8 @@
+import { usePosUpdate } from './pos-update';
+import { normalizeCashierCode } from './cashier-code-input';
+import { getVersion } from '@tauri-apps/api/app';
+import { defaultIdleSeconds, PosIdleWarning, usePosIdle, validIdleSeconds } from './pos-idle';
+import { version as appVersion } from '../src-tauri/tauri.conf.json';
 import { FormEvent, KeyboardEvent, Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createApiClient, ApiError } from '@koreacrm/api-client';
 import { lookupBarcode } from './barcode-lookup';
@@ -39,8 +44,15 @@ const loyaltyKey = 'koreacrm-pos-loyalty-v1';
 const deviceKey = 'koreacrm-pos-device-v1';
 const savedStoreKey = 'koreacrm-pos-store-v1';
 const settingsKey = 'koreacrm-pos-settings-v1';
-const appVersion = '0.2.6';
-const readSettings = (): PosSettingsState => { const base = { ...defaultCardView, printByDefault: false, printerHost: '', sound: false }; try { const raw = localStorage.getItem(settingsKey); return raw ? { ...base, ...JSON.parse(raw) as Partial<PosSettingsState> } : base; } catch { return base; } };
+const readSettings = (): PosSettingsState => {
+  const base = { ...defaultCardView, printByDefault: false, printerHost: '', sound: false, idleSeconds: defaultIdleSeconds };
+  try {
+    const raw = localStorage.getItem(settingsKey);
+    if (!raw) return base;
+    const saved = JSON.parse(raw) as Partial<PosSettingsState>;
+    return { ...base, ...saved, idleSeconds: validIdleSeconds(saved?.idleSeconds) ? saved.idleSeconds : defaultIdleSeconds };
+  } catch { return base; }
+};
 const message = (caught: unknown) => {
   if (caught instanceof TypeError) return 'Нет связи. Проверьте подключение и попробуйте ещё раз.';
   if (caught instanceof ApiError) {
@@ -105,7 +117,8 @@ export function App() {
     try { baseUrl = normalizeServerUrl(apiUrl); } catch { /* Validate on sign-in. */ }
     return baseUrl;
   }, [apiUrl]);
-  const client = useMemo(() => createApiClient(clientBaseUrl, deviceId), [clientBaseUrl, deviceId]);
+  const [sessionNumber, setSessionNumber] = useState(0);
+  const client = useMemo(() => createApiClient(clientBaseUrl, deviceId), [clientBaseUrl, deviceId, sessionNumber]);
   useEffect(() => { const saved = readStoreConnection(localStorage, clientBaseUrl); setStoreConnection(saved); setStoreCode(saved?.code ?? ''); }, [clientBaseUrl]);
   const [registrationRequested, setRegistrationRequested] = useState(false);
   const [registerNonce, setRegisterNonce] = useState(0);
@@ -159,6 +172,29 @@ export function App() {
     return () => { active = false; };
   }, [client, shift?.id, storeId, offlineSignedIn]);
   const selectedCustomer = customers.find(customer => customer.id === customerId);
+  const managerSession = can('settings.edit') || can('finance.view') || can('sales.return_no_receipt');
+  const draftKey = userId && storeId ? `koreacrm-pos-idle-draft-v1:${JSON.stringify([clientBaseUrl, deviceId, storeId, userId])}` : '';
+  type IdleDraft = { lines: Line[]; customer: PosCustomer | null; discount: string; returnMode: boolean };
+  const idleDrafts = useRef(new Map<string, IdleDraft>());
+  const canRestoreReturn = can('sales.return_no_receipt');
+  useEffect(() => {
+    if (!signedIn || !deviceReady || !draftKey) return;
+    try {
+      const draft = idleDrafts.current.get(draftKey) ?? JSON.parse(localStorage.getItem(draftKey) ?? 'null') as IdleDraft | null;
+      if (!draft?.lines.length || (draft.returnMode && !canRestoreReturn)) return;
+      const discount = BigInt(draft.discount);
+      setCart(draft.lines);
+      setReceiptDiscount(discount);
+      setReturnMode(draft.returnMode);
+      if (draft.customer) {
+        const customer = draft.customer;
+        setCustomers(current => [customer, ...current.filter(value => value.id !== customer.id)]);
+        setCustomerId(customer.id);
+      }
+      idleDrafts.current.delete(draftKey);
+      localStorage.removeItem(draftKey);
+    } catch { /* A malformed saved draft must not prevent signing in. */ }
+  }, [signedIn, deviceReady, draftKey, canRestoreReturn]);
   const cartSubtotal = cart.reduce((sum, line) => sum + BigInt(line.priceMinor) * BigInt(line.quantity), 0n);
   const cartPercents = loyalty ? cart.map(line => loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null, cartSubtotal)) : [];
   const cartLines = cart.map(line => ({ productId: line.product.id, quantity: line.quantity, available: line.available, priceMinor: line.priceMinor, discountMinor: line.discountMinor }));
@@ -285,8 +321,10 @@ export function App() {
     finally { setBusy(false); }
   }
   async function authenticateCode(code: string) {
+    code = normalizeCashierCode(code.trim());
     setBusy(true); setError('');
     try {
+      if (!/^(?:KCRM1:[A-Za-z0-9_-]{43}|[0-9]{13})$/.test(code)) throw new Error('Сканируйте QR-код или штрихкод кассира.');
       if (!storeConnection) throw new Error('Сначала введите код торговой точки.');
       const normalizedApiUrl = normalizeServerUrl(apiUrl);
       if (offlineNetwork) throw new TypeError('No internet connection');
@@ -309,7 +347,55 @@ export function App() {
   }
   function signInWithCode(event: FormEvent) { event.preventDefault(); void authenticateCode(scanCode); }
   const cameraDetected = useCallback((code: string) => { setCameraOpen(false); setScanCode(code); void authenticateCode(code); }, [client, apiUrl, pending, storeConnection?.id, storeConnection?.code]);
-  async function signOut() { setBusy(true); try { await client.logout(); } catch { /* End this cashier session even if the server is unreachable. */ } finally { offlineCredentialRef.current = ''; reconnectingRef.current = false; setOfflineSignedIn(false); setSignedIn(false); setOverlay(null); setSheet(null); setPayOpen(false); setSuccess(null); setReturnMode(false); setCart([]); setStockNotice(''); setReceipt(null); setPermissions([]); setUserId(''); setCashierName(''); setLogin(''); setPassword(''); setScanCode(''); setCustomerId(''); setCustomers([]); setShift(null); setDeviceReady(false); setDeviceError(''); setRegistrationRequested(false); setStores([]); setStoreId(''); setCacheStatus(null); setCacheError(''); setQueueSummary(null); setQueueEntries([]); setQueueNotice(''); setLoginMode('scan'); setBusy(false); } }
+  function signOut() {
+    void client.logout().catch(() => undefined);
+    setSessionNumber(number => number + 1);
+    offlineCredentialRef.current = '';
+    reconnectingRef.current = false;
+    setOfflineSignedIn(false);
+    setSignedIn(false);
+    setOverlay(null);
+    setSheet(null);
+    setPayOpen(false);
+    setSuccess(null);
+    setReturnMode(false);
+    setCart([]);
+    setReceiptDiscount(0n);
+    setStockNotice('');
+    setReceipt(null);
+    setPermissions([]);
+    setUserId('');
+    setCashierName('');
+    setLogin('');
+    setPassword('');
+    setScanCode('');
+    setCustomerId('');
+    setCustomers([]);
+    setShift(null);
+    setDeviceReady(false);
+    setDeviceError('');
+    setRegistrationRequested(false);
+    setStores([]);
+    setStoreId('');
+    setCacheStatus(null);
+    setCacheError('');
+    setQueueSummary(null);
+    setQueueEntries([]);
+    setQueueNotice('');
+    setError('');
+    setLoginMode('scan');
+    setBusy(false);
+  }
+
+  function signOutWhenIdle() {
+    if (busy) return;
+    if (draftKey && cart.length && !pending) {
+      const draft = { lines: cart, customer: selectedCustomer ?? null, discount: receiptDiscount.toString(), returnMode };
+      try { localStorage.setItem(draftKey, JSON.stringify(draft)); }
+      catch { idleDrafts.current.set(draftKey, draft); }
+    }
+    signOut();
+  }
   const refreshQueueSummary = useCallback(async () => {
     if (!hasDesktopCache() || !userId || !storeId) return;
     const [summary, entries] = await Promise.all([syncQueueSummary(userId, storeId), listSyncQueue(userId, storeId)]);
@@ -518,8 +604,16 @@ export function App() {
       void scanProduct(code);
     };
   });
+  const update = usePosUpdate(busy || cameraOpen || (signedIn && (cart.length > 0 || Boolean(pending || overlay || (sheet && sheet !== 'settings') || payOpen || receipt))));
+  const [installedVersion, setInstalledVersion] = useState(appVersion);
   useEffect(() => {
-    if (!signedIn) return;
+    if (hasDesktopCache()) void getVersion().then(setInstalledVersion).catch(() => {});
+  }, []);
+  const idle = usePosIdle(signedIn && managerSession && !busy && !update.installing, settings.idleSeconds, signOutWhenIdle);
+  const idleWarning = idle.remaining !== null;
+
+  useEffect(() => {
+    if (!signedIn || update.installing || idleWarning) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const handler = (event: globalThis.KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
@@ -541,7 +635,7 @@ export function App() {
     };
     window.addEventListener('keydown', handler, true);
     return () => { clearTimeout(timer); scannerRef.current.reset(); window.removeEventListener('keydown', handler, true); };
-  }, [signedIn]);
+  }, [signedIn, update.installing, idleWarning]);
   useEffect(() => {
     keysRef.current = event => {
       if (event.ctrlKey && (event.key.toLowerCase() === 'q' || event.key.toLowerCase() === 'й')) { event.preventDefault(); requestSignOut(); return; }
@@ -559,11 +653,11 @@ export function App() {
     };
   });
   useEffect(() => {
-    if (!signedIn) return;
+    if (!signedIn || update.installing || idleWarning) return;
     const handler = (event: globalThis.KeyboardEvent) => keysRef.current(event);
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [signedIn]);
+  }, [signedIn, update.installing, idleWarning]);
 
   async function addProduct(product: CatalogItem | PosProduct) {
     const existing = cart.find(line => line.product.id === product.id);
@@ -661,7 +755,7 @@ export function App() {
   function requestSignOut() {
     if (busy || pending) return;
     if (cart.length && !window.confirm('В чеке есть товары. Выйти из кассы? Чек не сохранится — его можно отложить через меню «⋮».')) return;
-    void signOut();
+    signOut();
   }
   async function printSale(sale: PosSale) {
     // Without a network printer the receipt goes to the Windows print dialog (USB printers such as POS-80C).
@@ -745,7 +839,7 @@ export function App() {
       setError(message(caught));
     } finally { setBusy(false); }
   }
-if (!signedIn) return <main className="login"><div className="login-shell">
+  if (!signedIn) return <>{update.notification}<main className="login" inert={update.installing}><div className="login-shell">
   <aside className="login-story">
     <div className="login-story-mark"><img src="/app-icon.svg" alt="" /></div>
     <div className="login-story-copy">
@@ -785,14 +879,14 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     {loginMode === 'password' ? <><label>Логин<input required autoComplete="username" value={login} onChange={event => setLogin(event.target.value)} /></label><label>Пароль<input required type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label></> : <>
       <button type="button" className="camera-open-button" disabled={busy} onClick={() => { setError(''); setCameraOpen(true); }}>Открыть камеру</button>
       {cameraOpen && <Suspense fallback={<p className="scan-hint">Включаем камеру…</p>}><CameraCodeScanner onDetected={cameraDetected} onClose={() => setCameraOpen(false)} /></Suspense>}
-      <label>Код кассира<input required ref={scanRef} autoComplete="off" value={scanCode} onChange={event => setScanCode(event.target.value)} placeholder="Сканируйте или введите код" /></label>
+      <label>Код кассира<input required ref={scanRef} lang="en" spellCheck={false} autoCapitalize="off" autoComplete="off" value={scanCode} onChange={event => setScanCode(normalizeCashierCode(event.target.value))} placeholder="Сканируйте или введите код" /></label>
       <p className="scan-hint">Покажите код камере или введите его вручную. Вход выполнится автоматически.</p>
     </>}
     {error && <p role="alert" className="error">{error}</p>}
     <Button variant="primary" type="submit" disabled={busy || !deviceId} className="primary">{loginMode === 'scan' ? 'Войти по коду' : 'Войти в кассу'} <span aria-hidden="true">→</span></Button>
     <button className="login-signup-button" type="button" onClick={() => { setCameraOpen(false); setShowSignup(true); setError(''); }}>Sign up <span>Подключить магазин ↗</span></button>
   </form>}
-</div></main>;
+</div></main></>;
   const storeName = stores.find(store => store.id === storeId)?.name ?? '';
   const roleName = can('settings.edit') ? 'Владелец' : can('finance.view') ? 'Управляющий' : 'Кассир';
   const openedAt = (shift as (PosShift & { openedAt?: string }) | null)?.openedAt;
@@ -803,7 +897,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
   const syncPanel = <section id="sync" className="panel sync-screen"><div className="screen-heading"><p>Каждый чек отправляется сразу после продажи. Если связь прервётся, касса сохранит чек и отправит его при восстановлении связи.</p></div><div className="sync-center"><div><strong>{offlineNetwork || !serverReachable ? 'Нет связи · чеки сохраняются на кассе' : unsent > 0 ? 'Связь есть · отправляем сохранённые чеки' : 'Связь есть · автоматическая отправка включена'}</strong><span>{unsent > 0 ? `Ожидают отправки: ${unsent} · ` : 'Неотправленных чеков нет · '}Нужна проверка: {queueSummary?.conflicts ?? 0} · Отправлено с этой кассы: {queueSummary?.synced ?? 0}</span><span>{queueSummary?.lastSyncedAt ? `Последняя отправка: ${new Date(queueSummary.lastSyncedAt).toLocaleString('ru-RU')}` : 'Продаж с этой кассы пока не было'}</span></div>{(queueSummary?.pending ?? 0) + (queueSummary?.errors ?? 0) > 0 && <button type="button" onClick={() => void syncQueuedSales(true)} disabled={!deviceReady || offlineNetwork || offlineSignedIn}>Повторить отправку</button>}</div><div className="sync-catalog"><div><strong>Товары без связи</strong><p>{cacheBusy ? cacheProgress || 'Обновляем товары…' : cacheStatus?.lastSyncedAt ? `Сохранено ${cacheStatus.productCount} ${russianCount(cacheStatus.productCount, 'товар', 'товара', 'товаров')} · клиентов: ${cacheStatus.customerCount}` : 'Товары ещё не сохранены'}</p></div><button type="button" disabled={cacheBusy || offlineSignedIn} onClick={() => void updateLocalCache()}>Обновить товары</button></div>{cacheError && <p className="cache-warning">Не удалось обновить товары: {cacheError}</p>}{databaseHealth && <p className="stock-notice">Локальная база: {databaseHealth.integrity === 'ok' ? 'исправна' : 'обнаружена ошибка, требуется восстановление из копии'}</p>}<details className="sync-support"><summary>Сведения для поддержки</summary><p>Номер кассы: {deviceId}</p></details>{queueEntries.filter(entry => entry.status === 'CONFLICT').map(entry => <ConflictSaleCard key={entry.operationId} entry={entry} methods={methods} disabled={busy || offlineSignedIn || !deviceReady || !serverReachable} onRetry={() => void retryConflict(entry)} />)}</section>;
   const notices = [error && { tone: 'error', text: error, clear: () => setError('') }, !deviceReady && deviceError && { tone: 'error', text: deviceError }, stockNotice && { tone: 'info', text: stockNotice, clear: () => setStockNotice('') }, queueNotice && { tone: 'info', text: queueNotice, clear: () => setQueueNotice('') }].filter(Boolean) as { tone: string; text: string; clear?: () => void }[];
 
-  return <main className="cs">
+  return <>{update.notification}{idle.remaining !== null && <PosIdleWarning remaining={idle.remaining} onContinue={idle.continueSession} />}<main className="cs" inert={update.installing || idleWarning}>
     <section className="cs-left">
       <header className="cs-bar">
         <button type="button" className="cs-mode" aria-label="Режим каталога" onClick={() => setOverlay('catalogMode')}><Icon name={catalogMode === 'products' ? 'tiles' : 'layout'} size={28} /></button>
@@ -826,7 +920,17 @@ if (!signedIn) return <main className="login"><div className="login-shell">
       <footer className="cs-status">
         <button type="button" className="cs-menu-button" onClick={() => setOverlay('menu')}><Icon name="menu" /> Меню</button>
         <button type="button" className="cs-menu-button" onClick={requestSignOut} disabled={busy || Boolean(pending)} title="Выйти из кассы · Ctrl+Q"><Icon name="logout" /> Выход <Kbd>Ctrl+Q</Kbd></button>
-        <span className="cs-status-center">{stores.length > 1 && !shift && !cart.length ? <select aria-label="Магазин" value={storeId} onChange={event => { setCategoryId('all'); setCatalogPage(1); setCategories([]); setStoreId(event.target.value); }} disabled={busy}>{stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}</select> : storeName} / {shift ? (shiftNumber ? `Смена #${shiftNumber}` : `Смена${openedAt ? ` с ${new Date(openedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ' открыта'}`) : 'Смена закрыта'}</span>
+        <div className="cs-status-center">
+          {(cashierName || login) && <strong className="cs-status-pill" title={cashierName || login}>{cashierName || login}</strong>}
+          {stores.length > 1 && !shift && !cart.length ? (
+            <select className="cs-status-pill cs-status-store" aria-label="Магазин" value={storeId} onChange={event => { setCategoryId('all'); setCatalogPage(1); setCategories([]); setStoreId(event.target.value); }} disabled={busy}>
+              {stores.map(store => <option key={store.id} value={store.id}>{store.name}</option>)}
+            </select>
+          ) : storeName && <span className="cs-status-pill cs-status-store" title={storeName}>{storeName}</span>}
+          <span className={`cs-status-pill cs-status-shift${shift ? ' is-open' : ''}`}>
+            {shift ? (shiftNumber ? `Смена #${shiftNumber}` : `Смена${openedAt ? ` с ${new Date(openedAt).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}` : ' открыта'}`) : 'Смена закрыта'}
+          </span>
+        </div>
         <span className="cs-status-right">{clock.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' })}, {clock.toLocaleDateString('ru-RU', { weekday: 'long' })} {clock.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}<span className={connectionOffline ? 'cs-net is-off' : 'cs-net'} title={connectionOffline ? 'Нет связи · локальный режим' : 'Связь есть'}><Icon name="wifi" size={20} /></span></span>
       </footer>
     </section>
@@ -867,7 +971,7 @@ if (!signedIn) return <main className="login"><div className="login-shell">
 
     {overlay === 'catalogMode' && <CatalogModePopover mode={catalogMode} onPick={setCatalogMode} onClose={() => setOverlay(null)} />}
     {overlay === 'menu' && <PopoverMenu anchor="left" onClose={() => setOverlay(null)} header={<div className="cs-profile"><span className="cs-avatar">{(cashierName || login).slice(0, 1).toUpperCase()}</span><span><strong>{cashierName || login}</strong><small>{roleName}</small></span></div>} items={[
-      { label: 'Выйти', icon: 'logout', onClick: () => void signOut() },
+      { label: 'Выйти', icon: 'logout', onClick: requestSignOut },
       'divider',
       { label: returnMode ? 'Вернуться к продаже' : 'Создать возврат', icon: 'undo', hidden: !shift || !can('sales.return_no_receipt'), onClick: () => { setReturnMode(value => !value); setCart([]); setReceiptDiscount(0n); } },
       { label: 'Закрыть смену', icon: 'lock', danger: true, hidden: !shift || !can('finance.cash'), onClick: () => setSheet('shift') },
@@ -896,8 +1000,8 @@ if (!signedIn) return <main className="login"><div className="login-shell">
     {sheet === 'debts' && <DebtsModal client={client} storeId={storeId} shift={shift} methods={methods} canPay={can('finance.customer_pay')} errorText={message} onPaid={cash => { if (cash) void refreshShift().catch(caught => setError(message(caught))); }} onClose={() => setSheet(null)} />}
     {sheet === 'shift' && <Sheet title="Смены" onClose={() => setSheet(null)}><ShiftsScreen hasQueuedSales={unsent > 0} client={client} storeId={storeId} deviceId={deviceId} current={shift} canManage={can('finance.cash')} queuedCashMinor={projectedShift?.queuedCashMinor ?? 0n} printerHost={printerHost} errorText={message} onClosed={() => { setShift(null); setReturnMode(false); void persistShift(null); flashNotice('Смена закрыта.'); }} onCashChanged={() => void refreshShift().catch(caught => setError(message(caught)))} /></Sheet>}
     {sheet === 'sync' && <Sheet title="Непроведённые продажи" onClose={() => setSheet(null)}>{syncPanel}</Sheet>}
-    {sheet === 'settings' && <Sheet title="Настройки кассы" onClose={() => setSheet(null)}><SettingsPanel value={{ ...settings, printerHost }} version={appVersion} onChange={next => { setSettings(next); setPrinterHost(next.printerHost); localStorage.setItem('koreacrm-pos-printer-host', next.printerHost); }} /></Sheet>}
+    {sheet === 'settings' && <Sheet title="Настройки кассы" onClose={() => setSheet(null)}><SettingsPanel value={{ ...settings, printerHost }} version={installedVersion} update={update} canEditIdle={managerSession} onChange={next => { setSettings(next); setPrinterHost(next.printerHost); localStorage.setItem('koreacrm-pos-printer-host', next.printerHost); }} /></Sheet>}
 
     {receipt && receiptScreen === 'history' && <div className="receipt-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setReceipt(null); }}><section id="receipt" className="panel receipt" role="dialog" aria-modal="true" aria-labelledby="receipt-title" onKeyDown={event => { if (event.key === 'Escape') setReceipt(null); }}><div className="receipt-heading"><div><h2 id="receipt-title">Чек {receipt.number}</h2><small>Не является фискальным чеком</small></div><div><button className="quiet" onClick={() => void printSale(receipt)}>Печать</button><button disabled={busy || !printerHost.trim()} onClick={() => void printSale(receipt)}>На чековый принтер</button></div></div>{(receipt.returns?.length ?? 0) > 0 && <p className="receipt-returned">Возврат по этому чеку · возвращено {formatMinor(receipt.returns.reduce((total, item) => total + BigInt(item.amountMinor), 0n))}</p>}<p>{receipt.store.name} · {receipt.store.address ?? ''} · {receipt.store.phone ?? ''}</p><p>{new Date(receipt.createdAt).toLocaleString('ru-RU')} · кассир {receipt.employee.name}{receipt.seller ? ` · продавец ${receipt.seller.name}` : ''}</p>{receipt.customer && <p>{receipt.customer.firstName} {receipt.customer.phone}</p>}<ul>{receipt.items.map(item => <li key={item.id}><span>{item.product.name} × {item.quantity}</span><strong>{formatMinor(item.totalMinor)}</strong></li>)}</ul><p>Скидка: {formatMinor(receipt.discountMinor)}</p><p className="total">Итого <strong>{formatMinor(receipt.totalMinor)}</strong></p>{receipt.payments.map(part => <p key={part.id}>{part.paymentMethod.name}: {formatMinor(part.amountMinor)}</p>)}<button type="button" className="primary receipt-close" autoFocus onClick={() => setReceipt(null)}>Закрыть</button></section></div>}
-  </main>;
+  </main></>;
 }

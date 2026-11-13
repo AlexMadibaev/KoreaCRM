@@ -20,6 +20,12 @@ export const MoneyInput = forwardRef<HTMLInputElement, Props>(function MoneyInpu
   }, [valueMinor]);
   return <input {...props} ref={ref} type="text" inputMode="decimal" value={draft} aria-invalid={draft !== '' && parse(draft) === null} onChange={event => {
     const raw = event.target.value;
+    const text = raw.trim().replace(/\s+/g, '');
+    const allowed = allowNegative ? /^-?\d{0,16}(?:[.,]\d{0,2})?$/ : /^\d{0,16}(?:[.,]\d{0,2})?$/;
+    if (!allowed.test(text)) {
+      event.currentTarget.value = draft;
+      return;
+    }
     setDraft(raw);
     const parsed = parse(raw) ?? '';
     lastSent.current = parsed;
