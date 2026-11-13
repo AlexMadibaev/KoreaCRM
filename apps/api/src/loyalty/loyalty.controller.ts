@@ -10,6 +10,8 @@ import { LoyaltyService } from './loyalty.service';
 @ApiTags('loyalty') @ApiBearerAuth() @UseGuards(AccessGuard) @Controller('loyalty')
 export class LoyaltyController {
   constructor(private readonly service: LoyaltyService) {}
-  @Get('settings') get() { return this.service.get(); }
+  @Get('settings') get(@Req() request: Request & { access: AccessContext }) {
+    return request.access.posDeviceId ? this.service.getForPos() : this.service.get();
+  }
   @Patch('settings') @RequireAnyPermission('settings.edit', 'loyalty.edit') save(@Body() body: unknown, @Req() request: Request & { access: AccessContext }) { return this.service.save(parseInput(loyaltySettingsSchema, body), request.access.userId); }
 }

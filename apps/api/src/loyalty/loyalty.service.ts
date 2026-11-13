@@ -10,6 +10,20 @@ export class LoyaltyService {
     const saved = await this.db.loyaltySettings.findUnique({ where: { id: 1 } });
     return saved ? loyaltySettingsSchema.parse(saved.rules) : defaultLoyaltySettings;
   }
+  async getForPos(): Promise<LoyaltySettings> {
+    const settings = await this.get();
+    if (!settings.promotions.some(rule => rule.targetType === 'ALL')) return settings;
+    const products = await this.db.product.findMany({
+      where: { deletedAt: null, status: 'ACTIVE' },
+      select: { id: true },
+    });
+    return {
+      ...settings,
+      promotions: settings.promotions.flatMap(rule => rule.targetType === 'ALL'
+        ? products.map(product => ({ ...rule, targetType: 'PRODUCT' as const, targetId: product.id }))
+        : [rule]),
+    };
+  }
   async save(settings: LoyaltySettings, actorId: string) {
     const previous = await this.get();
     await this.db.$transaction(async tx => {

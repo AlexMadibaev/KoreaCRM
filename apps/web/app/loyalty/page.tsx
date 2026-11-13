@@ -125,8 +125,8 @@ export default function LoyaltyPage() {
           return <div key={campaign.id} className="rounded-xl border border-slate-200">
             <button type="button" aria-expanded={isOpen} aria-controls={`campaign-${campaign.id}`} className="ks-control flex w-full flex-wrap items-center gap-x-4 gap-y-1 p-4 text-left" onClick={() => setExpanded(current => isOpen ? current.filter(id => id !== campaign.id) : [...current, campaign.id])}>
               <strong>Скидка {campaign.percent || '0'}%</strong>
-              <span className="text-sm text-slate-600">{schedule || 'Без ограничения по датам'} · {campaign.active ? 'Включена' : 'Выключена'}</span>
-              <span className="text-sm text-slate-600">Бренды {counts[0]} · Категории {counts[1]} · Товары {counts[2]}</span>
+              <span className="text-sm text-slate-600">{schedule || 'Без ограничения по датам'}{campaign.daysOfWeek.length > 0 && ' · ' + campaign.daysOfWeek.map(day => dayNames[day]).join(', ')} · {campaign.active ? 'Включена' : 'Выключена'}</span>
+              <span className="text-sm text-slate-600">{campaign.targets.some(target => target.targetType === 'ALL') ? 'Все товары' : `Бренды ${counts[0]} · Категории ${counts[1]} · Товары ${counts[2]}`}</span>
               <span className="ml-auto text-sm">{isOpen ? 'Свернуть' : 'Открыть'}</span>
             </button>
             <div id={`campaign-${campaign.id}`} hidden={!isOpen} className="border-t border-slate-100 p-4">
@@ -141,14 +141,20 @@ export default function LoyaltyPage() {
                   <legend className="mb-2 text-sm">Дни недели · без выбора действует ежедневно</legend>
                   {dayNames.map((name, day) => <label key={name} className="flex items-center gap-1 text-sm"><input type="checkbox" checked={campaign.daysOfWeek.includes(day)} onChange={event => patch({ daysOfWeek: event.target.checked ? [...campaign.daysOfWeek, day].sort() : campaign.daysOfWeek.filter(value => value !== day) })} />{name}</label>)}
                 </fieldset>
-                <div className="grid gap-4 lg:grid-cols-3">
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" disabled={disabled} checked={campaign.targets.some(target => target.targetType === 'ALL')} onChange={event => {
+                  if (event.target.checked) {
+                    const id = crypto.randomUUID();
+                    patch({ targets: [{ id, targetType: 'ALL', targetId: id }] });
+                  } else patch({ targets: [] });
+                }} />Все товары</label>
+                {!campaign.targets.some(target => target.targetType === 'ALL') && <div className="grid gap-4 lg:grid-cols-3">
                   {(['BRAND', 'CATEGORY', 'PRODUCT'] as const).map(kind => <div key={kind}>
                     <h3 className="mb-2 font-medium">{kind === 'BRAND' ? 'Бренды' : kind === 'CATEGORY' ? 'Категории' : 'Товары'}</h3>
                     <CatalogPicker kind={kind} selected={campaign.targets.filter(target => target.targetType === kind).map(target => target.targetId)} disabled={disabled}
                       onAdd={targetId => editCampaign(campaign.id, current => current.targets.some(target => target.targetType === kind && target.targetId === targetId) ? current : { ...current, targets: [...current.targets, { id: crypto.randomUUID(), targetType: kind, targetId }] })}
                       onRemove={targetId => editCampaign(campaign.id, current => ({ ...current, targets: current.targets.filter(target => target.targetType !== kind || target.targetId !== targetId) }))} />
                   </div>)}
-                </div>
+                </div>}
                 {allowed && <button type="button" disabled={busy} className="ks-button ks-button--ghost ks-button--danger-text" onClick={() => { setCampaigns(current => current.filter(item => item.id !== campaign.id)); setNotice(''); }}>Удалить акцию</button>}
               </div>}
             </div>
