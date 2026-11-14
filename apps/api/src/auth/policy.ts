@@ -1,5 +1,6 @@
 export interface AccessContext {
   userId: string;
+  login?: string;
   role?: string;
   primaryStoreId?: string | null;
   permissions: string[];

@@ -1,12 +1,24 @@
-import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, ForbiddenException, Get, Param, ParseUUIDPipe, Patch, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { AccessGuard, RequireAnyPermission, RequirePermission, StoreScopeGuard } from '../auth/guards';
 import type { AccessContext } from '../auth/policy';
 import { FinanceService } from './finance.service';
+import { expenseQuerySchema, expenseUpdateSchema } from './finance.schemas';
 import { cashOperationSchema, categorySchema, closeShiftSchema, expenseSchema, lastClosedShiftSchema, openShiftSchema, shiftQuerySchema, pageSchema, parseInput, reportScopeSchema, summarySchema, supplierPaymentSchema } from './finance.schemas';
 
 type AuthorizedRequest = Request & { access: AccessContext };
+
+function canManageExpenseStatus(access: AccessContext) {
+  return access.role === 'OWNER' || access.login === 'Boss';
+}
+
+function expenseResponse<T extends { paymentStatus: string }>(expense: T, showStatus: boolean) {
+  if (showStatus) return expense;
+  const visible: Omit<T, 'paymentStatus'> & { paymentStatus?: string } = { ...expense };
+  delete visible.paymentStatus;
+  return visible;
+}
 
 @ApiTags('finance') @ApiBearerAuth() @UseGuards(AccessGuard) @Controller('expense-categories')
 export class ExpenseCategoriesController {
@@ -30,8 +42,36 @@ export class FinanceSummaryController {
 @ApiTags('finance') @ApiBearerAuth() @UseGuards(AccessGuard, StoreScopeGuard) @Controller('stores/:storeId/finance')
 export class StoreFinanceController {
   constructor(private readonly service: FinanceService) {}
-  @Get('expenses') @RequirePermission('finance.view') expenses(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.expenses(storeId, parseInput(pageSchema, query)); }
-  @Post('expenses') @RequirePermission('finance.edit') expense(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.createExpense(storeId, parseInput(expenseSchema, body), req.access.userId); }
+  @Get('expenses') @RequirePermission('finance.view')
+  async expenses(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown, @Req() req: AuthorizedRequest) {
+    const input = parseInput(expenseQuerySchema, query);
+    const canManagePaymentStatus = canManageExpenseStatus(req.access);
+    if (input.paymentStatus && !canManagePaymentStatus) throw new ForbiddenException();
+    const page = await this.service.expenses(storeId, input);
+    return { ...page, canManagePaymentStatus, items: page.items.map(item => expenseResponse(item, canManagePaymentStatus)) };
+  }
+
+  @Post('expenses') @RequirePermission('finance.edit')
+  async expense(@Param('storeId', ParseUUIDPipe) storeId: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
+    const input = parseInput(expenseSchema, body);
+    const showStatus = canManageExpenseStatus(req.access);
+    if (input.paymentStatus && !showStatus) throw new ForbiddenException();
+    return expenseResponse(await this.service.createExpense(storeId, input, req.access.userId), showStatus);
+  }
+
+  @Patch('expenses/:id') @RequireAnyPermission('finance.view', 'finance.edit')
+  async updateExpense(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) {
+    const input = parseInput(expenseUpdateSchema, body);
+    const showStatus = canManageExpenseStatus(req.access);
+    if (input.paymentStatus && !showStatus) throw new ForbiddenException();
+    if (Object.keys(input).some(key => key !== 'paymentStatus') && !req.access.permissions.includes('finance.edit')) throw new ForbiddenException();
+    return expenseResponse(await this.service.updateExpense(storeId, id, input, req.access.userId), showStatus);
+  }
+
+  @Delete('expenses/:id') @RequirePermission('finance.edit')
+  deleteExpense(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string, @Req() req: AuthorizedRequest) {
+    return this.service.deleteExpense(storeId, id, req.access.userId);
+  }
   @Get('cash-shifts') @RequirePermission('finance.cash_view') shifts(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.shifts(storeId, parseInput(shiftQuerySchema, query)); }
   @Get('cash-shifts/last-closed') @RequirePermission('finance.cash_view') lastClosed(@Param('storeId', ParseUUIDPipe) storeId: string, @Query() query: unknown) { return this.service.lastClosedShift(storeId, parseInput(lastClosedShiftSchema, query).deviceId); }
   @Get('cash-shifts/:id/report') @RequirePermission('finance.cash_view') report(@Param('storeId', ParseUUIDPipe) storeId: string, @Param('id', ParseUUIDPipe) id: string) { return this.service.shiftReport(storeId, id); }

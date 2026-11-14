@@ -478,12 +478,20 @@ model Expense {
   employeeId    String          @db.Uuid
   employee      User            @relation(fields: [employeeId], references: [id])
   description   String?
+  recipientName String?
+  paymentStatus ExpensePaymentStatus @default(UNPAID)
+  deletedAt     DateTime?
   date          DateTime
   attachmentKey String?
   createdAt     DateTime        @default(now())
 
   @@index([storeId, date])
   @@index([categoryId, date])
+}
+
+enum ExpensePaymentStatus {
+  PAID
+  UNPAID
 }
 
 enum CashShiftStatus {

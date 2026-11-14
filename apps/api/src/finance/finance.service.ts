@@ -4,6 +4,7 @@ import type { z } from 'zod';
 import { canAccessStore, type AccessContext } from '../auth/policy';
 import { DatabaseService } from '../database.service';
 import { cashOperationSchema, categorySchema, closeShiftSchema, expenseSchema, openShiftSchema, pageSchema, summarySchema, supplierPaymentSchema } from './finance.schemas';
+import { expenseQuerySchema, expenseUpdateSchema } from './finance.schemas';
 
 type Page = z.infer<typeof pageSchema>;
 type ExpenseInput = z.infer<typeof expenseSchema>;
@@ -78,9 +79,9 @@ export class FinanceService {
       return updated;
     });
   }
-  async expenses(storeId: string, page: Page) {
+  async expenses(storeId: string, page: z.infer<typeof expenseQuerySchema>) {
     await this.requireStore(storeId);
-    const where = { storeId };
+    const where = { storeId, deletedAt: null, paymentStatus: page.paymentStatus };
     const [items, total] = await this.db.$transaction([this.db.expense.findMany({ where, include: { category: { select: { name: true } } }, orderBy: [{ date: 'desc' }, { createdAt: 'desc' }], skip: (page.page - 1) * page.limit, take: page.limit }), this.db.expense.count({ where })]);
     return { items, total, ...page };
   }
@@ -109,14 +110,79 @@ export class FinanceService {
       if (existing) {
         const cashOperation = input.cashShiftId ? await tx.cashOperation.findUnique({ where: { sourceType_sourceId: { sourceType: 'EXPENSE', sourceId: existing.id } } }) : null;
         if (existing.storeId !== storeId || existing.categoryId !== input.categoryId || !existing.amountMinor.eq(input.amountMinor) || existing.paymentMethod !== input.paymentMethod || existing.date.getTime() !== date.getTime() || (existing.description ?? '') !== (input.description ?? '') || (existing.attachmentKey ?? '') !== (input.attachmentKey ?? '') || (cashOperation?.cashShiftId ?? null) !== (input.cashShiftId ?? null)) throw new ConflictException('Operation ID was used for different expense');
+        if (existing.deletedAt || (existing.recipientName ?? '') !== (input.recipientName ?? '')) throw new ConflictException('Operation ID was used for different expense');
         return existing;
       }
       const category = await tx.expenseCategory.findFirst({ where: { id: input.categoryId, deletedAt: null } });
       if (!category) throw new NotFoundException('Expense category not found');
-      const expense = await tx.expense.create({ data: { operationId: input.operationId, storeId, categoryId: input.categoryId, amountMinor: money(input.amountMinor), paymentMethod: input.paymentMethod, employeeId: actorId, description: input.description, date, attachmentKey: input.attachmentKey } });
+      const expense = await tx.expense.create({ data: { operationId: input.operationId, storeId, categoryId: input.categoryId, amountMinor: money(input.amountMinor), paymentMethod: input.paymentMethod, employeeId: actorId, description: input.description, recipientName: input.recipientName || null, paymentStatus: input.paymentStatus, date, attachmentKey: input.attachmentKey } });
       if (input.cashShiftId) await this.postCashInTransaction(tx, { storeId, shiftId: input.cashShiftId, actorId, type: 'EXPENSE', amount: money(input.amountMinor).neg(), sourceType: 'EXPENSE', sourceId: expense.id });
       await tx.auditLog.create({ data: { userId: actorId, action: 'EXPENSE_CREATED', entityType: 'Expense', entityId: expense.id, newValue: { amountMinor: input.amountMinor, paymentMethod: input.paymentMethod } } });
       return expense;
+    });
+  }
+  private async reconcileCashExpense(tx: Prisma.TransactionClient, expenseId: string, amount: Prisma.Decimal | null) {
+    const operation = await tx.cashOperation.findUnique({
+      where: { sourceType_sourceId: { sourceType: 'EXPENSE', sourceId: expenseId } },
+      include: { cashShift: true },
+    });
+    if (!operation) return;
+    const nextAmount = amount?.neg() ?? money('0');
+    if (amount && operation.amountMinor.eq(nextAmount)) return;
+    if (operation.cashShift.status !== 'OPEN') {
+      throw new ConflictException('Нельзя изменить сумму или удалить расход в закрытой кассовой смене');
+    }
+    const expectedCashMinor = operation.cashShift.expectedCashMinor.minus(operation.amountMinor).plus(nextAmount);
+    if (expectedCashMinor.lt(0) || expectedCashMinor.gt(maxMoney)) {
+      throw new ConflictException('Cash balance would be outside allowed range');
+    }
+    await tx.cashShift.update({ where: { id: operation.cashShiftId }, data: { expectedCashMinor } });
+    if (amount) {
+      await tx.cashOperation.update({ where: { id: operation.id }, data: { amountMinor: nextAmount } });
+    } else {
+      await tx.cashOperation.delete({ where: { id: operation.id } });
+    }
+  }
+
+  async updateExpense(storeId: string, id: string, input: z.infer<typeof expenseUpdateSchema>, actorId: string) {
+    await this.requireStore(storeId);
+    return this.serializable(async (tx) => {
+      const existing = await tx.expense.findFirst({ where: { id, storeId, deletedAt: null } });
+      if (!existing) throw new NotFoundException('Expense not found');
+      if (input.categoryId && input.categoryId !== existing.categoryId) {
+        const category = await tx.expenseCategory.findFirst({ where: { id: input.categoryId, deletedAt: null } });
+        if (!category) throw new NotFoundException('Expense category not found');
+      }
+      const amountMinor = input.amountMinor === undefined ? undefined : money(input.amountMinor);
+      if (amountMinor && existing.paymentMethod === 'CASH') await this.reconcileCashExpense(tx, id, amountMinor);
+      const record = await tx.expense.update({
+        where: { id },
+        data: {
+          ...input, amountMinor, date: input.date ? dateRange(input.date, input.date).gte : undefined,
+          recipientName: input.recipientName === '' ? null : input.recipientName,
+        },
+      });
+      const { paymentStatus, ...auditFields } = input;
+      const oldValue = Object.fromEntries(Object.keys(auditFields).map(key => {
+        const value = existing[key as keyof typeof existing];
+        return [key, value == null ? null : value instanceof Date ? value.toISOString().slice(0, 10) : String(value)];
+      }));
+      const action = paymentStatus === undefined ? 'EXPENSE_UPDATED' : 'EXPENSE_PAYMENT_STATUS_SET';
+      await tx.auditLog.create({ data: { userId: actorId, action, entityType: 'Expense', entityId: id, oldValue, newValue: auditFields } });
+      return record;
+    });
+  }
+
+  async deleteExpense(storeId: string, id: string, actorId: string) {
+    await this.requireStore(storeId);
+    return this.serializable(async (tx) => {
+      const existing = await tx.expense.findFirst({ where: { id, storeId } });
+      if (!existing) throw new NotFoundException('Expense not found');
+      if (existing.deletedAt) return { success: true };
+      if (existing.paymentMethod === 'CASH') await this.reconcileCashExpense(tx, id, null);
+      await tx.expense.update({ where: { id }, data: { deletedAt: new Date() } });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'EXPENSE_DELETED', entityType: 'Expense', entityId: id } });
+      return { success: true };
     });
   }
   async shifts(storeId: string, page: Page & { status?: 'OPEN' | 'CLOSED' }) {
@@ -270,7 +336,7 @@ export class FinanceService {
     const selectedStores = await this.reportStores(input, access);
     const storeId: Prisma.StringFilter | string | undefined = Array.isArray(selectedStores) ? { in: selectedStores } : selectedStores;
     const [expenses, cashFlow, supplierDebt, supplierPayments, openCash, sales, returns, customerDebt] = await this.db.$transaction([
-      this.db.expense.aggregate({ where: { storeId, date: range }, _sum: { amountMinor: true } }),
+      this.db.expense.aggregate({ where: { storeId, date: range, deletedAt: null }, _sum: { amountMinor: true } }),
       this.db.cashOperation.aggregate({ where: { storeId, createdAt: range }, _sum: { amountMinor: true } }),
       this.db.purchase.aggregate({ where: { storeId }, _sum: { debtMinor: true } }),
       this.db.supplierPayment.aggregate({ where: { storeId, createdAt: range }, _sum: { amountMinor: true } }),

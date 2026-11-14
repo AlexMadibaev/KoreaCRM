@@ -3,6 +3,7 @@ import test from 'node:test';
 import { BadRequestException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FinanceService } from '../src/finance/finance.service';
+import { StoreFinanceController } from '../src/finance/finance.controller';
 import type { DatabaseService } from '../src/database.service';
 
 const storeId = '11111111-1111-4111-8111-111111111111';
@@ -10,6 +11,37 @@ const shiftId = '22222222-2222-4222-8222-222222222222';
 const categoryId = '33333333-3333-4333-8333-333333333333';
 const purchaseId = '44444444-4444-4444-8444-444444444444';
 const operationId = '55555555-5555-4555-8555-555555555555';
+
+test('expense payment status is accessible only to the owner and Boss account', async () => {
+  const expense = { id: operationId, paymentStatus: 'PAID' };
+  let writes = 0;
+  const service = {
+    expenses: async () => ({ items: [expense], total: 1, page: 1, limit: 20 }),
+    updateExpense: async () => { writes++; return expense; },
+  } as unknown as FinanceService;
+  const controller = new StoreFinanceController(service);
+  const request = (userId: string, role: string, login = userId) => ({
+    access: { userId, login, role, storeIds: [storeId], allStores: false, permissions: ['finance.view', 'finance.edit'] },
+  }) as Parameters<StoreFinanceController['expenses']>[2];
+  const manager = request('other', 'MANAGER');
+  const owner = request('owner-id', 'OWNER');
+  const layli = request('layli-id', 'MANAGER', 'Boss');
+
+  const hidden = await controller.expenses(storeId, {}, manager);
+  assert.equal(hidden.canManagePaymentStatus, false);
+  assert.deepEqual(hidden.items, [{ id: operationId }]);
+  await assert.rejects(controller.expenses(storeId, { paymentStatus: 'PAID' }, manager), ForbiddenException);
+  await assert.rejects(controller.updateExpense(storeId, operationId, { paymentStatus: 'PAID' }, manager), ForbiddenException);
+  assert.equal(writes, 0);
+  for (const viewer of [owner, layli]) {
+    const visible = await controller.expenses(storeId, { paymentStatus: 'PAID' }, viewer);
+    assert.equal(visible.canManagePaymentStatus, true);
+    assert.deepEqual(visible.items, [expense]);
+    await controller.updateExpense(storeId, operationId, { paymentStatus: 'PAID' }, viewer);
+  }
+  assert.equal(writes, 2);
+});
+
 
 test('top customers requires both finance and customer permissions before querying', async () => {
   const service = new FinanceService({} as DatabaseService);
