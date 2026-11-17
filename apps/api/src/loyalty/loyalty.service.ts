@@ -11,7 +11,7 @@ export class LoyaltyService {
     return saved ? loyaltySettingsSchema.parse(saved.rules) : defaultLoyaltySettings;
   }
   async getForPos(): Promise<LoyaltySettings> {
-    const settings = await this.get();
+    const settings = { ...await this.get(), tiers: [] };
     if (!settings.promotions.some(rule => rule.targetType === 'ALL')) return settings;
     const products = await this.db.product.findMany({
       where: { deletedAt: null, status: 'ACTIVE' },

@@ -7,7 +7,7 @@ import { DatabaseService } from '../database.service';
 import { FinanceService } from '../finance/finance.service';
 import { StockService } from '../stock/stock.service';
 import { NotificationsService } from '../notifications/notifications.service';
-import { automaticPercent, defaultLoyaltySettings, loyaltySettingsSchema, percentBasisPoints } from '../loyalty/loyalty.rules';
+import { automaticPercent, defaultLoyaltySettings, earnedDiscountPercent, loyaltySettingsSchema, percentBasisPoints } from '../loyalty/loyalty.rules';
 import { allocateRefund } from './return-refunds';
 import { paymentMethodPatchSchema, paymentMethodSchema, receiptlessReturnSchema, receiptEditSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
 
@@ -16,7 +16,7 @@ const maximum = new Prisma.Decimal('999999999999999999');
 const sum = (values: Prisma.Decimal[]) => values.reduce((value, part) => value.plus(part), new Prisma.Decimal(0));
 const retryable = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && ['P2002', 'P2034'].includes(error.code);
 const derivedOperationId = (id: string, kind: string) => { const hex = createHash('sha256').update(`${id}:${kind}`).digest('hex'); return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`; };
-const saleInclude = { items: { include: { product: { select: { id: true, name: true, sku: true } } } }, payments: { include: { paymentMethod: true } }, customer: { select: { id: true, firstName: true, lastName: true, phone: true } }, store: { select: { name: true, code: true, address: true, phone: true } }, employee: { select: { name: true } }, seller: { select: { id: true, name: true } }, returns: { include: { items: true, payments: { include: { paymentMethod: true } } }, orderBy: { createdAt: 'asc' } } } as const;
+const saleInclude = { items: { include: { product: { select: { id: true, name: true, sku: true } } } }, payments: { include: { paymentMethod: true } }, customer: { select: { id: true, firstName: true, lastName: true, phone: true, discountPercent: true, bonusBalanceMinor: true, debtBalanceMinor: true } }, store: { select: { name: true, code: true, address: true, phone: true } }, employee: { select: { name: true } }, seller: { select: { id: true, name: true } }, returns: { include: { items: true, payments: { include: { paymentMethod: true } } }, orderBy: { createdAt: 'asc' } } } as const;
 
 type ReceiptEdit = z.infer<typeof receiptEditSchema>;
 type Receipt = Prisma.SaleGetPayload<{ include: typeof saleInclude }>;
@@ -475,7 +475,7 @@ export class SalesService {
     const subtotal = sum(lines.map(line => line.gross));
     let manualDiscount = new Prisma.Decimal(0);
     for (const line of lines) {
-      const percent = !options.orderPrices && loyalty.mode === 'DISCOUNT' ? automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null, BigInt(subtotal.toString())) : '0';
+      const percent = !options.orderPrices && loyalty.mode === 'DISCOUNT' ? automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null) : '0';
       const minimumDiscount = line.gross.mul(percentBasisPoints(percent).toString()).div(10000).floor();
       if (line.discountMinor.lt(minimumDiscount)) throw new BadRequestException(`Automatic discount is missing for product ${line.productId}`);
       manualDiscount = manualDiscount.plus(line.discountMinor.minus(minimumDiscount));
@@ -544,7 +544,11 @@ export class SalesService {
       const orders = customer.ordersCount + 1;
       const balance = customer.debtBalanceMinor.plus(debt);
       if (spent.gt(maximum) || balance.gt(maximum)) throw new ConflictException('Customer balance exceeds database range');
-      await tx.customer.update({ where: { id: customer.id }, data: { totalSpentMinor: spent, ordersCount: orders, averageCheckMinor: spent.div(orders).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP), debtBalanceMinor: balance } });
+      const previousPercent = customer.discountPercent.toString();
+      const discountPercent = earnedDiscountPercent(loyalty, previousPercent, BigInt(total.toString()));
+      const upgraded = discountPercent !== previousPercent;
+      await tx.customer.update({ where: { id: customer.id }, data: { totalSpentMinor: spent, ordersCount: orders, averageCheckMinor: spent.div(orders).toDecimalPlaces(0, Prisma.Decimal.ROUND_HALF_UP), debtBalanceMinor: balance, ...(upgraded ? { discountPercent } : {}) } });
+      if (upgraded) await tx.auditLog.create({ data: { userId: actorId, action: 'CUSTOMER_DISCOUNT_UPDATED', entityType: 'Customer', entityId: customer.id, oldValue: { discountPercent: previousPercent }, newValue: { discountPercent, saleId: sale.id } } });
       if (debt.gt(0)) await tx.customerDebtEntry.create({ data: { customerId: customer.id, saleId: sale.id, type: 'SALE', amountMinor: debt, balanceAfterMinor: balance } });
       if (bonus.gt(0)) {
         const bonusBalance = customer.bonusBalanceMinor.minus(bonus);

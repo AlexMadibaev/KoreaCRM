@@ -226,9 +226,6 @@ export class OrdersService {
         categoryId: product.categoryId,
       };
     });
-    const subtotal = sum(
-      lines.map((line) => line.priceMinor.mul(line.quantity)),
-    );
     const saved = await tx.loyaltySettings.findUnique({ where: { id: 1 } });
     const loyalty = saved
       ? loyaltySettingsSchema.parse(saved.rules)
@@ -238,7 +235,6 @@ export class OrdersService {
         loyalty,
         line,
         customer?.discountPercent.toString() ?? null,
-        BigInt(subtotal.toString()),
       );
       const gross = line.priceMinor.mul(line.quantity);
       const discountMinor = gross

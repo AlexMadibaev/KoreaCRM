@@ -196,7 +196,7 @@ export function App() {
     } catch { /* A malformed saved draft must not prevent signing in. */ }
   }, [signedIn, deviceReady, draftKey, canRestoreReturn]);
   const cartSubtotal = cart.reduce((sum, line) => sum + BigInt(line.priceMinor) * BigInt(line.quantity), 0n);
-  const cartPercents = loyalty ? cart.map(line => loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null, cartSubtotal)) : [];
+  const cartPercents = loyalty ? cart.map(line => loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null)) : [];
   const cartLines = cart.map(line => ({ productId: line.product.id, quantity: line.quantity, available: line.available, priceMinor: line.priceMinor, discountMinor: line.discountMinor }));
   let cartTotal: ReturnType<typeof calculateCartWithDiscount> | null = null;
   let cartError = '';
@@ -775,6 +775,10 @@ export function App() {
   async function sendSale(payload: PendingSale): Promise<PosSale> {
     const sale = await client.post<PosSale>(`/stores/${payload.storeId}/sales`, payload.request);
     setServerReachable(true);
+    const buyer = sale.customer;
+    if (buyer?.discountPercent !== undefined) setCustomers(current =>
+      [buyer, ...current.filter(customer => customer.id !== buyer.id)],
+    );
     localStorage.removeItem(pendingKey); setPending(null); setReceipt(sale); setReceiptScreen('sale'); setCart([]); setCustomerId(''); setReceiptDiscount(0n);
     setSalesRevision(value => value + 1);
     if (payload.request.payments.some(part => methods.find(method => method.id === part.paymentMethodId)?.kind === 'BONUS')) {
