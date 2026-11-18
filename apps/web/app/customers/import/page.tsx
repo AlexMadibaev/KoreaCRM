@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { CatalogShell } from '../../../components/catalog-shell';
 import { api, type Page } from '../../../lib/api';
+import { DiscountImport } from './discount-import';
 
 type ExistingCustomer = { id: string; phone: string };
 type CustomerRow = { line: number; firstName: string; lastName: string; phone: string; email: string; birthday: string; gender: string; address: string; notes: string; status: 'ready' | 'existing' | 'error' | 'done' | 'failed'; message: string };
@@ -73,6 +74,7 @@ export default function CustomerImportPage() {
   const errors = rows.filter(row => row.status === 'error' || row.status === 'failed').length;
   return <CatalogShell><section className="crm-workspace-page crm-import-page space-y-6">
     <div className="crm-page-head"><div><span className="crm-eyebrow">ПОКУПАТЕЛИ</span><h1>Импорт клиентов</h1><p>Загрузите подготовленный XLSX, проверьте записи и добавьте клиентов.</p></div><Link className="crm-outline-button" href="/customers">← К клиентам</Link></div>
+    <DiscountImport />
     {error && <p className="crm-alert" role="alert">{error}</p>}
     <div className="crm-import-panel"><h2>1. Выберите файл</h2><p>До 300 клиентов за раз. Совпадающие телефоны в ЛК будут пропущены; существующие карточки не меняются.</p><input aria-label="XLSX с клиентами" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busy} onChange={event => void chooseFile(event.target.files?.[0])} /></div>
     {rows.length > 0 && <div className="crm-import-panel"><h2>2. Проверьте и загрузите</h2><p>К загрузке: {ready} · Уже есть: {skipped} · Ошибки: {errors}{finished ? ` · Добавлено: ${done}` : ''}</p><div className="crm-products-table-wrap"><table className="crm-products-table crm-mobile-cards"><thead><tr><th>Строка</th><th>Клиент</th><th>Телефон</th><th>Результат</th></tr></thead><tbody>{rows.map(row => <tr key={row.line}><td data-label="Строка">{row.line}</td><td data-label="Клиент">{row.firstName} {row.lastName}</td><td data-label="Телефон">{row.phone}</td><td data-label="Результат">{row.message || 'Готов к загрузке'}</td></tr>)}</tbody></table></div>{ready > 0 && <button className="crm-primary-button" disabled={busy} onClick={() => void commit()}>{busy ? 'Добавляем…' : `Добавить ${ready} клиентов`}</button>}{finished && <p role="status">Импорт завершён. Добавлено: {done}. Ошибок: {errors}.</p>}</div>}

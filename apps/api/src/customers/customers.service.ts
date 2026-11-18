@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { z } from 'zod';
@@ -6,6 +7,7 @@ import { FinanceService } from '../finance/finance.service';
 import type { AccessContext } from '../auth/policy';
 import { activitySchema, bonusCorrectionSchema, bonusListSchema, commentListSchema, commentSchema, createSchema, debtPaymentSchema, historySchema, listSchema, patchSchema } from './customers.schemas';
 import { normalizeCustomerName } from './customer-name';
+import type { discountImportSchema } from './customers.schemas';
 import { defaultSegmentSettings, deriveCustomerSegments, segmentCutoffs, segmentSettingsSchema, type SegmentSettings } from './customer-segments';
 
 type CustomerInput = z.infer<typeof createSchema>;
@@ -14,6 +16,48 @@ const retryable = (error: unknown) => error instanceof Prisma.PrismaClientKnownR
 @Injectable()
 export class CustomersService {
   constructor(private readonly db: DatabaseService, private readonly finance: FinanceService) {}
+
+  async importDiscounts(input: z.infer<typeof discountImportSchema>, actorId: string) {
+    const rates = new Map(input.rows.map(row => [row.phone, row.percent]));
+    if (rates.size !== input.rows.length) throw new BadRequestException('Телефон повторяется в файле');
+    return this.db.$transaction(async tx => {
+      const customers = await tx.customer.findMany({
+        where: { phone: { in: [...rates.keys()] }, deletedAt: null },
+        select: { id: true, phone: true, discountPercent: true },
+        orderBy: { id: 'asc' },
+      });
+      const changes = customers.map(customer => ({
+        id: customer.id,
+        previous: customer.discountPercent.toString(),
+        next: rates.get(customer.phone)!,
+      })).filter(row => row.previous !== row.next);
+      const preview = createHash('sha256').update(JSON.stringify(changes)).digest('hex');
+      const seven = changes.filter(row => row.next === '7');
+      const ten = changes.filter(row => row.next === '10');
+      const result = {
+        preview, seven: seven.length, ten: ten.length,
+        unchanged: customers.length - changes.length,
+        missing: input.rows.length - customers.length,
+        applied: Boolean(input.preview),
+      };
+      if (!input.preview) return result;
+      if (input.preview !== preview) throw new ConflictException('Скидки изменились после проверки. Загрузите файл ещё раз.');
+      for (const group of [seven, ten]) {
+        if (!group.length) continue;
+        const updated = await tx.customer.updateMany({
+          where: { id: { in: group.map(row => row.id) }, deletedAt: null },
+          data: { discountPercent: group[0]!.next },
+        });
+        if (updated.count !== group.length) throw new ConflictException('Список клиентов изменился. Загрузите файл ещё раз.');
+      }
+      if (changes.length) await tx.auditLog.createMany({ data: changes.map(row => ({
+        userId: actorId, action: 'CUSTOMER_DISCOUNT_UPDATED', entityType: 'Customer', entityId: row.id,
+        oldValue: { discountPercent: row.previous },
+        newValue: { discountPercent: row.next, source: 'CLOUDSHOP_DISCOUNT_IMPORT' },
+      })) });
+      return result;
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable, timeout: 30000 });
+  }
 
   async segmentSettings(): Promise<SegmentSettings> {
     const row = await this.db.customerSegmentSettings.findUnique({ where: { id: 1 } });
