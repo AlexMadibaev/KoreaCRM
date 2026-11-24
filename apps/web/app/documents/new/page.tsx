@@ -14,7 +14,7 @@ import { shortDeviceCode } from '../../../lib/device-kind';
 type Kind = 'PURCHASE' | 'WRITE_OFF' | 'RECEIVE_IN' | 'EXPENSE' | 'INCOME';
 type Store = { id: string; name: string };
 type Pick = { id: string; name: string; sku: string; unit: string; priceMinor: string | null; purchasePriceMinor: string | null; costMinor: string | null; stock: Record<string, number> };
-type Line = { productId: string; name: string; sku: string; unit: string; quantity: number; priceMinor: string };
+type Line = { productId: string; name: string; sku: string; unit: string; quantity: number; priceMinor: string; salePriceMinor: string; initialSalePriceMinor: string };
 type Option = { id: string; name: string };
 type OpenShift = { id: string; deviceId: string; storeId: string };
 const titles: Record<Kind, string> = { PURCHASE: 'Закупка', WRITE_OFF: 'Списание', RECEIVE_IN: 'Оприходование', EXPENSE: 'Расход', INCOME: 'Приход' };
@@ -85,19 +85,32 @@ function GoodsDocument({ kind, stores, storeId, setStoreId, allowed, busy, setBu
   const add = (pick: Pick) => setLines(current => {
     const existing = current.find(line => line.productId === pick.id);
     if (existing) return current.map(line => line === existing ? { ...line, quantity: line.quantity + 1 } : line);
-    return [...current, { productId: pick.id, name: pick.name, sku: pick.sku, unit: pick.unit, quantity: 1, priceMinor: (kind === 'PURCHASE' ? pick.purchasePriceMinor ?? pick.costMinor : pick.costMinor ?? pick.purchasePriceMinor)?.split('.')[0] ?? '0' }];
+    const salePriceMinor = pick.priceMinor?.split('.')[0] ?? '';
+    return [...current, { productId: pick.id, name: pick.name, sku: pick.sku, unit: pick.unit, quantity: 1, priceMinor: (kind === 'PURCHASE' ? pick.purchasePriceMinor ?? pick.costMinor : pick.costMinor ?? pick.purchasePriceMinor)?.split('.')[0] ?? '0', salePriceMinor, initialSalePriceMinor: salePriceMinor }];
   });
   const total = useMemo(() => lines.reduce((sum, line) => sum + BigInt(line.priceMinor || '0') * BigInt(line.quantity), 0n).toString(), [lines]);
   const visibleLines = lines.filter(line => !lineFilter || `${line.name} ${line.sku}`.toLowerCase().includes(lineFilter.toLowerCase()));
+  const showSalePrice = kind !== 'WRITE_OFF';
+  const commentRequired = kind === 'WRITE_OFF';
   const update = (productId: string, patch: Partial<Line>) => setLines(current => current.map(line => line.productId === productId ? { ...line, ...patch } : line));
 
   // A changed document is a new operation; an unchanged one keeps its id so a retry after a network error is not posted twice.
-  useEffect(() => { setWriteOffOperation(crypto.randomUUID()); }, [lines, comment, storeId]);
+  // Only stock lines count here: saving a sale price must not turn a retry into a new document.
+  const stockKey = lines.map(line => `${line.productId}:${line.quantity}`).join(',');
+  useEffect(() => { setWriteOffOperation(crypto.randomUUID()); }, [stockKey, comment, storeId]);
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!lines.length) { setError('Добавьте хотя бы один товар из списка слева.'); return; }
+    const changedPrices = showSalePrice ? lines.filter(line => line.salePriceMinor !== line.initialSalePriceMinor) : [];
+    if (changedPrices.some(line => !line.salePriceMinor)) { setError('Укажите цену продажи или верните прежнее значение.'); return; }
     setBusy(true); setError('');
     try {
+      // Sale prices go first: if one is refused, nothing is posted and the document can be saved again without duplicates.
+      for (const line of changedPrices) {
+        try { await api(`/products/${line.productId}/price`, { method: 'PATCH', body: JSON.stringify({ priceMinor: Number(line.salePriceMinor) }) }); }
+        catch (caught) { throw new Error(`Цена продажи «${line.name}» не сохранена: ${errorText(caught)}`); }
+        update(line.productId, { initialSalePriceMinor: line.salePriceMinor });
+      }
       if (kind === 'PURCHASE') {
         const purchase = await api<{ id: string; items: { id: string; productId: string; quantityOrdered: number }[] }>(`/stores/${storeId}/purchases`, { method: 'POST', body: JSON.stringify({ supplierId, number, items: lines.map(line => ({ productId: line.productId, quantityOrdered: line.quantity, purchasePriceMinor: line.priceMinor })) }) });
         if (posted) {
@@ -107,7 +120,7 @@ function GoodsDocument({ kind, stores, storeId, setStoreId, allowed, busy, setBu
         }
       } else {
         // All lines are posted as one write-off document; the same operation id makes a retry safe.
-        await api(`/stores/${storeId}/stock/${kind === 'WRITE_OFF' ? 'write-off-documents' : 'receive-documents'}`, { method: 'POST', body: JSON.stringify({ operationId: writeOffOperation, comment, items: lines.map(line => ({ productId: line.productId, quantity: line.quantity })) }) });
+        await api(`/stores/${storeId}/stock/${kind === 'WRITE_OFF' ? 'write-off-documents' : 'receive-documents'}`, { method: 'POST', body: JSON.stringify({ operationId: writeOffOperation, comment: comment.trim() || 'Оприходование товара', items: lines.map(line => ({ productId: line.productId, quantity: line.quantity })) }) });
       }
       onSaved();
     } catch (caught) { setError(errorText(caught)); } finally { setBusy(false); }
@@ -125,7 +138,7 @@ function GoodsDocument({ kind, stores, storeId, setStoreId, allowed, busy, setBu
     </aside>
     <section className="crm-doc-sheet">
       <div className="crm-doc-sheet-actions">
-        <button type="submit" className="ks-button ks-button--primary crm-primary-button" disabled={busy || !allowed || !lines.length || (kind === 'PURCHASE' && !supplierId) || (kind !== 'PURCHASE' && comment.trim().length < 3)}>{busy ? 'Сохраняем…' : 'Сохранить'}</button>
+        <button type="submit" className="ks-button ks-button--primary crm-primary-button" disabled={busy || !allowed || !lines.length || (kind === 'PURCHASE' && !supplierId) || (commentRequired && comment.trim().length < 3)}>{busy ? 'Сохраняем…' : 'Сохранить'}</button>
         {kind === 'PURCHASE' && <label className="crm-doc-toggle"><input type="checkbox" checked={posted} onChange={event => setPosted(event.target.checked)} /> Документ проведён (оприходовать товар)</label>}
         <span className="crm-doc-date">{nowLabel()}</span>
       </div>
@@ -139,18 +152,20 @@ function GoodsDocument({ kind, stores, storeId, setStoreId, allowed, busy, setBu
         {lines.length ? <>
           <label className="crm-doc-search"><span className="sr-only">Поиск по товарам в документе</span><input type="search" placeholder="Поиск по товарам в документе" value={lineFilter} onChange={event => setLineFilter(event.target.value)} /></label>
           <div className="crm-report-scroll"><div className="crm-table-region" role="region" aria-label="Таблица данных" tabIndex={0}><table className="crm-shift-table crm-doc-lines">
-            <thead><tr><th scope="col">#</th><th scope="col">Наименование</th><th scope="col">Код товара</th><th scope="col">Ед. изм.</th><th scope="col" className="num">Кол-во</th><th scope="col" className="num">{kind === 'PURCHASE' ? 'Цена закупки, смн.' : 'Себестоимость, смн.'}</th><th scope="col" className="num">Итог</th><th scope="col"><span className="sr-only">Удалить</span></th></tr></thead>
+            <thead><tr><th scope="col">#</th><th scope="col">Наименование</th><th scope="col">Код товара</th><th scope="col">Ед. изм.</th><th scope="col" className="num">Кол-во</th><th scope="col" className="num">{kind === 'PURCHASE' ? 'Цена закупки, смн.' : 'Себестоимость, смн.'}</th>{showSalePrice && <th scope="col" className="num">Цена продажи, смн.</th>}<th scope="col" className="num">Итог</th><th scope="col"><span className="sr-only">Удалить</span></th></tr></thead>
             <tbody>{visibleLines.map(line => <tr key={line.productId}>
               <td>{lines.indexOf(line) + 1}</td><td>{line.name}</td><td>{line.sku}</td><td>{unitTitle[line.unit] ?? line.unit}</td>
               <td className="num"><TypedInput aria-label={`Количество: ${line.name}`} type="number" min={1} step={1} value={line.quantity} onChange={event => update(line.productId, { quantity: Math.max(1, Math.floor(Number(event.target.value) || 1)) })} /></td>
               <td className="num">{kind === 'PURCHASE' ? <MoneyInput aria-label={`Цена закупки: ${line.name}`} required valueMinor={line.priceMinor} onMinorChange={minor => update(line.productId, { priceMinor: minor || '0' })} /> : amount(line.priceMinor)}</td>
+              {showSalePrice && <td className="num"><MoneyInput aria-label={`Цена продажи: ${line.name}`} placeholder="0,00" valueMinor={line.salePriceMinor} onMinorChange={minor => update(line.productId, { salePriceMinor: minor })} /></td>}
               <td className="num">{amount((BigInt(line.priceMinor || '0') * BigInt(line.quantity)).toString())}</td>
               <td><button type="button" className="ks-button ks-button--ghost ks-button--icon crm-icon-button" aria-label={`Удалить ${line.name}`} onClick={() => setLines(current => current.filter(item => item.productId !== line.productId))}><Trash2 size={14} aria-hidden /></button></td>
             </tr>)}</tbody>
           </table></div></div>
         </> : <p className="crm-doc-empty">← Выберите товары слева</p>}
         <dl className="crm-doc-summary"><div><dt>Итог:</dt><dd>{amount(total)} смн.</dd></div>{kind === 'PURCHASE' && <div><dt>Оплаченные:</dt><dd>{amount(payNow && posted ? payAmount || '0' : '0')} смн.</dd></div>}<div><dt>Позиций:</dt><dd>{lines.length}</dd></div></dl>
-        <label className="crm-doc-comment-field">{kind === 'WRITE_OFF' ? 'Причина списания' : kind === 'RECEIVE_IN' ? 'Основание оприходования' : 'Комментарий'}<textarea required={kind !== 'PURCHASE'} minLength={kind !== 'PURCHASE' ? 3 : undefined} rows={3} value={comment} onChange={event => setComment(event.target.value)} placeholder={kind === 'WRITE_OFF' ? 'Например: повреждена упаковка' : ''} /></label>
+        <label className="crm-doc-comment-field">{kind === 'WRITE_OFF' ? 'Причина списания' : kind === 'RECEIVE_IN' ? 'Основание оприходования' : 'Комментарий'}<textarea required={commentRequired} minLength={commentRequired ? 3 : undefined} rows={3} value={comment} onChange={event => setComment(event.target.value)} placeholder={kind === 'WRITE_OFF' ? 'Например: повреждена упаковка' : kind === 'RECEIVE_IN' ? 'Необязательно, например: поступление от поставщика' : ''} /></label>
+        {commentRequired && lines.length > 0 && comment.trim().length < 3 && <p className="crm-doc-hint">Чтобы сохранить списание, укажите причину (не короче 3 символов).</p>}
       </> : <div className="crm-doc-payment">
         <label className="crm-doc-toggle"><input type="checkbox" checked={payNow} disabled={!posted} onChange={event => { setPayNow(event.target.checked); if (event.target.checked && !payAmount) setPayAmount(total); }} /> Оплатить поставщику сейчас</label>
         {!posted && <p>Оплата доступна для проведённой закупки: долг перед поставщиком появляется после оприходования.</p>}

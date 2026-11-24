@@ -1,5 +1,6 @@
 'use client';
 
+import { MoneyInput } from '@koreacrm/ui';
 import { BarcodeField } from './barcode-field';
 import { FormEvent, useEffect, useState } from 'react';
 import { api, type Brand, type Category, type Page, type Product } from '../lib/api';
@@ -18,7 +19,8 @@ function initialValues(product?: Partial<Omit<Product, 'barcodes'>>): Values {
   return Object.fromEntries(fields.map((key) => [key, product?.[key as keyof Omit<Product, 'barcodes'>] ?? (key === 'unit' ? 'pcs' : '')])) as Values;
 }
 
-export function ProductForm({ product, initialDraft, onSaved, onSavingChange }: { product?: Product; initialDraft?: ProductDraft; onSaved: (product: Product) => void; onSavingChange?: (saving: boolean) => void }) {
+export function ProductForm({ product, initialDraft, withPrice = false, onSaved, onSavingChange }: { product?: Product; initialDraft?: ProductDraft; withPrice?: boolean; onSaved: (product: Product, priceError?: string) => void; onSavingChange?: (saving: boolean) => void }) {
+  const [priceMinor, setPriceMinor] = useState('');
   const [values, setValues] = useState<Values>(() => initialValues(product ?? initialDraft));
   const [brandId, setBrandId] = useState(product?.brandId ?? '');
   const [categoryId, setCategoryId] = useState(product?.categoryId ?? '');
@@ -49,7 +51,13 @@ export function ProductForm({ product, initialDraft, onSaved, onSavingChange }: 
         barcodes: codes,
       };
       const saved = await api<Product>(product ? `/products/${product.id}` : '/products', { method: product ? 'PATCH' : 'POST', body: JSON.stringify(body) });
-      onSaved(saved);
+      let priceError: string | undefined;
+      // The product exists from here on, so a refused price is reported on its card instead of blocking a duplicate save.
+      if (withPrice && !product && priceMinor) {
+        try { await api(`/products/${saved.id}/price`, { method: 'PATCH', body: JSON.stringify({ priceMinor: Number(priceMinor) }) }); }
+        catch (caught) { priceError = caught instanceof Error ? caught.message : 'Не удалось сохранить цену'; }
+      }
+      onSaved(saved, priceError);
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Не удалось сохранить товар'); }
     finally { setSaving(false); onSavingChange?.(false); }
   }
@@ -64,6 +72,9 @@ export function ProductForm({ product, initialDraft, onSaved, onSavingChange }: 
         <label className="crm-product-form-wide">Описание<textarea rows={3} value={values.description} onChange={event => setValues({ ...values, description: event.target.value })} /></label>
       </div>
     </section>
+    {withPrice && !product && <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ПРОДАЖИ</span><h2>Цена продажи</h2><p>Общая цена для всех магазинов. Можно оставить пустой и указать позже.</p></div>
+      <div className="crm-product-form-grid"><label>Цена продажи, сомони<MoneyInput valueMinor={priceMinor} onMinorChange={setPriceMinor} disabled={saving} placeholder="0,00" /></label></div>
+    </section>}
     <section className="crm-panel"><div className="crm-product-section-head"><span className="crm-eyebrow">ИДЕНТИФИКАЦИЯ</span><h2>Штрихкоды</h2></div>
       <BarcodeField barcodes={barcodes} draft={barcodeDraft} onDraftChange={setBarcodeDraft} onChange={setBarcodes} disabled={saving} />
     </section>
