@@ -36,14 +36,14 @@ export class MoneyService {
              'SALE' AS doc_kind, s.id::text AS doc_id, 'Продажа ' || s.number AS doc_title
       FROM "Payment" p JOIN "Sale" s ON s.id = p."saleId" JOIN "SalePaymentMethod" pm ON pm.id = p."paymentMethodId" JOIN "User" e ON e.id = s."employeeId"
       LEFT JOIN "User" seller ON seller.id = s."sellerId" LEFT JOIN "Customer" c ON c.id = s."customerId"
-      WHERE s.status = 'COMPLETED' AND pm.kind NOT IN ('BONUS', 'DEBT') AND ${scope('s."storeId"')}
+      WHERE s.status = 'COMPLETED' AND pm.kind NOT IN ('BONUS', 'DEBT', 'GIFT_CARD') AND ${scope('s."storeId"')}
       UNION ALL
       SELECT 'SALE_RETURN_PAYMENT', rp.id::text, r."createdAt", r."storeId", -rp."amountMinor",
              CASE WHEN pm.kind = 'CASH' THEN 'Касса ' || UPPER(LEFT(REGEXP_REPLACE(r."deviceId", '^(WEB|POS)-', ''), 8)) ELSE pm.name END, pm.kind::text,
              'Клиент ' || ${customer('c')}, 'Возврат денежных средств клиенту', u.name, r.reason, 'SALE_RETURN', r.id::text, 'Возврат продажи ' || s.number
       FROM "SaleReturnPayment" rp JOIN "SaleReturn" r ON r.id = rp."saleReturnId" JOIN "Sale" s ON s.id = r."saleId" JOIN "SalePaymentMethod" pm ON pm.id = rp."paymentMethodId"
       JOIN "User" u ON u.id = r."employeeId" LEFT JOIN "Customer" c ON c.id = s."customerId"
-      WHERE pm.kind NOT IN ('BONUS', 'DEBT') AND ${scope('r."storeId"')}
+      WHERE pm.kind NOT IN ('BONUS', 'DEBT', 'GIFT_CARD') AND ${scope('r."storeId"')}
       UNION ALL
       SELECT 'RECEIPTLESS_RETURN', rr.id::text, rr."createdAt", rr."storeId", -rr."amountMinor", 'Касса ' || UPPER(LEFT(REGEXP_REPLACE(rr."deviceId", '^(WEB|POS)-', ''), 8)), 'CASH',
              'Клиент Розничный покупатель', 'Возврат денежных средств клиенту', u.name, rr.reason, 'RECEIPTLESS_RETURN', rr.id::text, 'Возврат без чека'

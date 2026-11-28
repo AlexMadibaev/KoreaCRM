@@ -40,6 +40,17 @@ test('promotion rules win over the tier and follow local Tajikistan date', () =>
   assert.equal(automaticPercent({ ...rules, mode: 'BONUS' }, product, '15'), '0');
 });
 
+test('a promotion and the customer discount never add up: the larger one applies', () => {
+  const friday = loyaltySettingsSchema.parse({ ...defaultLoyaltySettings, promotions: [
+    { id: '66666666-6666-4666-8666-666666666666', targetType: 'ALL', targetId: '00000000-0000-4000-8000-000000000000', percent: '8', daysOfWeek: [5], startDate: null, endDate: null, active: true },
+  ] });
+  const fridayNoon = new Date('2026-11-27T07:00:00Z');
+  assert.equal(automaticPercent(friday, product, '10', fridayNoon), '10');
+  assert.equal(automaticPercent(friday, product, '7', fridayNoon), '8');
+  assert.equal(automaticPercent(friday, product, null, fridayNoon), '8');
+  assert.equal(automaticPercent(friday, product, '7', new Date('2026-11-28T07:00:00Z')), '7');
+});
+
 test('bonus mode requires an earn rate and thresholds must increase', () => {
   assert.equal(loyaltySettingsSchema.safeParse({ ...defaultLoyaltySettings, mode: 'BONUS' }).success, false);
   assert.equal(loyaltySettingsSchema.safeParse({ ...defaultLoyaltySettings, tiers: [{ minimumMinor: '80000', percent: '7' }, { minimumMinor: '50000', percent: '10' }] }).success, false);

@@ -42,7 +42,9 @@ export default function SalesPage() {
   const selectedCustomer = customers.find(customer => customer.id === customerId);
   let totals: ReturnType<typeof calculateSaleTotals> | null = null;
   let saleError = '';
-  try { if (lines.length && loyalty) { totals = calculateSaleTotals(lines, lines.map(line => loyaltyPercent(loyalty, line, selectedCustomer?.discountPercent ?? null)), { kind: receiptDiscountKind, value: receiptDiscountValue }); } }
+  // A manual discount (on a line or on the whole receipt) replaces every automatic discount on the receipt.
+  const manualMode = lines.some(line => line.discountMinor !== '0' && line.discountMinor !== '') || !['', '0'].includes(receiptDiscountValue.trim());
+  try { if (lines.length && loyalty) { totals = calculateSaleTotals(lines, lines.map(line => manualMode ? '0' : loyaltyPercent(loyalty, line, selectedCustomer?.discountPercent ?? null)), { kind: receiptDiscountKind, value: receiptDiscountValue }); } }
   catch (caught) { saleError = caught instanceof Error && caught.message === 'Receipt discount exceeds remaining total' ? 'Скидка на чек превышает сумму после других скидок.' : 'Проверьте товары, количество и скидки.'; }
   const total = totals?.total ?? 0n;
   const tendered = tenders.reduce((value, tender) => value + BigInt(validMoney(tender.amountMinor) ? tender.amountMinor : '0'), 0n);
@@ -53,7 +55,7 @@ export default function SalesPage() {
     if (!storeId || !loyalty || !permissions.includes('sales.view')) return;
     let current = true;
     void api<Method[]>(`/sale-payment-methods?storeId=${encodeURIComponent(storeId)}`).then((result) => { if (current) {
-      const active = result.filter((method) => method.active && (method.kind !== 'BONUS' || loyalty.mode === 'BONUS') && (method.kind !== 'CASH' || permissions.includes('finance.cash_view')));
+      const active = result.filter((method) => method.active && method.kind !== 'GIFT_CARD' && (method.kind !== 'BONUS' || loyalty.mode === 'BONUS') && (method.kind !== 'CASH' || permissions.includes('finance.cash_view')));
       setMethods(active);
       setTenders((existing) => existing.filter((tender) => active.some((method) => method.id === tender.paymentMethodId)));
     } }).catch((caught) => { if (current) setError(caught instanceof Error ? caught.message : 'Не удалось загрузить способы оплаты'); });
@@ -140,7 +142,7 @@ export default function SalesPage() {
     if (cashTender && !cashShiftId) { setError('Для наличной оплаты откройте кассовую смену'); return; }
     setBusy(true);
     try {
-      const sale = await api<Sale>(`/stores/${storeId}/sales`, { method: 'POST', body: JSON.stringify({ operationId, deviceId, ...(cashShiftId ? { cashShiftId } : {}), ...(customerId ? { customerId } : {}), items: lines.map((line, index) => ({ productId: line.productId, quantity: line.quantity, discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: tenders.map(tender => ({ paymentMethodId: tender.paymentMethodId, amountMinor: tender.amountMinor, ...(tender.reference ? { reference: tender.reference } : {}) })) }) });
+      const sale = await api<Sale>(`/stores/${storeId}/sales`, { method: 'POST', body: JSON.stringify({ operationId, deviceId, ...(cashShiftId ? { cashShiftId } : {}), ...(customerId ? { customerId } : {}), items: lines.map((line, index) => ({ productId: line.productId, quantity: line.quantity, discountMinor: totals.lines[index]!.discountMinor.toString() })), ...(manualMode ? { manualDiscount: true } : {}), payments: tenders.map(tender => ({ paymentMethodId: tender.paymentMethodId, amountMinor: tender.amountMinor, ...(tender.reference ? { reference: tender.reference } : {}) })) }) });
       setReceipt(sale); setLines([]); setReceiptDiscountValue('0'); setStockNotice(''); setTenders(current => current.slice(0, 1).map(tender => ({ ...tender, key: crypto.randomUUID(), amountMinor: '0', reference: '' }))); setCustomerId(''); setOperationId(crypto.randomUUID()); setSalesRevision(value => value + 1); await load();
     } catch (caught) { setError(errorMessage(caught)); }
     finally { setBusy(false); }

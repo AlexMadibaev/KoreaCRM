@@ -26,7 +26,7 @@ import { errorDetail, translateError } from './error-text';
 import { defaultParkedLabel, parkReceipt, readParked, writeParked, type ParkedReceipt } from './parked-receipts';
 import { ProductImage, type CatalogItem, type PosCatalogProduct } from './product-results';
 import { Icon, Kbd, LineEditor, ProductGrid, Sheet, defaultCardView, hasOverlay } from './cloud-ui';
-import { PaymentScreen, SaleSuccess, type PaymentPart } from './cloud-payment';
+import { PaymentScreen, SaleSuccess, type GiftCardLookup, type PaymentPart } from './cloud-payment';
 import { CatalogModePopover, CustomerCreateModal, CustomerPickerModal, OpenShiftModal, PopoverMenu, QueueModal, ReceiptDiscountModal, ReturnReasonModal, SettingsPanel, useClock, type NewCustomer, type PosSettingsState } from './cloud-dialogs';
 import { categoryNotice as categoryNoticeFor, filterCachedProducts, posCatalogPath, type PosCategory } from './catalog-filters';
 import { readStoreConnection, requireMatchingStore, saveStoreConnection } from './store-connection';
@@ -35,7 +35,7 @@ const CameraCodeScanner = lazy(() => import('./camera-code-scanner').then(module
 type Overlay = null | 'pay' | 'customer' | 'customerCreate' | 'queue' | 'discount' | 'openShift' | 'menu' | 'more' | 'catalogMode' | 'returnReason';
 
 type Line = { product: Pick<PosProduct, 'id' | 'name' | 'sku' | 'brandId' | 'categoryId'>; imageKey?: string; quantity: number; available: number; priceMinor: number; discountMinor: string };
-type SaleRequest = { operationId: string; deviceId: string; cashShiftId?: string; customerId?: string; sellerId?: string; comment?: string; items: { productId: string; quantity: number; priceMinor: string; discountMinor: string }[]; payments: { paymentMethodId: string; amountMinor: string; reference?: string }[] };
+type SaleRequest = { operationId: string; deviceId: string; cashShiftId?: string; customerId?: string; sellerId?: string; comment?: string; manualDiscount?: boolean; items: { productId: string; quantity: number; priceMinor: string; discountMinor: string }[]; payments: { paymentMethodId: string; amountMinor: string; reference?: string }[] };
 type PendingSale = { storeId: string; request: SaleRequest };
 const defaultApiUrl = import.meta.env.VITE_API_URL ?? '';
 const apiUrlKey = 'koreacrm-pos-api-url-v1';
@@ -196,13 +196,19 @@ export function App() {
     } catch { /* A malformed saved draft must not prevent signing in. */ }
   }, [signedIn, deviceReady, draftKey, canRestoreReturn]);
   const cartSubtotal = cart.reduce((sum, line) => sum + BigInt(line.priceMinor) * BigInt(line.quantity), 0n);
-  const cartPercents = loyalty ? cart.map(line => loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null)) : [];
+  // A manual discount (on a line or on the whole receipt) replaces every automatic discount on the receipt.
+  const canManualDiscount = can('sales.discount.manual') || can('sales.discount.unlimited');
+  const manualMode = receiptDiscount > 0n || cart.some(line => BigInt(line.discountMinor) > 0n);
+  const cartPercents = loyalty ? cart.map(line => manualMode ? '0' : loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null)) : [];
   const cartLines = cart.map(line => ({ productId: line.product.id, quantity: line.quantity, available: line.available, priceMinor: line.priceMinor, discountMinor: line.discountMinor }));
   let cartTotal: ReturnType<typeof calculateCartWithDiscount> | null = null;
   let cartError = '';
   // The whole-receipt discount is capped by what is left after line and loyalty discounts.
   try { if (cart.length && loyalty) { const base = calculateCartWithDiscount(cartLines, cartPercents); cartTotal = calculateCartWithDiscount(cartLines, cartPercents, { kind: 'FIXED', value: (receiptDiscount > base.total ? base.total : receiptDiscount).toString() }); } } catch { cartError = 'Проверьте количество товаров и скидку клиента.'; }
   useEffect(() => { if (!cart.length) setReceiptDiscount(0n); }, [cart.length]);
+  // The manual receipt discount is a share of the price without automatic discounts, since it replaces them.
+  let manualBaseMinor = 0n;
+  try { if (cart.length) manualBaseMinor = calculateCartWithDiscount(cartLines, cart.map(() => '0')).total; } catch { manualBaseMinor = 0n; }
   // Manual line discounts above the store limit need a manager's account.
   const manualDiscountMinor = cart.reduce((total, line) => total + BigInt(line.discountMinor), 0n) + (cartTotal?.cartDiscountMinor ?? 0n);
   const discountLimitPercent = loyalty?.maxManualDiscountPercent ?? '100';
@@ -808,8 +814,15 @@ export function App() {
       const rows = parts.map(part => ({ methodId: part.methodId, amountMinor: part.amountMinor.toString(), kind: part.kind }));
       const cash = rows.some(row => row.kind === 'CASH');
       validatePayments(rows, totals.total, customerId || null, cash ? shift?.id ?? null : null, selectedCustomer?.bonusBalanceMinor ?? '0');
-      const request: SaleRequest = { operationId: crypto.randomUUID(), deviceId, ...(shift ? { cashShiftId: shift.id } : {}), ...(customerId ? { customerId } : {}), ...(comment ? { comment } : {}), items: cart.map((line, index) => ({ productId: line.product.id, quantity: line.quantity, priceMinor: String(line.priceMinor), discountMinor: totals.lines[index]!.discountMinor.toString() })), payments: parts.map(part => ({ paymentMethodId: part.methodId, amountMinor: part.amountMinor.toString(), ...(part.reference ? { reference: part.reference } : {}) })) };
+      const request: SaleRequest = { operationId: crypto.randomUUID(), deviceId, ...(shift ? { cashShiftId: shift.id } : {}), ...(customerId ? { customerId } : {}), ...(comment ? { comment } : {}), items: cart.map((line, index) => ({ productId: line.product.id, quantity: line.quantity, priceMinor: String(line.priceMinor), discountMinor: totals.lines[index]!.discountMinor.toString() })), ...(manualMode ? { manualDiscount: true } : {}), payments: parts.map(part => ({ paymentMethodId: part.methodId, amountMinor: part.amountMinor.toString(), ...(part.reference ? { reference: part.reference } : {}) })) };
       const clearSale = () => { setCart([]); setReceipt(null); setCustomerId(''); setReceiptDiscount(0n); };
+      // A gift card is spent on the server at once; such a sale is never queued, so the card cannot be spent twice.
+      if (parts.some(part => part.kind === 'GIFT_CARD')) {
+        if (offlineSignedIn || offlineNetwork) throw new Error('Оплата гифт-картой работает только при связи с сервером.');
+        setBusy(true); setError('');
+        finish(await sendSale({ storeId, request }));
+        return;
+      }
       if (hasDesktopCache()) {
         setBusy(true); setError(''); setQueueNotice('');
         await enqueueSale(userId, storeId, request.operationId, request);
@@ -961,7 +974,7 @@ export function App() {
             </li>; })}</ul><div className="cs-section-row"><span>Покупают вместе</span><Icon name="settings" size={18} /></div></>}
           </div>
           <div className="cs-totals">
-            {cart.length > 0 && <><div><span>Подытог</span><strong>{formatMinor(totalsView.subtotal)}смн.</strong></div><div><span>Скидка {discountPercentLabel || '0,00%'}</span><button type="button" className="cs-link" onClick={() => setOverlay('discount')} disabled={Boolean(pending) || returnMode}>{formatMinor(totalsView.discount)}смн.</button></div></>}
+            {cart.length > 0 && <><div><span>Подытог</span><strong>{formatMinor(totalsView.subtotal)}смн.</strong></div><div><span>{manualMode ? 'Ручная скидка' : 'Скидка'} {discountPercentLabel || '0,00%'}</span><button type="button" className="cs-link" onClick={() => setOverlay('discount')} disabled={Boolean(pending) || returnMode || !canManualDiscount} title={canManualDiscount ? undefined : 'Ручная скидка недоступна'}>{formatMinor(totalsView.discount)}смн.</button></div></>}
             {discountOverLimit && <p className="cs-error">Ручная скидка больше {discountLimitPercent}%. Нужен менеджер.</p>}
             {cartError && <p className="cs-error">{cartError}</p>}
             {(!cart.length || parked.length > 0 || unsent > 0) && <div className="cs-queue-chips"><button type="button" className="is-accent" onClick={() => setOverlay('queue')}>ОЧЕРЕДЬ ЧЕКОВ: {parked.length}</button><button type="button" onClick={() => setSheet('sync')} disabled={!hasDesktopCache()}>НЕПРОВЕДЁННЫЕ: {unsent}</button></div>}
@@ -993,11 +1006,11 @@ export function App() {
     {overlay === 'queue' && <QueueModal receipts={parked} onPick={receipt => { restoreParked(receipt); setOverlay(null); }} onDelete={receipt => saveParked(parked.filter(value => value.id !== receipt.id))} onClose={() => setOverlay(null)} />}
     {overlay === 'customer' && <CustomerPickerModal customers={customers} search={customerSearch} onSearch={setCustomerSearch} onPick={customer => { setCustomerId(customer?.id ?? ''); setCustomerSearch(''); setOverlay(payOpen ? 'pay' : null); }} onClose={() => setOverlay(payOpen ? 'pay' : null)} />}
     {overlay === 'customerCreate' && <CustomerCreateModal initial={customerSearch} canDiscount={can('customers.discount.edit')} loyaltyMode={loyalty?.mode ?? 'DISCOUNT'} onCreate={async data => { const problem = await createCustomer(data); if (!problem) setOverlay(payOpen ? 'pay' : null); return problem; }} onClose={() => setOverlay(payOpen ? 'pay' : null)} />}
-    {overlay === 'discount' && cartTotal && <ReceiptDiscountModal baseMinor={cartTotal.total + cartTotal.cartDiscountMinor} currentMinor={receiptDiscount} onApply={minor => { setReceiptDiscount(minor); setOverlay(null); }} onClose={() => setOverlay(null)} />}
+    {overlay === 'discount' && cartTotal && <ReceiptDiscountModal baseMinor={manualBaseMinor} currentMinor={receiptDiscount} onApply={minor => { setReceiptDiscount(minor); setOverlay(null); }} onClose={() => setOverlay(null)} />}
     {overlay === 'openShift' && <OpenShiftModal client={client} storeId={storeId} deviceId={deviceId} storeName={storeName} errorText={message} onOpened={opened => { setShift(opened); void persistShift(opened); setOverlay(null); flashNotice('Смена открыта.'); }} onClose={() => setOverlay(null)} />}
     {overlay === 'returnReason' && <ReturnReasonModal totalMinor={totalsView.total} busy={busy} onConfirm={reason => void returnWithoutReceipt(reason)} onClose={() => setOverlay(null)} />}
-    {editedLine && <LineEditor name={editedLine.product.name} imageKey={editedLine.imageKey} apiUrl={client.baseUrl()} priceMinor={editedLine.priceMinor} quantity={editedLine.quantity} available={editedLine.available} discountMinor={editedLine.discountMinor} onApply={(quantity, discountMinor) => { setCart(current => current.map(item => item.product.id === editedLine.product.id ? { ...item, quantity, discountMinor } : item)); setLineEditId(''); }} onClose={() => setLineEditId('')} />}
-    {payOpen && overlay === 'pay' && <PaymentScreen totals={totalsView} methods={methods} customer={selectedCustomer ?? null} shiftOpen={Boolean(shift)} busy={busy} printDefault={settings.printByDefault} onChangeCustomer={() => setOverlay('customer')} onComplete={(parts, change, print, comment) => void completeSale(parts, change, print, comment)} onClose={() => { setPayOpen(false); setOverlay(null); }} />}
+    {editedLine && <LineEditor name={editedLine.product.name} imageKey={editedLine.imageKey} apiUrl={client.baseUrl()} priceMinor={editedLine.priceMinor} quantity={editedLine.quantity} available={editedLine.available} discountMinor={editedLine.discountMinor} canDiscount={canManualDiscount} onApply={(quantity, discountMinor) => { setCart(current => current.map(item => item.product.id === editedLine.product.id ? { ...item, quantity, discountMinor } : item)); setLineEditId(''); }} onClose={() => setLineEditId('')} />}
+    {payOpen && overlay === 'pay' && <PaymentScreen totals={totalsView} methods={methods} onLookupGiftCard={code => client.get<GiftCardLookup>(`/gift-cards/lookup/${encodeURIComponent(code)}`)} customer={selectedCustomer ?? null} shiftOpen={Boolean(shift)} busy={busy} printDefault={settings.printByDefault} onChangeCustomer={() => setOverlay('customer')} onComplete={(parts, change, print, comment) => void completeSale(parts, change, print, comment)} onClose={() => { setPayOpen(false); setOverlay(null); }} />}
     {success && <SaleSuccess totals={success.totals} methods={methods} parts={success.parts} change={success.change} onPrint={success.sale ? () => void printSale(success.sale!) : undefined} onClose={() => { setSuccess(null); window.setTimeout(() => searchRef.current?.focus(), 0); }} />}
 
     {sheet === 'history' && <JournalModal client={client} storeId={storeId} deviceId={deviceId} shift={shift} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} printerHost={printerHost} errorText={message} onPrint={sale => void printSale(sale)} onReturned={() => { setSalesRevision(value => value + 1); void refreshShift().catch(caught => setError(message(caught))); }} onClose={() => setSheet(null)} />}

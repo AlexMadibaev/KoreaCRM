@@ -9,7 +9,7 @@ export const loyaltySettingsSchema = z.object({
   tiers: z.array(z.object({ minimumMinor: minor, percent })).max(20),
   bonusEarnPercent: percent,
   consultantEarnPercent: percent,
-  // Largest manual discount a cashier may give on a receipt, on top of automatic discounts.
+  // Largest manual discount a cashier may give on a receipt. A manual discount replaces the automatic ones.
   maxManualDiscountPercent: percent.default('100'),
   excludedProductIds: z.array(uuid).max(500),
   excludedBrandIds: z.array(uuid).max(200),
@@ -43,6 +43,7 @@ export function automaticPercent(settings: LoyaltySettings, line: { productId: s
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Dushanbe', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at).map(part => [part.type, part.value]));
   const date = `${parts.year}-${parts.month}-${parts.day}`, day = new Date(`${date}T00:00:00Z`).getUTCDay();
   const promotion = settings.promotions.filter(rule => rule.active && (!rule.startDate || date >= rule.startDate) && (!rule.endDate || date <= rule.endDate) && (!rule.daysOfWeek.length || rule.daysOfWeek.includes(day)) && (rule.targetType === 'ALL' || rule.targetType === 'PRODUCT' && rule.targetId === line.productId || rule.targetType === 'BRAND' && rule.targetId === line.brandId || rule.targetType === 'CATEGORY' && rule.targetId === line.categoryId)).sort((a, b) => Number(b.percent) - Number(a.percent))[0];
-  if (promotion) return promotion.percent;
-  return customerPercent ?? '0';
+  // Discounts never add up: the customer's own discount and a promotion compete, and the larger one applies.
+  const personal = customerPercent ?? '0';
+  return promotion && percentBasisPoints(promotion.percent) > percentBasisPoints(personal) ? promotion.percent : personal;
 }

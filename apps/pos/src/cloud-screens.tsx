@@ -280,7 +280,7 @@ export function DebtsModal({ client, storeId, shift, methods, canPay, errorText,
 }
 
 function DebtPayModal({ client, storeId, shift, customer, methods, defaultMinor, canPay, errorText, onPaid, onClose }: { client: Client; storeId: string; shift: PosShift | null; customer: PosCustomer; methods: PosPaymentMethod[]; defaultMinor: bigint; canPay: boolean; errorText: (caught: unknown) => string; onPaid: (cash: boolean) => void; onClose: () => void }) {
-  const options = methods.filter(method => method.kind !== 'DEBT' && method.kind !== 'BONUS');
+  const options = methods.filter(method => method.kind !== 'DEBT' && method.kind !== 'BONUS' && method.kind !== 'GIFT_CARD');
   const [methodId, setMethodId] = useState(options[0]?.id ?? '');
   const [amount, setAmount] = useState(defaultMinor.toString());
   const [operationId] = useState(() => crypto.randomUUID());

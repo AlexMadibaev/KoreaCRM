@@ -88,7 +88,7 @@ export default function OrdersPage() {
         setMethods(
           payments.filter(
             (method) =>
-              method.active && !['BONUS', 'DEBT'].includes(method.kind),
+              method.active && !['BONUS', 'DEBT', 'GIFT_CARD'].includes(method.kind),
           ),
         );
         chooseStore(locations[0]?.id ?? '');

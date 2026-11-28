@@ -462,7 +462,7 @@ export class OrdersService {
       const method = await tx.salePaymentMethod.findFirst({
         where: { id: input.paymentMethodId, active: true, ...paymentMethodStoreFilter(storeId) },
       });
-      if (!method || ['BONUS', 'DEBT'].includes(method.kind))
+      if (!method || ['BONUS', 'DEBT', 'GIFT_CARD'].includes(method.kind))
         throw new BadRequestException(
           'Для предоплаты выберите денежный способ оплаты.',
         );

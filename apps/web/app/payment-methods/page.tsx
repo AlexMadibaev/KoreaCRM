@@ -4,10 +4,10 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { CatalogShell } from '../../components/catalog-shell';
 import { api } from '../../lib/api';
 
-type Kind = 'CASH' | 'CARD' | 'QR' | 'TRANSFER' | 'BONUS' | 'DEBT' | 'CUSTOM';
+type Kind = 'CASH' | 'CARD' | 'QR' | 'TRANSFER' | 'BONUS' | 'DEBT' | 'GIFT_CARD' | 'CUSTOM';
 type Method = { id: string; code: string; name: string; kind: Kind; active: boolean; system: boolean; sortOrder: number };
-const kindName: Record<Kind, string> = { CASH: 'Наличные', CARD: 'Банковская карта', QR: 'QR-код', TRANSFER: 'Перевод', BONUS: 'Бонусы клиента', DEBT: 'Долг клиента', CUSTOM: 'Другое' };
-const kindHint: Partial<Record<Kind, string>> = { CASH: 'Учитывается в кассовой смене. На кассе виден кассирам с правом просмотра наличных.', BONUS: 'Показывается только в бонусном режиме лояльности.', DEBT: 'Требует выбранного клиента.' };
+const kindName: Record<Kind, string> = { CASH: 'Наличные', CARD: 'Банковская карта', QR: 'QR-код', TRANSFER: 'Перевод', BONUS: 'Бонусы клиента', DEBT: 'Долг клиента', GIFT_CARD: 'Гифт-карта', CUSTOM: 'Другое' };
+const kindHint: Partial<Record<Kind, string>> = { CASH: 'Учитывается в кассовой смене. На кассе виден кассирам с правом просмотра наличных.', BONUS: 'Показывается только в бонусном режиме лояльности.', DEBT: 'Требует выбранного клиента.', GIFT_CARD: 'На кассе: сканирование QR-кода гифт-карты, только при связи с сервером.' };
 const creatableKinds: Kind[] = ['CARD', 'QR', 'TRANSFER', 'CASH', 'CUSTOM'];
 const errorText = (caught: unknown) => {
   const text = caught instanceof Error ? caught.message : '';

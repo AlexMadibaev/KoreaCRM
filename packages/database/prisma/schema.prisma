@@ -654,6 +654,7 @@ enum SalePaymentKind {
   TRANSFER
   BONUS
   DEBT
+  GIFT_CARD
   CUSTOM
 }
 
@@ -1163,4 +1164,50 @@ model StorePaymentMethod {
   paymentMethod SalePaymentMethod @relation(fields: [paymentMethodId], references: [id], onDelete: Cascade)
   @@id([storeId, paymentMethodId])
   @@index([paymentMethodId])
+}
+
+enum GiftCardStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum GiftCardTransactionType {
+  ISSUE
+  REDEEM
+  REFUND
+}
+
+/// A prepaid card with a QR code. The code is what the QR encodes and what the till scans.
+model GiftCard {
+  id           String                @id @default(uuid()) @db.Uuid
+  code         String                @unique
+  initialMinor Decimal               @db.Decimal(18, 0)
+  balanceMinor Decimal               @db.Decimal(18, 0)
+  status       GiftCardStatus        @default(ACTIVE)
+  expiresAt    DateTime?
+  comment      String?
+  createdById  String                @db.Uuid
+  transactions GiftCardTransaction[]
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@index([createdAt])
+}
+
+model GiftCardTransaction {
+  id                String                  @id @default(uuid()) @db.Uuid
+  giftCardId        String                  @db.Uuid
+  giftCard          GiftCard                @relation(fields: [giftCardId], references: [id])
+  type              GiftCardTransactionType
+  /// Signed: positive adds to the balance, negative spends it.
+  amountMinor       Decimal                 @db.Decimal(18, 0)
+  balanceAfterMinor Decimal                 @db.Decimal(18, 0)
+  saleId            String?                 @db.Uuid
+  paymentId         String?                 @db.Uuid
+  saleReturnId      String?                 @db.Uuid
+  actorId           String                  @db.Uuid
+  createdAt         DateTime                @default(now())
+
+  @@index([giftCardId, createdAt])
+  @@index([paymentId])
 }

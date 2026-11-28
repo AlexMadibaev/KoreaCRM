@@ -345,3 +345,35 @@ test('manual discount above the configured limit needs the unlimited discount pe
   await service.create(storeId, { ...sale('150', '850'), operationId: '55555555-5555-4555-8555-555555555555' }, 'actor', false, true);
   assert.equal(created, 2);
 });
+
+test('a manual discount replaces automatic discounts and needs the manual discount right', async () => {
+  const customerId = '99999999-9999-4999-8999-999999999999';
+  let created = 0;
+  const tx = {
+    sale: { findUnique: async () => null, aggregate: async () => ({ _max: { sequence: null } }), create: async () => { created++; return { id: 'sale-1' }; }, findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
+    store: { findFirst: async () => ({ id: storeId }) },
+    posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
+    customer: { findFirst: async () => ({ id: customerId, discountPercent: new Prisma.Decimal(10), totalSpentMinor: new Prisma.Decimal(0), ordersCount: 0, debtBalanceMinor: new Prisma.Decimal(0), bonusBalanceMinor: new Prisma.Decimal(0) }), update: async () => ({}) },
+    product: { findFirst: async () => ({ id: productId, sku: 'KR-1', brandId: null, categoryId: null }) },
+    loyaltySettings: { findUnique: async () => ({ rules: { ...defaultLoyaltySettings, maxManualDiscountPercent: '100' } }) },
+    storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 1000, costBasisMinor: 400 }) },
+    productBatch: { findFirst: async () => null },
+    user: { findUniqueOrThrow: async () => ({ id: 'actor', rewardPercent: new Prisma.Decimal(0) }) },
+    salePaymentMethod: { findMany: async () => [{ id: paymentMethodId, kind: 'CARD', active: true }] },
+    saleItem: { create: async () => ({ id: 'item-1' }) },
+    payment: { create: async () => ({ id: 'payment-1' }) },
+    auditLog: { create: async () => ({}) },
+  };
+  const db = { $transaction: async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx) } as unknown as DatabaseService;
+  const service = new SalesService(db, { applyMovementInTransaction: async () => ({ newQuantity: 4 }) } as unknown as StockService, {} as FinanceService, notifications);
+  let next = 0;
+  const sale = (discountMinor: string, manualDiscount?: boolean) => ({ ...input, operationId: `aaaaaaaa-aaaa-4aaa-8aaa-${String(++next).padStart(12, '0')}`, customerId, ...(manualDiscount === undefined ? {} : { manualDiscount }), items: [{ productId, quantity: 1, discountMinor }], payments: [{ paymentMethodId, amountMinor: String(1000 - Number(discountMinor)) }] });
+  // The customer's 10% is automatic; a 5% manual discount replaces it instead of failing as "missing".
+  await service.create(storeId, sale('50', true), 'actor', false, false, true);
+  await assert.rejects(service.create(storeId, sale('50', true), 'actor', false, false, false), ForbiddenException);
+  // Without the right, the automatic discount alone is accepted and anything on top of it is refused.
+  await service.create(storeId, sale('100'), 'actor', false, false, false);
+  await assert.rejects(service.create(storeId, sale('150'), 'actor', false, false, false), ForbiddenException);
+  await assert.rejects(service.create(storeId, sale('50'), 'actor', false, false, false), BadRequestException);
+  assert.equal(created, 2);
+});

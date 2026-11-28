@@ -13,7 +13,8 @@ const permissionCodes = [
   'products.view', 'products.create', 'products.edit', 'products.delete',
   'brands.view', 'brands.create', 'brands.edit', 'brands.delete',
   'categories.view', 'categories.create', 'categories.edit', 'categories.delete',
-  'sales.view', 'sales.create', 'sales.return', 'sales.return_no_receipt', 'sales.discount.unlimited',
+  'sales.view', 'sales.create', 'sales.return', 'sales.return_no_receipt', 'sales.discount.unlimited', 'sales.discount.manual',
+  'giftcards.view', 'giftcards.manage',
   'customers.view', 'customers.create', 'customers.edit', 'customers.discount.edit', 'customers.delete',
   'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay',
   'employees.view', 'employees.create', 'employees.edit',
@@ -29,7 +30,7 @@ const roleGrants: Record<string, string[]> = {
   SUPERUSER: permissionCodes,
   OWNER: permissionCodes,
   DIRECTOR: permissionCodes.filter((code) => code !== 'settings.edit' && code !== 'loyalty.edit'),
-  MANAGER: [...orderPermissions, 'customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'sales.return_no_receipt', 'sales.discount.unlimited', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay', 'reports.view', 'stores.view', 'stores.edit'],
+  MANAGER: [...orderPermissions, 'customers.discount.edit', 'products.view', 'brands.view', 'categories.view', 'sales.view', 'sales.create', 'sales.return', 'sales.return_no_receipt', 'sales.discount.unlimited', 'sales.discount.manual', 'giftcards.view', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay', 'reports.view', 'stores.view', 'stores.edit'],
   ADMIN: ['orders.view', 'orders.create', 'orders.edit', 'orders.confirm', 'customers.discount.edit', 'products.view', 'products.create', 'products.edit', 'brands.view', 'brands.create', 'brands.edit', 'categories.view', 'categories.create', 'categories.edit', 'sales.view', 'customers.view', 'customers.create', 'customers.edit', 'employees.view', 'employees.create', 'employees.edit', 'inventory.view', 'inventory.adjust', 'reports.view', 'stores.view', 'stores.edit'],
   ACCOUNTANT: ['orders.view', 'orders.pay', 'sales.view', 'customers.view', 'finance.view', 'finance.edit', 'finance.cash_view', 'finance.supplier_pay', 'finance.customer_pay', 'suppliers.view', 'purchases.view', 'reports.view'],
   WAREHOUSE: ['products.view', 'brands.view', 'categories.view', 'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel', 'suppliers.view', 'purchases.view', 'purchases.receive', 'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.send', 'transfers.receive', 'transfers.cancel'],
@@ -59,6 +60,7 @@ async function main() {
     { code: 'TRANSFER', name: 'Перевод', kind: 'TRANSFER', sortOrder: 40 },
     { code: 'BONUS', name: 'Бонусы', kind: 'BONUS', sortOrder: 60 },
     { code: 'DEBT', name: 'Долг', kind: 'DEBT', sortOrder: 50 },
+    { code: 'GIFT_CARD', name: 'Гифт-карта', kind: 'GIFT_CARD', sortOrder: 70 },
   ] as const) {
     // Name, order and availability are edited in the cabinet, so a redeploy must not reset them.
     await prisma.salePaymentMethod.upsert({ where: { code: method.code }, update: { kind: method.kind, system: true }, create: { ...method, system: true, active: true } });

@@ -4,13 +4,14 @@ import type { PosCustomer, PosPaymentMethod } from '@koreacrm/types';
 import { formatMinor } from './calculations';
 import { Icon, Kbd, Modal, useOverlayKeys } from './cloud-ui';
 
+export type GiftCardLookup = { code: string; balanceMinor: string; usable: boolean; problem: string | null };
 export type PaymentPart = { methodId: string; kind: PosPaymentMethod['kind']; name: string; amountMinor: bigint; reference: string };
 type Totals = { subtotal: bigint; discount: bigint; total: bigint };
 const bills = [500n, 1000n, 2000n, 5000n, 10000n].map(value => value * 100n);
 const initials = (customer: PosCustomer) => `${customer.firstName[0] ?? ''}${customer.lastName?.[0] ?? ''}`.toUpperCase();
 const cardReference = (rrn: string, last4: string) => [rrn ? `RRN ${rrn}` : '', last4 ? `карта *${last4}` : ''].filter(Boolean).join(' · ');
 const whole = (minor: bigint) => minor % 100n === 0n ? new Intl.NumberFormat('ru-RU').format(minor / 100n) : formatMinor(minor);
-const methodIcon = (kind: PosPaymentMethod['kind']) => kind === 'CASH' ? 'cash' : kind === 'DEBT' ? 'handshake' : kind === 'BONUS' ? 'gift' : 'card';
+const methodIcon = (kind: PosPaymentMethod['kind']) => kind === 'CASH' ? 'cash' : kind === 'DEBT' ? 'handshake' : kind === 'BONUS' || kind === 'GIFT_CARD' ? 'gift' : 'card';
 
 /** Cash suggestions: the exact remainder, the next round hundred, then banknotes above it. */
 export function cashOptions(remaining: bigint): bigint[] {
@@ -31,7 +32,7 @@ export function acceptPart(parts: PaymentPart[], part: PaymentPart, total: bigin
   return { parts: next, change };
 }
 
-export function PaymentScreen({ totals, methods, customer, shiftOpen, busy, printDefault, onChangeCustomer, onComplete, onClose }: { totals: Totals; methods: PosPaymentMethod[]; customer: PosCustomer | null; shiftOpen: boolean; busy: boolean; printDefault: boolean; onChangeCustomer: () => void; onComplete: (parts: PaymentPart[], change: bigint, print: boolean, comment: string) => void; onClose: () => void }) {
+export function PaymentScreen({ totals, methods, onLookupGiftCard, customer, shiftOpen, busy, printDefault, onChangeCustomer, onComplete, onClose }: { totals: Totals; methods: PosPaymentMethod[]; onLookupGiftCard: (code: string) => Promise<GiftCardLookup>; customer: PosCustomer | null; shiftOpen: boolean; busy: boolean; printDefault: boolean; onChangeCustomer: () => void; onComplete: (parts: PaymentPart[], change: bigint, print: boolean, comment: string) => void; onClose: () => void }) {
   const [parts, setParts] = useState<PaymentPart[]>([]);
   const [change, setChange] = useState(0n);
   const [methodId, setMethodId] = useState(methods[0]?.id ?? '');
@@ -44,6 +45,7 @@ export function PaymentScreen({ totals, methods, customer, shiftOpen, busy, prin
   const [terminal, setTerminal] = useState<{ amount: bigint } | null>(null);
   const [rrn, setRrn] = useState(''), [last4, setLast4] = useState('');
   const [error, setError] = useState('');
+  const [giftCode, setGiftCode] = useState(''), [giftCard, setGiftCard] = useState<GiftCardLookup | null>(null), [giftChecking, setGiftChecking] = useState(false);
   const method = methods.find(value => value.id === methodId);
   const value = /^\d+$/.test(amount) ? BigInt(amount) : 0n;
   const bonusUsed = parts.filter(part => part.kind === 'BONUS').reduce((sum, part) => sum + part.amountMinor, 0n);
@@ -56,6 +58,8 @@ export function PaymentScreen({ totals, methods, customer, shiftOpen, busy, prin
     if (method.kind !== 'CASH' && value > remaining) return `Сумма больше остатка ${formatMinor(remaining)}.`;
     if (method.kind === 'CASH' && !shiftOpen) return 'Для наличных откройте смену.';
     if (method.kind === 'DEBT' && !customer) return 'Отсрочка доступна только с клиентом. Нажмите «Изменить» и выберите клиента.';
+    if (method.kind === 'GIFT_CARD' && parts.some(part => part.kind === 'GIFT_CARD')) return 'В одном чеке можно оплатить только одной гифт-картой.';
+    if (method.kind === 'GIFT_CARD' && giftCard && value > BigInt(giftCard.balanceMinor)) return `На гифт-карте только ${formatMinor(BigInt(giftCard.balanceMinor))} смн.`;
     if (method.kind === 'BONUS' && (!customer || value + bonusUsed > BigInt(customer.bonusBalanceMinor ?? '0'))) return 'Недостаточно бонусов у клиента.';
     return '';
   }
@@ -67,21 +71,39 @@ export function PaymentScreen({ totals, methods, customer, shiftOpen, busy, prin
     setAmount(left.toString());
     if (left === 0n) onComplete(result.parts, nextChange, print, comment.trim());
   }
+  async function checkGiftCard() {
+    const code = giftCode.trim();
+    if (!code) { setError('Отсканируйте QR-код гифт-карты или введите её номер.'); return; }
+    setGiftChecking(true); setError('');
+    try {
+      const card = await onLookupGiftCard(code);
+      if (!card.usable) { setGiftCard(null); setError(card.problem ?? 'Гифт-картой нельзя оплатить.'); return; }
+      setGiftCard(card); setGiftCode(card.code);
+      const balance = BigInt(card.balanceMinor);
+      setAmount((balance < remaining ? balance : remaining).toString());
+    } catch (caught) {
+      setGiftCard(null);
+      setError(caught instanceof Error && caught.message ? caught.message : 'Не удалось проверить гифт-карту. Проверьте связь с сервером.');
+    } finally { setGiftChecking(false); }
+  }
   function accept() {
-    if (busy) return;
+    if (busy || giftChecking) return;
     // Everything is already paid but the sale was not saved: send it again.
     if (remaining === 0n && parts.length) { onComplete(parts, change, print, comment.trim()); return; }
+    // A scan ends with Enter: the first one checks the card and fills in what it can pay, the next one accepts it.
+    if (method?.kind === 'GIFT_CARD' && (!giftCard || giftCard.code !== giftCode.trim().toUpperCase())) { void checkGiftCard(); return; }
     const reason = problem();
     if (reason) { setError(reason); return; }
     if (method!.kind === 'CARD') { setTerminal({ amount: value }); return; }
-    add({ methodId: method!.id, kind: method!.kind, name: method!.name, amountMinor: value, reference: '' });
+    add({ methodId: method!.id, kind: method!.kind, name: method!.name, amountMinor: value, reference: method!.kind === 'GIFT_CARD' ? giftCard!.code : '' });
+    if (method!.kind === 'GIFT_CARD') { setGiftCard(null); setGiftCode(''); }
   }
   function remove(part: PaymentPart) {
     const next = parts.filter(item => item !== part);
     setParts(next); setChange(0n); setAmount((totals.total - next.reduce((sum, item) => sum + item.amountMinor, 0n)).toString());
   }
   useOverlayKeys({ escape: () => { if (!terminal && !busy) onClose(); }, enter: terminal ? undefined : accept });
-  const label = busy ? 'СОЗДАНИЕ ПРОДАЖИ…' : remaining === 0n && parts.length ? 'ПОВТОРИТЬ ОТПРАВКУ' : method?.kind === 'CARD' ? method.name.toUpperCase() : method?.kind === 'DEBT' ? 'ПРИНЯТЬ' : `ПРИНЯТЬ ${formatMinor(value)}СМН.`;
+  const label = busy ? 'СОЗДАНИЕ ПРОДАЖИ…' : remaining === 0n && parts.length ? 'ПОВТОРИТЬ ОТПРАВКУ' : giftChecking ? 'ПРОВЕРЯЕМ КАРТУ…' : method?.kind === 'GIFT_CARD' && !giftCard ? 'ПРОВЕРИТЬ КАРТУ' : method?.kind === 'CARD' ? method.name.toUpperCase() : method?.kind === 'DEBT' ? 'ПРИНЯТЬ' : `ПРИНЯТЬ ${formatMinor(value)}СМН.`;
 
   return <div className="cs-pay" role="dialog" aria-modal="true" aria-label="Оплата">
     <button type="button" className="cs-text-button cs-pay-close" onClick={onClose} disabled={busy}>ЗАКРЫТЬ <Kbd>ESC</Kbd></button>
@@ -103,8 +125,10 @@ export function PaymentScreen({ totals, methods, customer, shiftOpen, busy, prin
       <section className="cs-pay-right">
         <h2>Принять оплату</h2>
         <div className="cs-pay-customer">{customer ? <><span className="cs-avatar is-cyan">{initials(customer)}</span><span><strong>{customer.firstName} {customer.lastName ?? ''}</strong>{debtBefore > 0n && <small className="cs-orange">Долг {formatMinor(debtBefore)}смн.</small>}</span></> : <><span className="cs-avatar is-cyan"><Icon name="person" size={20} /></span><span><strong>Розничный покупатель</strong></span></>}<button type="button" className="cs-small-button" onClick={onChangeCustomer} disabled={busy || accepted > 0n}>ИЗМЕНИТЬ</button></div>
-        <div className="cs-methods" role="radiogroup" aria-label="Способ оплаты">{methods.map(item => <button type="button" role="radio" key={item.id} aria-checked={item.id === methodId} className={item.id === methodId ? 'is-on' : ''} onClick={() => { setMethodId(item.id); setError(''); setAmount(remaining.toString()); }} disabled={busy}><span className="cs-method-tile"><Icon name={methodIcon(item.kind)} size={30} /></span><small>{item.name}</small></button>)}</div>
-        <label className="cs-outlined"><span>Сумма</span><MoneyInput autoFocus valueMinor={amount} onMinorChange={next => { setAmount(next); setError(''); }} disabled={busy} /></label>
+        <div className="cs-methods" role="radiogroup" aria-label="Способ оплаты">{methods.map(item => <button type="button" role="radio" key={item.id} aria-checked={item.id === methodId} className={item.id === methodId ? 'is-on' : ''} onClick={() => { setMethodId(item.id); setError(''); setAmount(remaining.toString()); setGiftCard(null); setGiftCode(''); }} disabled={busy}><span className="cs-method-tile"><Icon name={methodIcon(item.kind)} size={30} /></span><small>{item.name}</small></button>)}</div>
+        {method?.kind === 'GIFT_CARD' && <label className="cs-outlined"><span>QR-код гифт-карты</span><input autoFocus autoComplete="off" spellCheck={false} placeholder="Отсканируйте или введите GC-XXXX-XXXX-XXXX" value={giftCode} onChange={event => { setGiftCode(event.target.value); setGiftCard(null); setError(''); }} disabled={busy || giftChecking} /></label>}
+        {method?.kind === 'GIFT_CARD' && giftCard && <p className="cs-caption">Баланс карты {giftCard.code}: {formatMinor(BigInt(giftCard.balanceMinor))} смн.</p>}
+        <label className="cs-outlined"><span>Сумма</span><MoneyInput autoFocus={method?.kind !== 'GIFT_CARD'} valueMinor={amount} onMinorChange={next => { setAmount(next); setError(''); }} disabled={busy} /></label>
         {method?.kind === 'CASH' && remaining > 0n && <><p className="cs-subtitle">Варианты оплаты наличными</p><div className="cs-bills">{cashOptions(remaining).map(option => <button type="button" key={option.toString()} className={option.toString() === amount ? 'is-on' : ''} onClick={() => setAmount(option.toString())} disabled={busy}>{whole(option)}</button>)}</div></>}
         {method?.kind === 'DEBT' && customer && <div className="cs-debt-box"><span>Общий долг составит:</span><strong>{formatMinor(debtAfter)}смн.</strong></div>}
         {method?.kind === 'BONUS' && customer && <p className="cs-caption">Доступно бонусов: {formatMinor(BigInt(customer.bonusBalanceMinor ?? '0') - bonusUsed)}</p>}
@@ -123,7 +147,7 @@ export function SaleSuccess({ totals, methods, parts, change, onPrint, onClose }
   useOverlayKeys({ escape: onClose, enter: onClose });
   const [showTotals, setShowTotals] = useState(false);
   const accepted = parts.reduce((sum, part) => sum + part.amountMinor, 0n) + change;
-  const shown = methods.filter(method => method.kind !== 'BONUS' || parts.some(part => part.methodId === method.id));
+  const shown = methods.filter(method => (method.kind !== 'BONUS' && method.kind !== 'GIFT_CARD') || parts.some(part => part.methodId === method.id));
   return <div className="cs-pay cs-success" role="dialog" aria-modal="true" aria-label="Продажа прошла успешно">
     <section className="cs-success-card">
       <h2>Продажа прошла успешно</h2>

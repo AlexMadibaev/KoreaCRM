@@ -60,7 +60,7 @@ export class CashShiftsService {
         LEFT JOIN LATERAL (SELECT COUNT(*)::int AS count, COALESCE(SUM(s."totalMinor"), 0) AS total FROM "Sale" s WHERE s."cashShiftId" = n.id AND s.status = 'COMPLETED') sales ON TRUE
         LEFT JOIN LATERAL (
           SELECT COALESCE(SUM(p."amountMinor") FILTER (WHERE pm.kind = 'CASH'), 0) AS cash,
-                 COALESCE(SUM(p."amountMinor") FILTER (WHERE pm.kind NOT IN ('CASH', 'BONUS', 'DEBT')), 0) AS noncash
+                 COALESCE(SUM(p."amountMinor") FILTER (WHERE pm.kind NOT IN ('CASH', 'BONUS', 'DEBT', 'GIFT_CARD')), 0) AS noncash
           FROM "Payment" p JOIN "Sale" s ON s.id = p."saleId" JOIN "SalePaymentMethod" pm ON pm.id = p."paymentMethodId"
           WHERE s."cashShiftId" = n.id AND s.status = 'COMPLETED'
         ) pay ON TRUE
@@ -155,13 +155,13 @@ export class CashShiftsService {
                COALESCE(TRIM(c."firstName" || ' ' || COALESCE(c."lastName", '')), 'Розничный покупатель') AS counterparty, 'Продажа ' || s.number AS document, COALESCE(seller.name, e.name) AS employee
         FROM "Payment" p JOIN "Sale" s ON s.id = p."saleId" JOIN "SalePaymentMethod" pm ON pm.id = p."paymentMethodId" JOIN "User" e ON e.id = s."employeeId"
         LEFT JOIN "User" seller ON seller.id = s."sellerId" LEFT JOIN "Customer" c ON c.id = s."customerId"
-        WHERE s."cashShiftId" = ${id} AND s.status = 'COMPLETED' AND pm.kind NOT IN ('BONUS', 'DEBT')
+        WHERE s."cashShiftId" = ${id} AND s.status = 'COMPLETED' AND pm.kind NOT IN ('BONUS', 'DEBT', 'GIFT_CARD')
         UNION ALL
         SELECT 'OUT', 'Возврат денежных средств клиенту', r."createdAt", rp."amountMinor", pm.name, pm.kind::text,
                COALESCE(TRIM(c."firstName" || ' ' || COALESCE(c."lastName", '')), 'Розничный покупатель'), 'Возврат по чеку ' || s.number, u.name
         FROM "SaleReturnPayment" rp JOIN "SaleReturn" r ON r.id = rp."saleReturnId" JOIN "Sale" s ON s.id = r."saleId" JOIN "SalePaymentMethod" pm ON pm.id = rp."paymentMethodId"
         JOIN "User" u ON u.id = r."employeeId" LEFT JOIN "Customer" c ON c.id = s."customerId"
-        WHERE r."cashShiftId" = ${id} AND pm.kind NOT IN ('BONUS', 'DEBT')
+        WHERE r."cashShiftId" = ${id} AND pm.kind NOT IN ('BONUS', 'DEBT', 'GIFT_CARD')
         UNION ALL
         SELECT 'IN', 'Погашение долга', cp."createdAt", cp."amountMinor", pm.name, pm.kind::text, TRIM(c."firstName" || ' ' || COALESCE(c."lastName", '')), NULL, u.name
         FROM "CustomerPayment" cp JOIN "SalePaymentMethod" pm ON pm.id = cp."paymentMethodId" JOIN "Customer" c ON c.id = cp."customerId" JOIN "User" u ON u.id = cp."employeeId"

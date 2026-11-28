@@ -132,14 +132,14 @@ export function DiscountFields({ baseMinor, discountMinor, onChange }: { baseMin
   </div>;
 }
 
-export function LineEditor({ name, imageKey, apiUrl, priceMinor, quantity, discountMinor, onApply, onClose }: { name: string; imageKey?: string; apiUrl: string; priceMinor: number; quantity: number; available: number; discountMinor: string; onApply: (quantity: number, discountMinor: string) => void; onClose: () => void }) {
+export function LineEditor({ name, imageKey, apiUrl, priceMinor, quantity, discountMinor, canDiscount = true, onApply, onClose }: { name: string; imageKey?: string; apiUrl: string; priceMinor: number; quantity: number; available: number; discountMinor: string; canDiscount?: boolean; onApply: (quantity: number, discountMinor: string) => void; onClose: () => void }) {
   const [count, setCount] = useState(quantity);
   const gross = BigInt(priceMinor) * BigInt(count);
   const [discount, setDiscount] = useState(() => BigInt(discountMinor) > gross ? gross : BigInt(discountMinor));
   const capped = discount > gross ? gross : discount;
   return <Modal title={<span className="cs-line-title"><span className="cs-line-avatar">{imageKey ? <ProductImage storageKey={imageKey} apiUrl={apiUrl} /> : <Icon name="tiles" size={34} />}</span>{name}</span>} className="cs-line-modal" onClose={onClose} action={{ label: 'ПРИМЕНИТЬ', onClick: () => onApply(count, capped.toString()) }}>
     <label className="cs-outlined is-static"><span>Цена</span><input readOnly value={formatMinor(priceMinor)} /><em>смн.</em></label>
-    <div className="cs-group"><p className="cs-group-label">Скидка</p><DiscountFields baseMinor={gross} discountMinor={capped} onChange={setDiscount} /></div>
+    {canDiscount && <div className="cs-group"><p className="cs-group-label">Ручная скидка</p><DiscountFields baseMinor={gross} discountMinor={capped} onChange={setDiscount} /><p className="cs-caption">Ручная скидка заменяет все автоматические скидки в чеке.</p></div>}
     <div className="cs-group is-center"><p className="cs-group-label">Количество</p><Stepper big value={count} max={100000} onChange={setCount} /></div>
     <div className="cs-line-total"><span>Итог</span><strong>{formatMinor(gross - capped)}смн.</strong></div>
   </Modal>;

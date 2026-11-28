@@ -270,7 +270,7 @@ export class CustomersService {
         if (!customer) throw new NotFoundException('Customer not found');
         if (!await tx.store.findFirst({ where: { id: storeId, deletedAt: null } })) throw new NotFoundException('Store not found');
         const method = await tx.salePaymentMethod.findFirst({ where: { id: input.paymentMethodId, active: true, ...paymentMethodStoreFilter(storeId) } });
-        if (!method || ['BONUS', 'DEBT'].includes(method.kind)) throw new BadRequestException('Payment method is unavailable for debt repayment');
+        if (!method || ['BONUS', 'DEBT', 'GIFT_CARD'].includes(method.kind)) throw new BadRequestException('Payment method is unavailable for debt repayment');
         if (method.kind === 'CASH' && !input.cashShiftId) throw new BadRequestException('Cash shift is required for cash payments');
         // Non-cash repayments may name the till's shift so they appear in its report.
         if (method.kind !== 'CASH' && input.cashShiftId && !await tx.cashShift.findFirst({ where: { id: input.cashShiftId, storeId, status: 'OPEN' }, select: { id: true } })) throw new ConflictException('Cash shift is not open');

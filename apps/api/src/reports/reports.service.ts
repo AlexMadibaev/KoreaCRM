@@ -275,7 +275,7 @@ export const reportDefinitions: Record<ReportKey, ReportDefinition> = {
         SELECT ${localDay('s."createdAt"')} AS day, s."storeId" AS store_id, 'Выручка' AS kind, 'Оплата чеков: ' || COUNT(DISTINCT s.id) || ' шт.' AS details,
                pm.name AS method, NULL::text AS employee, SUM(p."amountMinor") AS amount
         FROM "Payment" p JOIN "Sale" s ON s.id = p."saleId" JOIN "SalePaymentMethod" pm ON pm.id = p."paymentMethodId"
-        WHERE s.status = 'COMPLETED' AND pm.kind NOT IN ('BONUS', 'DEBT') AND NOT EXISTS (SELECT 1 FROM "CustomerOrder" o WHERE o."saleId" = s.id) ${inPeriod(ctx, 's."createdAt"')} ${inStores(ctx, 's."storeId"')}
+        WHERE s.status = 'COMPLETED' AND pm.kind NOT IN ('BONUS', 'DEBT', 'GIFT_CARD') AND NOT EXISTS (SELECT 1 FROM "CustomerOrder" o WHERE o."saleId" = s.id) ${inPeriod(ctx, 's."createdAt"')} ${inStores(ctx, 's."storeId"')}
         GROUP BY 1, 2, pm.name
         UNION ALL
         SELECT ${localDay('op."createdAt"')}, o."storeId", CASE WHEN op."amountMinor" > 0 THEN 'Предоплата заказа' ELSE 'Возврат предоплаты' END,
@@ -286,7 +286,7 @@ export const reportDefinitions: Record<ReportKey, ReportDefinition> = {
         SELECT ${localDay('r."createdAt"')}, r."storeId", 'Возврат покупателю', 'Чек ' || s.number || ': ' || r.reason, pm.name, u.name, -rp."amountMinor"
         FROM "SaleReturnPayment" rp JOIN "SaleReturn" r ON r.id = rp."saleReturnId" JOIN "Sale" s ON s.id = r."saleId"
         JOIN "SalePaymentMethod" pm ON pm.id = rp."paymentMethodId" LEFT JOIN "User" u ON u.id = r."employeeId"
-        WHERE pm.kind NOT IN ('BONUS', 'DEBT') ${inPeriod(ctx, 'r."createdAt"')} ${inStores(ctx, 'r."storeId"')}
+        WHERE pm.kind NOT IN ('BONUS', 'DEBT', 'GIFT_CARD') ${inPeriod(ctx, 'r."createdAt"')} ${inStores(ctx, 'r."storeId"')}
         UNION ALL
         SELECT ${localDay('rr."createdAt"')}, rr."storeId", 'Возврат без чека', p.name || ' × ' || rr.quantity || ': ' || rr.reason, 'Наличные', u.name, -rr."amountMinor"
         FROM "ReceiptlessReturn" rr JOIN "Product" p ON p.id = rr."productId" LEFT JOIN "User" u ON u.id = rr."employeeId"

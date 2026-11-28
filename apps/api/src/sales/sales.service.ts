@@ -7,6 +7,8 @@ import { DatabaseService } from '../database.service';
 import { FinanceService } from '../finance/finance.service';
 import { StockService } from '../stock/stock.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { normalizeGiftCardCode } from '../gift-cards/gift-cards.rules';
+import { redeemGiftCard, refundGiftCard } from '../gift-cards/gift-cards.service';
 import { automaticPercent, defaultLoyaltySettings, earnedDiscountPercent, loyaltySettingsSchema, percentBasisPoints } from '../loyalty/loyalty.rules';
 import { allocateRefund } from './return-refunds';
 import { paymentMethodPatchSchema, paymentMethodSchema, receiptlessReturnSchema, receiptEditSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
@@ -30,7 +32,7 @@ function receiptRevision(sale: Receipt) {
   ])).digest('hex');
 }
 
-const editablePayment = (kind: string) => kind !== 'BONUS' && kind !== 'DEBT';
+const editablePayment = (kind: string) => kind !== 'BONUS' && kind !== 'DEBT' && kind !== 'GIFT_CARD';
 
 @Injectable()
 export class SalesService {
@@ -153,6 +155,8 @@ export class SalesService {
 
   private async applyReceiptEdit(tx: Prisma.TransactionClient, sale: Receipt, input: ReceiptEdit, actorId: string, requestHash: string) {
     const { storeId } = sale;
+    // Rewriting the payments would lose track of the card balance; a return puts the money back on the card instead.
+    if (sale.payments.some(payment => payment.paymentMethod.kind === 'GIFT_CARD')) throw new ConflictException('Чек оплачен гифт-картой: изменить его нельзя, оформите возврат');
     const items = input.void ? [] : input.items;
     const payments = input.void ? [] : input.payments;
     if (!input.void && (!items.length || !payments.length)) throw new BadRequestException('Добавьте товары и оплату');
@@ -363,6 +367,7 @@ export class SalesService {
           await tx.customer.update({ where: { id: buyer.id }, data: { debtBalanceMinor: balance } });
           await tx.customerDebtEntry.create({ data: { customerId: buyer.id, saleId: sale.id, type: 'RETURN', amountMinor: debtRefund.neg(), balanceAfterMinor: balance } });
         }
+        for (const part of refunds) if (part.kind === 'GIFT_CARD' && part.paymentId) await refundGiftCard(tx, { paymentId: part.paymentId, amount: part.amount, saleId: sale.id, saleReturnId: record.id, actorId });
         const bonusRefund = refundOf('BONUS');
         if (bonusRefund.gt(0) && buyer) {
           const current = await tx.customer.findUniqueOrThrow({ where: { id: buyer.id } });
@@ -417,11 +422,11 @@ export class SalesService {
   async sellers(storeId: string, actorId: string) {
     return this.db.user.findMany({ where: { id: actorId, active: true, deletedAt: null }, select: { id: true, name: true }, orderBy: { name: 'asc' } });
   }
-  async create(storeId: string, input: SaleInput, actorId: string, offlineSale = false, unlimitedDiscount = true) {
+  async create(storeId: string, input: SaleInput, actorId: string, offlineSale = false, unlimitedDiscount = true, manualDiscountAllowed = true) {
     if (new Set(input.items.map(item => item.productId)).size !== input.items.length) throw new BadRequestException('Duplicate products in sale');
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        return await this.db.$transaction(tx => this.createInTransaction(tx, storeId, input, actorId, { offlineSale, unlimitedDiscount }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+        return await this.db.$transaction(tx => this.createInTransaction(tx, storeId, input, actorId, { offlineSale, unlimitedDiscount, manualDiscountAllowed }), { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
       } catch (error) {
         if (retryable(error) && attempt < 2) continue;
         if (retryable(error)) throw new ConflictException('Concurrent sale');
@@ -436,10 +441,14 @@ export class SalesService {
     storeId: string,
     input: SaleInput,
     actorId: string,
-    options: { offlineSale?: boolean; unlimitedDiscount?: boolean; orderPrices?: ReadonlyMap<string, string>; prepaidCashMinor?: Prisma.Decimal } = {},
+    options: { offlineSale?: boolean; unlimitedDiscount?: boolean; manualDiscountAllowed?: boolean; orderPrices?: ReadonlyMap<string, string>; prepaidCashMinor?: Prisma.Decimal } = {},
   ) {
     const offlineSale = options.offlineSale ?? false;
     const unlimitedDiscount = options.unlimitedDiscount ?? true;
+    const manualDiscountAllowed = (options.manualDiscountAllowed ?? true) || unlimitedDiscount;
+    // A cashier's manual discount replaces every automatic one (customer, threshold, promotion) on the whole receipt.
+    const manualMode = input.manualDiscount === true && !options.orderPrices;
+    if (manualMode && !manualDiscountAllowed) throw new ForbiddenException('Ручная скидка недоступна этому сотруднику');
     const requestHash = createHash('sha256').update(JSON.stringify({ storeId, ...input })).digest('hex');
     const existing = await tx.sale.findUnique({ where: { operationId: input.operationId }, include: saleInclude });
     if (existing) {
@@ -475,11 +484,14 @@ export class SalesService {
     const subtotal = sum(lines.map(line => line.gross));
     let manualDiscount = new Prisma.Decimal(0);
     for (const line of lines) {
-      const percent = !options.orderPrices && loyalty.mode === 'DISCOUNT' ? automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null) : '0';
+      const percent = !manualMode && !options.orderPrices && loyalty.mode === 'DISCOUNT' ? automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null) : '0';
       const minimumDiscount = line.gross.mul(percentBasisPoints(percent).toString()).div(10000).floor();
       if (line.discountMinor.lt(minimumDiscount)) throw new BadRequestException(`Automatic discount is missing for product ${line.productId}`);
       manualDiscount = manualDiscount.plus(line.discountMinor.minus(minimumDiscount));
     }
+    // Older tills send a manual discount on top of the automatic one. Online it needs the same right; a queued
+    // offline receipt is still accepted, because the cashier already handed the goods over.
+    if (!manualMode && !offlineSale && !options.orderPrices && manualDiscount.gt(0) && !manualDiscountAllowed) throw new ForbiddenException('Ручная скидка недоступна этому сотруднику');
     if (!options.orderPrices && !unlimitedDiscount && manualDiscount.mul(10000).gt(subtotal.mul(percentBasisPoints(loyalty.maxManualDiscountPercent).toString()))) throw new ForbiddenException('Manual discount exceeds limit');
     // Ignore legacy seller choices, including queued receipts from older tills.
     const seller = { id: actorId };
@@ -501,6 +513,11 @@ export class SalesService {
       if (method.kind === 'BONUS') bonus = bonus.plus(amount);
       if (method.kind === 'DEBT') debt = debt.plus(amount);
       if (method.kind === 'CASH') cash = cash.plus(amount);
+      if (method.kind === 'GIFT_CARD') {
+        // The card balance is checked against the server right now, so a queued offline receipt cannot use it.
+        if (offlineSale) throw new BadRequestException('Оплата гифт-картой возможна только при связи с сервером');
+        if (!payment.reference) throw new BadRequestException('Отсканируйте QR-код гифт-карты');
+      }
     }
     if (!sum(input.payments.map(payment => new Prisma.Decimal(payment.amountMinor))).eq(total)) throw new BadRequestException('Payments must equal sale total');
     if (debt.gt(0) && !customer) throw new BadRequestException('Customer is required for debt sale');
@@ -530,7 +547,10 @@ export class SalesService {
     }
     let prepaidCash = options.prepaidCashMinor ?? new Prisma.Decimal(0);
     for (const part of input.payments) {
-      const payment = await tx.payment.create({ data: { saleId: sale.id, paymentMethodId: part.paymentMethodId, amountMinor: part.amountMinor, reference: part.reference } });
+      const kind = byId.get(part.paymentMethodId)!.kind;
+      const reference = kind === 'GIFT_CARD' && part.reference ? normalizeGiftCardCode(part.reference) : part.reference;
+      const payment = await tx.payment.create({ data: { saleId: sale.id, paymentMethodId: part.paymentMethodId, amountMinor: part.amountMinor, reference } });
+      if (kind === 'GIFT_CARD') await redeemGiftCard(tx, { code: reference, amount: new Prisma.Decimal(part.amountMinor), saleId: sale.id, paymentId: payment.id, actorId });
       if (byId.get(part.paymentMethodId)!.kind === 'CASH') {
         const amount = new Prisma.Decimal(part.amountMinor);
         const prepaid = Prisma.Decimal.min(prepaidCash, amount);

@@ -454,3 +454,18 @@
 .crm-doc-payment p, .crm-doc-hint { margin: 0; font-size: 12px; color: var(--ks-color-text-muted); }
 .crm-doc-hint a { color: var(--ks-color-brand-strong); }
 @media (max-width: 900px) { .crm-doc-editor { grid-template-columns: 1fr; } .crm-doc-picker { border-right: 0; border-bottom: 1px solid var(--ks-color-border); } .crm-doc-picker ul { max-height: 260px; } }
+.crm-gift-card { display: grid; gap: 16px; }
+.crm-gift-card-print { display: grid; justify-items: center; gap: 6px; padding: 20px 16px; border: 1px solid var(--ks-color-border); border-radius: 3px; background: #fff; color: #111; text-align: center; }
+.crm-gift-card-code { font: 600 18px/1.2 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 1px; }
+.crm-gift-card-print span { font-size: 13px; }
+.crm-gift-card-facts { display: grid; gap: 8px; margin: 0; }
+.crm-gift-card-facts > div { display: grid; grid-template-columns: 110px 1fr; gap: 10px; }
+.crm-gift-card-facts dt { color: var(--ks-color-text-muted); font-size: 12px; }
+.crm-gift-card-facts dd { margin: 0; font-weight: 500; font-variant-numeric: tabular-nums; }
+.crm-gift-card-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.crm-gift-card h3 { margin: 0; font-size: 14px; font-weight: 600; }
+.crm-gift-card-history { margin: 0; padding: 0; list-style: none; display: grid; gap: 8px; }
+.crm-gift-card-history li { display: flex; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--ks-color-border); font-size: 13px; }
+.crm-gift-card-history li > span { display: grid; gap: 2px; }
+.crm-gift-card-history .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.crm-gift-card-history small { color: var(--ks-color-text-muted); font-size: 12px; font-weight: 400; }

@@ -22,7 +22,7 @@ export function fullyReturned(sale: PosSale) {
 type RefundKind = PosSale['payments'][number]['paymentMethod']['kind'];
 export type RefundPreview = { methodId: string; name: string; kind: RefundKind; amountMinor: bigint };
 // Same order as the server: debt is written off first, cash pays out last.
-const refundOrder: RefundKind[] = ['DEBT', 'BONUS', 'CARD', 'QR', 'TRANSFER', 'CUSTOM', 'CASH'];
+const refundOrder: RefundKind[] = ['DEBT', 'BONUS', 'GIFT_CARD', 'CARD', 'QR', 'TRANSFER', 'CUSTOM', 'CASH'];
 
 /** Preview of how the server splits a refund across the sale's payments (debt cap not known here). */
 export function refundPreview(sale: PosSale, amount: bigint): RefundPreview[] {
@@ -52,6 +52,7 @@ export function refundInstruction(kind: RefundKind): string {
   if (kind === 'CASH') return 'выдайте наличными';
   if (kind === 'DEBT') return 'спишется с долга клиента';
   if (kind === 'BONUS') return 'вернётся на бонусный счёт';
+  if (kind === 'GIFT_CARD') return 'вернётся на гифт-карту';
   if (kind === 'CARD') return 'верните на карту через терминал';
   if (kind === 'QR') return 'верните через QR-сервис';
   return 'верните тем же способом';

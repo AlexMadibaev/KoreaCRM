@@ -1,12 +1,12 @@
 import { Prisma } from '@prisma/client';
 
-type Kind = 'CASH' | 'CARD' | 'QR' | 'TRANSFER' | 'BONUS' | 'DEBT' | 'CUSTOM';
+type Kind = 'CASH' | 'CARD' | 'QR' | 'TRANSFER' | 'BONUS' | 'DEBT' | 'GIFT_CARD' | 'CUSTOM';
 export type RefundPayment = { id: string; paymentMethodId: string; amountMinor: Prisma.Decimal; paymentMethod: { kind: Kind } };
 export type PriorReturn = { amountMinor: Prisma.Decimal; payments?: { paymentId: string | null; amountMinor: Prisma.Decimal }[] };
 export type RefundPart = { paymentId: string | null; paymentMethodId: string | null; kind: Kind; amount: Prisma.Decimal };
 
-// Debt is written off first, then bonuses, then card-like payments; cash pays out last.
-const order: Kind[] = ['DEBT', 'BONUS', 'CARD', 'QR', 'TRANSFER', 'CUSTOM', 'CASH'];
+// Debt is written off first, then bonuses and gift cards, then card-like payments; cash pays out last.
+const order: Kind[] = ['DEBT', 'BONUS', 'GIFT_CARD', 'CARD', 'QR', 'TRANSFER', 'CUSTOM', 'CASH'];
 
 /**
  * Splits a return amount across the sale's original payments. A debt part larger than the

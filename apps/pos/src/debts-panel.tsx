@@ -10,7 +10,7 @@ type Draft = { operationId: string; methodId: string; amountMinor: string };
 const fullName = (customer: PosCustomer) => `${customer.firstName} ${customer.lastName ?? ''}`.trim();
 
 export function DebtsPanel({ client, storeId, shift, methods, canPay, enabled, errorText, onPaid }: Props) {
-  const payMethods = methods.filter(method => method.kind !== 'DEBT' && method.kind !== 'BONUS');
+  const payMethods = methods.filter(method => method.kind !== 'DEBT' && method.kind !== 'BONUS' && method.kind !== 'GIFT_CARD');
   const [search, setSearch] = useState(''), [revision, setRevision] = useState(0);
   const [debtors, setDebtors] = useState<PosCustomer[]>([]), [loading, setLoading] = useState(false);
   const [selected, setSelected] = useState<PosCustomer | null>(null);

@@ -2,7 +2,7 @@ import { BadRequestException } from '@nestjs/common';
 import { z } from 'zod';
 const uuid = z.string().uuid();
 const money = z.string().regex(/^(0|[1-9]\d{0,17})$/);
-export const saleSchema = z.object({ operationId: uuid, deviceId: z.string().trim().min(1).max(100), cashShiftId: uuid.optional(), customerId: uuid.optional(), sellerId: uuid.optional(), comment: z.string().trim().max(500).optional(), items: z.array(z.object({ productId: uuid, quantity: z.number().int().positive().max(100000), priceMinor: money.optional(), discountMinor: money.default('0') })).min(1).max(100), payments: z.array(z.object({ paymentMethodId: uuid, amountMinor: money, reference: z.string().trim().max(200).optional() })).min(1).max(20) });
+export const saleSchema = z.object({ operationId: uuid, deviceId: z.string().trim().min(1).max(100), cashShiftId: uuid.optional(), customerId: uuid.optional(), sellerId: uuid.optional(), comment: z.string().trim().max(500).optional(), manualDiscount: z.boolean().optional(), items: z.array(z.object({ productId: uuid, quantity: z.number().int().positive().max(100000), priceMinor: money.optional(), discountMinor: money.default('0') })).min(1).max(100), payments: z.array(z.object({ paymentMethodId: uuid, amountMinor: money, reference: z.string().trim().max(200).optional() })).min(1).max(20) });
 export const receiptEditSchema = z.object({
   operationId: uuid,
   revision: z.string().regex(/^[a-f0-9]{64}$/),

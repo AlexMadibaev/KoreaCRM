@@ -31,6 +31,7 @@ export const cabinetGroups: CabinetGroup[] = [
   { title: 'Отчёты', icon: 'overview', links: [{ href: '/reports', label: 'Отчёты', permission: 'reports.view' }] },
   { title: 'Контрагенты', icon: 'people', links: [
     { href: '/customers', label: 'Клиенты и долги', permission: 'customers.view' },
+    { href: '/gift-cards', label: 'Гифт-карты', permission: 'giftcards.view' },
     { href: '/suppliers', label: 'Поставщики', permission: 'suppliers.view' },
   ] },
   { title: 'Компания', icon: 'company', links: [
