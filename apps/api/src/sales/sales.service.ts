@@ -37,7 +37,11 @@ const editablePayment = (kind: string) => kind !== 'BONUS' && kind !== 'DEBT' &&
 @Injectable()
 export class SalesService {
   constructor(private readonly db: DatabaseService, private readonly stock: StockService, private readonly finance: FinanceService, private readonly notifications: NotificationsService) {}
-  methods(storeId?: string) { return this.db.salePaymentMethod.findMany({ ...(storeId ? { where: paymentMethodStoreFilter(storeId) } : {}), orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] }); }
+  // Gift cards are listed only to clients that can scan them: an older till would take the payment without a card code.
+  methods(storeId?: string, giftCards = false) {
+    const where: Prisma.SalePaymentMethodWhereInput = { ...(storeId ? paymentMethodStoreFilter(storeId) : {}), ...(giftCards ? {} : { kind: { not: 'GIFT_CARD' } }) };
+    return this.db.salePaymentMethod.findMany({ where, orderBy: [{ sortOrder: 'asc' }, { code: 'asc' }] });
+  }
   async createMethod(input: z.infer<typeof paymentMethodSchema>, actorId: string) {
     try { return await this.db.$transaction(async tx => {
       const last = await tx.salePaymentMethod.aggregate({ _max: { sortOrder: true } });

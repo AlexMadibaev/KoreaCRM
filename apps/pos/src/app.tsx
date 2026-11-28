@@ -265,7 +265,7 @@ export function App() {
 
   async function finishOnlineSignIn(identityLogin: string, normalizedApiUrl: string, offlineCredential?: { mode: 'password' | 'scan'; value: string }) {
       setServerReachable(true); localStorage.setItem(apiUrlKey, normalizedApiUrl); setApiUrl(normalizedApiUrl);
-      const [me, available, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; primaryStoreId: string | null; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods'), client.get<LoyaltySettings>('/loyalty/settings')]);
+      const [me, available, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; primaryStoreId: string | null; permissions: string[] }>('/auth/me'), client.get<PosStore[]>('/stores'), client.get<PosPaymentMethod[]>('/sale-payment-methods?giftCards=1'), client.get<LoyaltySettings>('/loyalty/settings')]);
       setLoyalty(loyaltySettings); localStorage.setItem(`${loyaltyKey}:${normalizedApiUrl}`, JSON.stringify(loyaltySettings));
       if (!me.permissions.includes('sales.create')) throw new Error('Нет права оформлять продажи');
       const active = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS' && !hasDesktopCache()) && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
@@ -461,7 +461,7 @@ export function App() {
       try {
         if (offlineCredentialModeRef.current === 'scan') await client.loginWithPosCode(offlineCredentialRef.current, storeConnection?.code);
         else await client.login(login, offlineCredentialRef.current, storeConnection?.code);
-        const [me, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosPaymentMethod[]>('/sale-payment-methods'), client.get<LoyaltySettings>('/loyalty/settings')]);
+        const [me, paymentMethods, loyaltySettings] = await Promise.all([client.get<{ userId: string; name: string; login: string; permissions: string[] }>('/auth/me'), client.get<PosPaymentMethod[]>('/sale-payment-methods?giftCards=1'), client.get<LoyaltySettings>('/loyalty/settings')]);
         if (!me.permissions.includes('sales.create') || me.userId !== userId) throw new Error('Права кассира изменились. Выйдите и войдите заново при подключённом сервере.');
         const activeMethods = paymentMethods.filter(method => method.active && (method.kind !== 'BONUS' || loyaltySettings.mode === 'BONUS' && !hasDesktopCache()) && (method.kind !== 'CASH' || me.permissions.includes('finance.cash_view')));
         if (!activeMethods.length) throw new Error('Доступные способы оплаты изменились. Выйдите и войдите заново.');

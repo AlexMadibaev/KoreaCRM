@@ -54,7 +54,7 @@ export class SalesController {
 @ApiTags('sales') @ApiBearerAuth() @UseGuards(AccessGuard) @Controller('sale-payment-methods')
 export class SalePaymentMethodsController {
   constructor(private readonly service: SalesService) {}
-  @Get() @RequirePermission('sales.view') list(@Query() query: unknown, @Req() req: AuthorizedRequest) { const input = parseInput(z.object({ storeId: z.string().uuid().optional() }), query); const storeId = input.storeId ?? (req.access.posDeviceId ? req.access.primaryStoreId ?? undefined : undefined); if (storeId && !canAccessStore(req.access, storeId)) throw new ForbiddenException('Store access denied'); return this.service.methods(storeId); }
+  @Get() @RequirePermission('sales.view') list(@Query() query: unknown, @Req() req: AuthorizedRequest) { const input = parseInput(z.object({ storeId: z.string().uuid().optional(), giftCards: z.enum(['1']).optional() }), query); const storeId = input.storeId ?? (req.access.posDeviceId ? req.access.primaryStoreId ?? undefined : undefined); if (storeId && !canAccessStore(req.access, storeId)) throw new ForbiddenException('Store access denied'); return this.service.methods(storeId, input.giftCards === '1'); }
   @Post() @RequirePermission('settings.edit') create(@Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.createMethod(parseInput(paymentMethodSchema, body), req.access.userId); }
   @Patch(':id') @RequirePermission('settings.edit') edit(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown, @Req() req: AuthorizedRequest) { return this.service.editMethod(id, parseInput(paymentMethodPatchSchema, body), req.access.userId); }
 }

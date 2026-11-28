@@ -22,7 +22,7 @@ export default function PaymentMethodsPage() {
   const [error, setError] = useState(''), [notice, setNotice] = useState('');
   const [editingId, setEditingId] = useState(''), [editName, setEditName] = useState('');
   const [newName, setNewName] = useState(''), [newKind, setNewKind] = useState<Kind>('CARD');
-  const load = useCallback(async () => { setMethods(await api<Method[]>('/sale-payment-methods')); }, []);
+  const load = useCallback(async () => { setMethods(await api<Method[]>('/sale-payment-methods?giftCards=1')); }, []);
   useEffect(() => {
     Promise.all([api<{ permissions: string[] }>('/auth/me'), load()])
       .then(([me]) => setCanEdit(me.permissions.includes('settings.edit')))

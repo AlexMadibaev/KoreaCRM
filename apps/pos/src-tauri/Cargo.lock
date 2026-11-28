@@ -1786,7 +1786,7 @@ dependencies = [
 
 [[package]]
 name = "koreacrm-pos"
-version = "0.2.12"
+version = "0.2.13"
 dependencies = [
  "rusqlite",
  "serde",
