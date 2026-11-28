@@ -13,7 +13,7 @@ import { DatabaseService } from '../database.service';
 import { FinanceService } from '../finance/finance.service';
 import { SalesService } from '../sales/sales.service';
 import {
-  automaticPercent,
+  automaticPercent, usesNewRules,
   defaultLoyaltySettings,
   loyaltySettingsSchema,
   percentBasisPoints,
@@ -235,6 +235,8 @@ export class OrdersService {
         loyalty,
         line,
         customer?.discountPercent.toString() ?? null,
+        new Date(),
+        usesNewRules(loyalty, storeId),
       );
       const gross = line.priceMinor.mul(line.quantity);
       const discountMinor = gross

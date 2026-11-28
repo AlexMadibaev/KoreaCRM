@@ -8,7 +8,7 @@ import { CatalogShell } from '../../components/catalog-shell';
 import { SalesLedger, type Sale } from '../../components/sales-ledger';
 import { api, queryString, withDiscrepancyComment, type Page } from '../../lib/api';
 import { calculateSaleTotals, type ReceiptDiscount } from '../../lib/sale-calculations';
-import { loyaltyPercent, type LoyaltySettings } from '../../lib/loyalty';
+import { loyaltyPercent, usesNewRules, type LoyaltySettings } from '../../lib/loyalty';
 
 type Store = { id: string; name: string };
 type Product = { id: string; name: string; sku: string; brandId: string | null; categoryId: string | null };
@@ -43,8 +43,9 @@ export default function SalesPage() {
   let totals: ReturnType<typeof calculateSaleTotals> | null = null;
   let saleError = '';
   // A manual discount (on a line or on the whole receipt) replaces every automatic discount on the receipt.
-  const manualMode = lines.some(line => line.discountMinor !== '0' && line.discountMinor !== '') || !['', '0'].includes(receiptDiscountValue.trim());
-  try { if (lines.length && loyalty) { totals = calculateSaleTotals(lines, lines.map(line => manualMode ? '0' : loyaltyPercent(loyalty, line, selectedCustomer?.discountPercent ?? null)), { kind: receiptDiscountKind, value: receiptDiscountValue }); } }
+  const newRules = usesNewRules(loyalty, storeId);
+  const manualMode = newRules && (lines.some(line => line.discountMinor !== '0' && line.discountMinor !== '') || !['', '0'].includes(receiptDiscountValue.trim()));
+  try { if (lines.length && loyalty) { totals = calculateSaleTotals(lines, lines.map(line => manualMode ? '0' : loyaltyPercent(loyalty, line, selectedCustomer?.discountPercent ?? null, new Date(), newRules)), { kind: receiptDiscountKind, value: receiptDiscountValue }); } }
   catch (caught) { saleError = caught instanceof Error && caught.message === 'Receipt discount exceeds remaining total' ? 'Скидка на чек превышает сумму после других скидок.' : 'Проверьте товары, количество и скидки.'; }
   const total = totals?.total ?? 0n;
   const tendered = tenders.reduce((value, tender) => value + BigInt(validMoney(tender.amountMinor) ? tender.amountMinor : '0'), 0n);

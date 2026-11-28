@@ -9,7 +9,7 @@ import { StockService } from '../stock/stock.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { normalizeGiftCardCode } from '../gift-cards/gift-cards.rules';
 import { redeemGiftCard, refundGiftCard } from '../gift-cards/gift-cards.service';
-import { automaticPercent, defaultLoyaltySettings, earnedDiscountPercent, loyaltySettingsSchema, percentBasisPoints } from '../loyalty/loyalty.rules';
+import { automaticPercent, usesNewRules, defaultLoyaltySettings, earnedDiscountPercent, loyaltySettingsSchema, percentBasisPoints } from '../loyalty/loyalty.rules';
 import { allocateRefund } from './return-refunds';
 import { paymentMethodPatchSchema, paymentMethodSchema, receiptlessReturnSchema, receiptEditSchema, returnSaleSchema, saleListSchema, saleReturnListSchema, saleSchema } from './sales.schemas';
 
@@ -446,9 +446,6 @@ export class SalesService {
     const offlineSale = options.offlineSale ?? false;
     const unlimitedDiscount = options.unlimitedDiscount ?? true;
     const manualDiscountAllowed = (options.manualDiscountAllowed ?? true) || unlimitedDiscount;
-    // A cashier's manual discount replaces every automatic one (customer, threshold, promotion) on the whole receipt.
-    const manualMode = input.manualDiscount === true && !options.orderPrices;
-    if (manualMode && !manualDiscountAllowed) throw new ForbiddenException('Ручная скидка недоступна этому сотруднику');
     const requestHash = createHash('sha256').update(JSON.stringify({ storeId, ...input })).digest('hex');
     const existing = await tx.sale.findUnique({ where: { operationId: input.operationId }, include: saleInclude });
     if (existing) {
@@ -462,6 +459,10 @@ export class SalesService {
     if (input.customerId && !customer) throw new NotFoundException('Customer not found');
     const savedLoyalty = await tx.loyaltySettings.findUnique({ where: { id: 1 } });
     const loyalty = savedLoyalty ? loyaltySettingsSchema.parse(savedLoyalty.rules) : defaultLoyaltySettings;
+    // A cashier's manual discount replaces every automatic one (customer, threshold, promotion) on the whole receipt.
+    const newRules = usesNewRules(loyalty, storeId);
+    const manualMode = newRules && input.manualDiscount === true && !options.orderPrices;
+    if (manualMode && !manualDiscountAllowed) throw new ForbiddenException('Ручная скидка недоступна этому сотруднику');
     const lines = [];
     for (const item of input.items) {
       const product = await tx.product.findFirst({ where: { id: item.productId, deletedAt: null } });
@@ -484,14 +485,14 @@ export class SalesService {
     const subtotal = sum(lines.map(line => line.gross));
     let manualDiscount = new Prisma.Decimal(0);
     for (const line of lines) {
-      const percent = !manualMode && !options.orderPrices && loyalty.mode === 'DISCOUNT' ? automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null) : '0';
+      const percent = !manualMode && !options.orderPrices && loyalty.mode === 'DISCOUNT' ? automaticPercent(loyalty, line, customer?.discountPercent.toString() ?? null, new Date(), newRules) : '0';
       const minimumDiscount = line.gross.mul(percentBasisPoints(percent).toString()).div(10000).floor();
       if (line.discountMinor.lt(minimumDiscount)) throw new BadRequestException(`Automatic discount is missing for product ${line.productId}`);
       manualDiscount = manualDiscount.plus(line.discountMinor.minus(minimumDiscount));
     }
     // Older tills send a manual discount on top of the automatic one. Online it needs the same right; a queued
     // offline receipt is still accepted, because the cashier already handed the goods over.
-    if (!manualMode && !offlineSale && !options.orderPrices && manualDiscount.gt(0) && !manualDiscountAllowed) throw new ForbiddenException('Ручная скидка недоступна этому сотруднику');
+    if (newRules && !manualMode && !offlineSale && !options.orderPrices && manualDiscount.gt(0) && !manualDiscountAllowed) throw new ForbiddenException('Ручная скидка недоступна этому сотруднику');
     if (!options.orderPrices && !unlimitedDiscount && manualDiscount.mul(10000).gt(subtotal.mul(percentBasisPoints(loyalty.maxManualDiscountPercent).toString()))) throw new ForbiddenException('Manual discount exceeds limit');
     // Ignore legacy seller choices, including queued receipts from older tills.
     const seller = { id: actorId };
@@ -515,6 +516,7 @@ export class SalesService {
       if (method.kind === 'CASH') cash = cash.plus(amount);
       if (method.kind === 'GIFT_CARD') {
         // The card balance is checked against the server right now, so a queued offline receipt cannot use it.
+        if (!newRules) throw new BadRequestException('Гифт-карты пока не принимаются в этом магазине');
         if (offlineSale) throw new BadRequestException('Оплата гифт-картой возможна только при связи с сервером');
         if (!payment.reference) throw new BadRequestException('Отсканируйте QR-код гифт-карты');
       }

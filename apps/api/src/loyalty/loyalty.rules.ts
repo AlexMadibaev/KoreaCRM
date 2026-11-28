@@ -14,6 +14,9 @@ export const loyaltySettingsSchema = z.object({
   excludedProductIds: z.array(uuid).max(500),
   excludedBrandIds: z.array(uuid).max(200),
   excludedCategoryIds: z.array(uuid).max(200),
+  // Stores on the new rules (largest discount wins, manual discount replaces automatic ones, gift cards).
+  // null means every store; the default keeps every store on the previous rules until the owner picks some.
+  newRulesStoreIds: z.array(uuid).max(500).nullable().default([]),
   promotions: z.array(z.object({ id: uuid, targetType: z.enum(['PRODUCT', 'BRAND', 'CATEGORY', 'ALL']), targetId: uuid, percent, daysOfWeek: z.array(z.number().int().min(0).max(6)).max(7), startDate: z.iso.date().nullable(), endDate: z.iso.date().nullable(), active: z.boolean() })).max(200),
 }).superRefine((value, context) => {
   const minimums = value.tiers.map(tier => BigInt(tier.minimumMinor));
@@ -23,7 +26,12 @@ export const loyaltySettingsSchema = z.object({
 });
 
 export type LoyaltySettings = z.infer<typeof loyaltySettingsSchema>;
-export const defaultLoyaltySettings: LoyaltySettings = { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', maxManualDiscountPercent: '100', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [] };
+export const defaultLoyaltySettings: LoyaltySettings = { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', maxManualDiscountPercent: '100', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], newRulesStoreIds: [], promotions: [] };
+
+/** Whether a store already runs the new discount rules and accepts gift cards. */
+export function usesNewRules(settings: Pick<LoyaltySettings, 'newRulesStoreIds'>, storeId: string) {
+  return settings.newRulesStoreIds === null || settings.newRulesStoreIds.includes(storeId);
+}
 
 export function percentBasisPoints(value: string) {
   const [whole = '0', fraction = ''] = value.split('.');
@@ -37,13 +45,15 @@ export function earnedDiscountPercent(settings: LoyaltySettings, currentPercent:
       ? tier.percent : best, currentPercent);
 }
 
-export function automaticPercent(settings: LoyaltySettings, line: { productId: string; brandId: string | null; categoryId: string | null }, customerPercent: string | null, at = new Date()) {
+export function automaticPercent(settings: LoyaltySettings, line: { productId: string; brandId: string | null; categoryId: string | null }, customerPercent: string | null, at = new Date(), largestWins = true) {
   if (settings.mode !== 'DISCOUNT') return '0';
   if (settings.excludedProductIds.includes(line.productId) || (line.brandId && settings.excludedBrandIds.includes(line.brandId)) || (line.categoryId && settings.excludedCategoryIds.includes(line.categoryId))) return '0';
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Dushanbe', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(at).map(part => [part.type, part.value]));
   const date = `${parts.year}-${parts.month}-${parts.day}`, day = new Date(`${date}T00:00:00Z`).getUTCDay();
   const promotion = settings.promotions.filter(rule => rule.active && (!rule.startDate || date >= rule.startDate) && (!rule.endDate || date <= rule.endDate) && (!rule.daysOfWeek.length || rule.daysOfWeek.includes(day)) && (rule.targetType === 'ALL' || rule.targetType === 'PRODUCT' && rule.targetId === line.productId || rule.targetType === 'BRAND' && rule.targetId === line.brandId || rule.targetType === 'CATEGORY' && rule.targetId === line.categoryId)).sort((a, b) => Number(b.percent) - Number(a.percent))[0];
   // Discounts never add up: the customer's own discount and a promotion compete, and the larger one applies.
+  // Stores still on the previous rules let any running promotion replace the customer's discount.
+  if (promotion && !largestWins) return promotion.percent;
   const personal = customerPercent ?? '0';
   return promotion && percentBasisPoints(promotion.percent) > percentBasisPoints(personal) ? promotion.percent : personal;
 }

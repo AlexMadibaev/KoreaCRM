@@ -349,13 +349,14 @@ test('manual discount above the configured limit needs the unlimited discount pe
 test('a manual discount replaces automatic discounts and needs the manual discount right', async () => {
   const customerId = '99999999-9999-4999-8999-999999999999';
   let created = 0;
+  let pilot: string[] = [storeId];
   const tx = {
     sale: { findUnique: async () => null, aggregate: async () => ({ _max: { sequence: null } }), create: async () => { created++; return { id: 'sale-1' }; }, findUniqueOrThrow: async () => ({ id: 'sale-1' }) },
     store: { findFirst: async () => ({ id: storeId }) },
     posDevice: { findUnique: async () => ({ storeId, status: 'ACTIVE' }), update: async () => ({}) },
     customer: { findFirst: async () => ({ id: customerId, discountPercent: new Prisma.Decimal(10), totalSpentMinor: new Prisma.Decimal(0), ordersCount: 0, debtBalanceMinor: new Prisma.Decimal(0), bonusBalanceMinor: new Prisma.Decimal(0) }), update: async () => ({}) },
     product: { findFirst: async () => ({ id: productId, sku: 'KR-1', brandId: null, categoryId: null }) },
-    loyaltySettings: { findUnique: async () => ({ rules: { ...defaultLoyaltySettings, maxManualDiscountPercent: '100' } }) },
+    loyaltySettings: { findUnique: async () => ({ rules: { ...defaultLoyaltySettings, maxManualDiscountPercent: '100', newRulesStoreIds: pilot } }) },
     storeProductSettings: { findUnique: async () => ({ active: true, priceMinor: 1000, costBasisMinor: 400 }) },
     productBatch: { findFirst: async () => null },
     user: { findUniqueOrThrow: async () => ({ id: 'actor', rewardPercent: new Prisma.Decimal(0) }) },
@@ -376,4 +377,9 @@ test('a manual discount replaces automatic discounts and needs the manual discou
   await assert.rejects(service.create(storeId, sale('150'), 'actor', false, false, false), ForbiddenException);
   await assert.rejects(service.create(storeId, sale('50'), 'actor', false, false, false), BadRequestException);
   assert.equal(created, 2);
+  // A store not yet on the new rules keeps the old behaviour: a manual discount comes on top, without the new right.
+  pilot = [];
+  await service.create(storeId, sale('150'), 'actor', false, false, false);
+  await assert.rejects(service.create(storeId, sale('50', true), 'actor', false, false, false), BadRequestException);
+  assert.equal(created, 3);
 });

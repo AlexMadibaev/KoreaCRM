@@ -7,20 +7,29 @@ export type LoyaltySettings = {
   excludedProductIds: string[];
   excludedBrandIds: string[];
   excludedCategoryIds: string[];
+  /** Stores on the new rules; null means every store. */
+  newRulesStoreIds?: string[] | null;
   promotions: { id: string; targetType: 'PRODUCT' | 'BRAND' | 'CATEGORY' | 'ALL'; targetId: string; percent: string; daysOfWeek: number[]; startDate: string | null; endDate: string | null; active: boolean }[];
 };
 
 export const defaultLoyaltySettings: LoyaltySettings = { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', maxManualDiscountPercent: '100', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [] };
 
-export function loyaltyPercent(settings: LoyaltySettings, line: { productId: string; brandId?: string | null; categoryId?: string | null }, personalPercent: string | null, now = new Date()): string {
+export function loyaltyPercent(settings: LoyaltySettings, line: { productId: string; brandId?: string | null; categoryId?: string | null }, personalPercent: string | null, now = new Date(), largestWins = true): string {
   if (settings.mode !== 'DISCOUNT') return '0';
   if (settings.excludedProductIds.includes(line.productId) || (line.brandId && settings.excludedBrandIds.includes(line.brandId)) || (line.categoryId && settings.excludedCategoryIds.includes(line.categoryId))) return '0';
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Dushanbe', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(now).map(part => [part.type, part.value]));
   const date = `${parts.year}-${parts.month}-${parts.day}`, day = new Date(`${date}T00:00:00Z`).getUTCDay();
   const promotion = settings.promotions.filter(rule => rule.active && (!rule.startDate || date >= rule.startDate) && (!rule.endDate || date <= rule.endDate) && (!rule.daysOfWeek.length || rule.daysOfWeek.includes(day)) && (rule.targetType === 'ALL' || rule.targetType === 'PRODUCT' && rule.targetId === line.productId || rule.targetType === 'BRAND' && rule.targetId === line.brandId || rule.targetType === 'CATEGORY' && rule.targetId === line.categoryId)).sort((a, b) => Number(b.percent) - Number(a.percent))[0];
   // Discounts never add up: the customer's own discount and a promotion compete, and the larger one applies.
+  // Stores still on the previous rules let any running promotion replace the customer's discount.
+  if (promotion && !largestWins) return promotion.percent;
   const personal = personalPercent ?? '0';
   return promotion && percentBasisPoints(promotion.percent) > percentBasisPoints(personal) ? promotion.percent : personal;
+}
+
+/** Whether a store runs the new discount rules and accepts gift cards. */
+export function usesNewRules(settings: Pick<LoyaltySettings, 'newRulesStoreIds'> | null, storeId: string): boolean {
+  return Boolean(settings) && (settings!.newRulesStoreIds === null || (settings!.newRulesStoreIds ?? []).includes(storeId));
 }
 
 export function percentBasisPoints(value: string): bigint {

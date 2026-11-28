@@ -11,7 +11,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@koreacrm/ui';
 import type { PosCustomer, PosPage, PosPaymentMethod, PosProduct, PosSale, PosSettings, PosShift, PosStock, PosStore } from '@koreacrm/types';
 import { calculateCartWithDiscount, discountBasisPoints, formatMinor, validatePayments } from './calculations';
-import { loyaltyPercent, type LoyaltySettings } from './loyalty';
+import { loyaltyPercent, usesNewRules, type LoyaltySettings } from './loyalty';
 import { buildEscPosReceipt } from './escpos';
 import { hasDesktopCache, readCachedCustomers, readCachedProducts, readCatalogCacheStatus, readCatalogRevision, readDatabaseHealth, refreshCatalogCache, type CacheStatus, type DatabaseHealth } from './local-cache';
 import { enqueueSale, listSyncQueue, retryConflictSale, setSyncStatus, syncQueueSummary, type QueueEntry, type QueueSummary } from './sync-queue';
@@ -197,9 +197,11 @@ export function App() {
   }, [signedIn, deviceReady, draftKey, canRestoreReturn]);
   const cartSubtotal = cart.reduce((sum, line) => sum + BigInt(line.priceMinor) * BigInt(line.quantity), 0n);
   // A manual discount (on a line or on the whole receipt) replaces every automatic discount on the receipt.
-  const canManualDiscount = can('sales.discount.manual') || can('sales.discount.unlimited');
-  const manualMode = receiptDiscount > 0n || cart.some(line => BigInt(line.discountMinor) > 0n);
-  const cartPercents = loyalty ? cart.map(line => manualMode ? '0' : loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null)) : [];
+  // Stores not yet on the new rules keep the previous behaviour: everyone may add a manual discount on top.
+  const newRules = usesNewRules(loyalty, storeId);
+  const canManualDiscount = !newRules || can('sales.discount.manual') || can('sales.discount.unlimited');
+  const manualMode = newRules && (receiptDiscount > 0n || cart.some(line => BigInt(line.discountMinor) > 0n));
+  const cartPercents = loyalty ? cart.map(line => manualMode ? '0' : loyaltyPercent(loyalty, { productId: line.product.id, brandId: line.product.brandId, categoryId: line.product.categoryId }, selectedCustomer?.discountPercent ?? null, new Date(), newRules)) : [];
   const cartLines = cart.map(line => ({ productId: line.product.id, quantity: line.quantity, available: line.available, priceMinor: line.priceMinor, discountMinor: line.discountMinor }));
   let cartTotal: ReturnType<typeof calculateCartWithDiscount> | null = null;
   let cartError = '';
@@ -1006,11 +1008,11 @@ export function App() {
     {overlay === 'queue' && <QueueModal receipts={parked} onPick={receipt => { restoreParked(receipt); setOverlay(null); }} onDelete={receipt => saveParked(parked.filter(value => value.id !== receipt.id))} onClose={() => setOverlay(null)} />}
     {overlay === 'customer' && <CustomerPickerModal customers={customers} search={customerSearch} onSearch={setCustomerSearch} onPick={customer => { setCustomerId(customer?.id ?? ''); setCustomerSearch(''); setOverlay(payOpen ? 'pay' : null); }} onClose={() => setOverlay(payOpen ? 'pay' : null)} />}
     {overlay === 'customerCreate' && <CustomerCreateModal initial={customerSearch} canDiscount={can('customers.discount.edit')} loyaltyMode={loyalty?.mode ?? 'DISCOUNT'} onCreate={async data => { const problem = await createCustomer(data); if (!problem) setOverlay(payOpen ? 'pay' : null); return problem; }} onClose={() => setOverlay(payOpen ? 'pay' : null)} />}
-    {overlay === 'discount' && cartTotal && <ReceiptDiscountModal baseMinor={manualBaseMinor} currentMinor={receiptDiscount} onApply={minor => { setReceiptDiscount(minor); setOverlay(null); }} onClose={() => setOverlay(null)} />}
+    {overlay === 'discount' && cartTotal && <ReceiptDiscountModal baseMinor={newRules ? manualBaseMinor : cartTotal.total + cartTotal.cartDiscountMinor} currentMinor={receiptDiscount} onApply={minor => { setReceiptDiscount(minor); setOverlay(null); }} onClose={() => setOverlay(null)} />}
     {overlay === 'openShift' && <OpenShiftModal client={client} storeId={storeId} deviceId={deviceId} storeName={storeName} errorText={message} onOpened={opened => { setShift(opened); void persistShift(opened); setOverlay(null); flashNotice('Смена открыта.'); }} onClose={() => setOverlay(null)} />}
     {overlay === 'returnReason' && <ReturnReasonModal totalMinor={totalsView.total} busy={busy} onConfirm={reason => void returnWithoutReceipt(reason)} onClose={() => setOverlay(null)} />}
     {editedLine && <LineEditor name={editedLine.product.name} imageKey={editedLine.imageKey} apiUrl={client.baseUrl()} priceMinor={editedLine.priceMinor} quantity={editedLine.quantity} available={editedLine.available} discountMinor={editedLine.discountMinor} canDiscount={canManualDiscount} onApply={(quantity, discountMinor) => { setCart(current => current.map(item => item.product.id === editedLine.product.id ? { ...item, quantity, discountMinor } : item)); setLineEditId(''); }} onClose={() => setLineEditId('')} />}
-    {payOpen && overlay === 'pay' && <PaymentScreen totals={totalsView} methods={methods} onLookupGiftCard={code => client.get<GiftCardLookup>(`/gift-cards/lookup/${encodeURIComponent(code)}`)} customer={selectedCustomer ?? null} shiftOpen={Boolean(shift)} busy={busy} printDefault={settings.printByDefault} onChangeCustomer={() => setOverlay('customer')} onComplete={(parts, change, print, comment) => void completeSale(parts, change, print, comment)} onClose={() => { setPayOpen(false); setOverlay(null); }} />}
+    {payOpen && overlay === 'pay' && <PaymentScreen totals={totalsView} methods={newRules ? methods : methods.filter(method => method.kind !== 'GIFT_CARD')} onLookupGiftCard={code => client.get<GiftCardLookup>(`/gift-cards/lookup/${encodeURIComponent(code)}`)} customer={selectedCustomer ?? null} shiftOpen={Boolean(shift)} busy={busy} printDefault={settings.printByDefault} onChangeCustomer={() => setOverlay('customer')} onComplete={(parts, change, print, comment) => void completeSale(parts, change, print, comment)} onClose={() => { setPayOpen(false); setOverlay(null); }} />}
     {success && <SaleSuccess totals={success.totals} methods={methods} parts={success.parts} change={success.change} onPrint={success.sale ? () => void printSale(success.sale!) : undefined} onClose={() => { setSuccess(null); window.setTimeout(() => searchRef.current?.focus(), 0); }} />}
 
     {sheet === 'history' && <JournalModal client={client} storeId={storeId} deviceId={deviceId} shift={shift} canReturn={can('sales.return') && !pending && !projectedShift?.queuedCashMinor} printerHost={printerHost} errorText={message} onPrint={sale => void printSale(sale)} onReturned={() => { setSalesRevision(value => value + 1); void refreshShift().catch(caught => setError(message(caught))); }} onClose={() => setSheet(null)} />}

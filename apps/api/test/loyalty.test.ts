@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { automaticPercent, defaultLoyaltySettings, earnedDiscountPercent, loyaltySettingsSchema } from '../src/loyalty/loyalty.rules';
+import { automaticPercent, defaultLoyaltySettings, earnedDiscountPercent, loyaltySettingsSchema, usesNewRules } from '../src/loyalty/loyalty.rules';
 
 const productId = '11111111-1111-4111-8111-111111111111';
 const brandId = '22222222-2222-4222-8222-222222222222';
@@ -49,6 +49,16 @@ test('a promotion and the customer discount never add up: the larger one applies
   assert.equal(automaticPercent(friday, product, '7', fridayNoon), '8');
   assert.equal(automaticPercent(friday, product, null, fridayNoon), '8');
   assert.equal(automaticPercent(friday, product, '7', new Date('2026-11-28T07:00:00Z')), '7');
+  // Stores still on the previous rules: a running promotion replaces the customer's discount.
+  assert.equal(automaticPercent(friday, product, '10', fridayNoon, false), '8');
+});
+
+test('new rules apply only to the chosen stores until switched on everywhere', () => {
+  const store = '77777777-7777-4777-8777-777777777777';
+  assert.equal(usesNewRules(defaultLoyaltySettings, store), false);
+  assert.equal(usesNewRules({ newRulesStoreIds: [store] }, store), true);
+  assert.equal(usesNewRules({ newRulesStoreIds: null }, store), true);
+  assert.deepEqual(loyaltySettingsSchema.parse({ ...defaultLoyaltySettings, newRulesStoreIds: undefined }).newRulesStoreIds, []);
 });
 
 test('bonus mode requires an earn rate and thresholds must increase', () => {

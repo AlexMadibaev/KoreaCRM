@@ -732,7 +732,7 @@ const server = createServer(async (request, response) => {
     recordAudit(sessionEmployee.id, 'SALE_CREATED', 'Sale', sale.id, body.deviceId);
     return send(response, 201, sale);
   }
-  if (request.method === 'GET' && path === '/loyalty/settings') return send(response, 200, { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [{ id: 'demo-friday', targetType: 'ALL', targetId: '00000000-0000-4000-8000-000000000000', percent: '8', daysOfWeek: [5], startDate: null, endDate: null, active: true }] });
+  if (request.method === 'GET' && path === '/loyalty/settings') return send(response, 200, { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], newRulesStoreIds: null, promotions: [{ id: 'demo-friday', targetType: 'ALL', targetId: '00000000-0000-4000-8000-000000000000', percent: '8', daysOfWeek: [5], startDate: null, endDate: null, active: true }] });
   console.warn('demo 404', request.method, path);
   return error(response, 404, 'Демо-маршрут не найден');
 });
