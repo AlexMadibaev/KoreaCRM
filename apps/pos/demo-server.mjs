@@ -38,8 +38,8 @@ const products = [
 ];
 const productPhotoFiles = new Map();
 const customers = [
-  { id: 'demo-customer-1', firstName: 'Анна', lastName: 'Иванова', phone: '+998901234567', email: null, birthday: '1995-04-12T00:00:00.000Z', gender: 'Женский', address: null, notes: 'Предпочитает уход для чувствительной кожи', discountPercent: '0', bonusBalanceMinor: '15000', debtBalanceMinor: '0', totalSpentMinor: '0', averageCheckMinor: '0', ordersCount: 0 },
-  { id: 'demo-customer-2', firstName: 'Мария', lastName: 'Ким', phone: '+998909876543', email: null, birthday: null, gender: null, address: 'Ташкент, Чиланзар', notes: null, discountPercent: '0', bonusBalanceMinor: '0', debtBalanceMinor: '0', totalSpentMinor: '0', averageCheckMinor: '0', ordersCount: 0 },
+  { id: 'demo-customer-1', firstName: 'Анна', lastName: 'Иванова', phone: '+998901234567', email: null, birthday: '1995-04-12T00:00:00.000Z', gender: 'Женский', address: null, notes: 'Предпочитает уход для чувствительной кожи', discountPercent: '10', bonusBalanceMinor: '15000', debtBalanceMinor: '0', totalSpentMinor: '0', averageCheckMinor: '0', ordersCount: 0 },
+  { id: 'demo-customer-2', firstName: 'Мария', lastName: 'Ким', phone: '+998909876543', email: null, birthday: null, gender: null, address: 'Ташкент, Чиланзар', notes: null, discountPercent: '7', bonusBalanceMinor: '0', debtBalanceMinor: '0', totalSpentMinor: '0', averageCheckMinor: '0', ordersCount: 0 },
 ];
 const methods = [
   { id: 'demo-cash', code: 'CASH', name: 'Наличные', kind: 'CASH', active: true },
@@ -47,11 +47,20 @@ const methods = [
   { id: 'demo-bonus', code: 'BONUS', name: 'Бонусы', kind: 'BONUS', active: true },
   { id: 'demo-qr', code: 'QR', name: 'QR', kind: 'QR', active: true },
   { id: 'demo-debt', code: 'DEBT', name: 'В долг', kind: 'DEBT', active: true },
+  { id: 'demo-gift', code: 'GIFT_CARD', name: 'Гифт-карта', kind: 'GIFT_CARD', active: true },
 ];
+// Demo gift cards: type the code or show its QR to a scanner on the payment screen.
+const giftCards = new Map([
+  ['GC-DEMO-5000-CARD', { code: 'GC-DEMO-5000-CARD', balanceMinor: 50000n, status: 'ACTIVE' }],
+  ['GC-DEMO-1000-CARD', { code: 'GC-DEMO-1000-CARD', balanceMinor: 100000n, status: 'ACTIVE' }],
+  ['GC-DEMO-0000-LOCK', { code: 'GC-DEMO-0000-LOCK', balanceMinor: 20000n, status: 'BLOCKED' }],
+]);
+const giftCode = value => { const body = String(value ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '').replace(/^GC/, ''); return body.length === 12 ? `GC-${body.slice(0, 4)}-${body.slice(4, 8)}-${body.slice(8)}` : String(value ?? '').trim().toUpperCase(); };
+const giftProblem = card => !card ? 'Гифт-карта не найдена' : card.status === 'BLOCKED' ? 'Гифт-карта заблокирована' : card.balanceMinor <= 0n ? 'На гифт-карте не осталось денег' : null;
 const permissions = [
   'products.view', 'products.create', 'products.edit', 'brands.view', 'brands.create', 'brands.edit', 'categories.view', 'categories.create', 'categories.edit',
   'inventory.view', 'inventory.adjust', 'inventory.start', 'inventory.count', 'inventory.complete', 'inventory.cancel',
-  'sales.view', 'sales.create', 'sales.return', 'customers.view', 'customers.create', 'customers.edit',
+  'sales.view', 'sales.create', 'sales.return', 'sales.discount.manual', 'customers.view', 'customers.create', 'customers.edit',
   'suppliers.view', 'suppliers.create', 'suppliers.edit', 'purchases.view', 'purchases.create', 'purchases.edit', 'purchases.submit', 'purchases.receive', 'purchases.cancel',
   'transfers.view', 'transfers.create', 'transfers.edit', 'transfers.request', 'transfers.approve', 'transfers.send', 'transfers.receive', 'transfers.cancel',
   'finance.view', 'finance.edit', 'finance.cash_view', 'finance.cash', 'finance.supplier_pay', 'finance.customer_pay',
@@ -65,8 +74,10 @@ const demoRoles = [
 const demoEmployees = [
   { id: 'demo-user', name: 'Демо администратор', login: 'demo', active: true, allStores: true, roleId: demoRoles[0].id, role: demoRoles[0], stores: [], createdAt: new Date().toISOString() },
   { id: randomUUID(), name: 'Менеджер магазина', login: 'manager', active: true, allStores: false, roleId: demoRoles[1].id, role: demoRoles[1], stores: [{ storeId: store.id }], createdAt: new Date().toISOString() },
+  // A cashier without the manual discount right, to see the till without the discount button.
+  { id: randomUUID(), name: 'Кассир без ручной скидки', login: 'kassir', active: true, allStores: false, roleId: demoRoles[2].id, role: demoRoles[2], stores: [{ storeId: store.id }], createdAt: new Date().toISOString() },
 ];
-const demoPasswords = new Map([['demo-user', 'demo1234'], [demoEmployees[1].id, 'manager1234']]);
+const demoPasswords = new Map([['demo-user', 'demo1234'], [demoEmployees[1].id, 'manager1234'], [demoEmployees[2].id, 'kassir1234']]);
 const demoSessions = new Map([['demo-local-token', 'demo-user']]);
 const demoRefreshSessions = new Map([['demo-local-refresh', 'demo-user']]);
 const demoAudit = [];
@@ -662,6 +673,13 @@ const server = createServer(async (request, response) => {
     recordAudit(sessionEmployee.id, 'STOCK_CHANGED', 'Stock', `${store.id}:${product.id}`);
     return send(response, 201, movement);
   }
+  const giftLookup = path.match(/^\/gift-cards\/lookup\/([^/]+)$/);
+  if (request.method === 'GET' && giftLookup) {
+    const card = giftCards.get(giftCode(decodeURIComponent(giftLookup[1])));
+    if (!card) return error(response, 404, 'Гифт-карта не найдена');
+    const problem = giftProblem(card);
+    return send(response, 200, { code: card.code, balanceMinor: String(card.balanceMinor), status: card.status, expiresAt: null, usable: !problem, problem });
+  }
   const offlineSync = path === `/stores/${store.id}/sales/sync`;
   if (request.method === 'POST' && (path === `/stores/${store.id}/sales` || offlineSync)) {
     if (sales.has(body.operationId)) return send(response, 200, sales.get(body.operationId));
@@ -676,6 +694,15 @@ const server = createServer(async (request, response) => {
       items.push({ id: randomUUID(), productId: product.id, quantity: line.quantity, priceMinor: String(unitPrice), discountMinor: String(discount), totalMinor: String(gross - discount), product: { name: product.name, sku: product.sku } });
     }
     if (!items.length) return error(response, 400, 'Добавьте товар');
+    if (body.manualDiscount && !canDemo('sales.discount.manual')) return error(response, 403, 'Ручная скидка недоступна этому сотруднику');
+    const giftParts = (body.payments ?? []).filter(payment => methods.find(method => method.id === payment.paymentMethodId)?.kind === 'GIFT_CARD');
+    if (giftParts.length && offlineSync) return error(response, 400, 'Оплата гифт-картой возможна только при связи с сервером');
+    for (const part of giftParts) {
+      const card = giftCards.get(giftCode(part.reference));
+      const problem = giftProblem(card);
+      if (problem) return error(response, 409, problem);
+      if (card.balanceMinor < BigInt(part.amountMinor)) return error(response, 409, 'На гифт-карте недостаточно денег');
+    }
     const total = items.reduce((sum, item) => sum + BigInt(item.totalMinor), 0n);
     if ((body.payments ?? []).some(payment => !methods.some(method => method.id === payment.paymentMethodId && method.active) || !/^[1-9]\d*$/.test(String(payment.amountMinor ?? '')))) return error(response, 400, 'Неверный способ оплаты или сумма');
     const paid = (body.payments ?? []).reduce((sum, payment) => sum + BigInt(payment.amountMinor ?? '0'), 0n);
@@ -690,6 +717,7 @@ const server = createServer(async (request, response) => {
     if (cashMinor > 0n !== Boolean(body.cashShiftId)) return error(response, 400, 'Для наличной продажи нужна открытая смена');
     const cashShift = body.cashShiftId ? shifts.get(body.cashShiftId) : null;
     if (cashMinor > 0n && (!cashShift || cashShift.deviceId !== body.deviceId || cashShift.status !== 'OPEN')) return error(response, 409, 'Кассовая смена не найдена');
+    for (const part of giftParts) giftCards.get(giftCode(part.reference)).balanceMinor -= BigInt(part.amountMinor);
     for (const item of items) products.find(product => product.sku === item.product.sku).quantity -= item.quantity;
     if (cashShift) cashShift.expectedCashMinor = String(BigInt(cashShift.expectedCashMinor) + cashMinor);
     const sale = { id: randomUUID(), number: `DEMO-${String(saleNumber++).padStart(4, '0')}`, status: 'COMPLETED', returns: [], totalMinor: String(total), discountMinor: String(items.reduce((sum, item) => sum + BigInt(item.discountMinor), 0n)), createdAt: new Date().toISOString(), store: { ...store, address: 'Тестовый адрес', phone: null }, employee: { name: 'Демо' }, items, payments: (body.payments ?? []).map(payment => ({ id: randomUUID(), amountMinor: payment.amountMinor, paymentMethod: methods.find(method => method.id === payment.paymentMethodId) })), customer: saleCustomer };
@@ -704,7 +732,7 @@ const server = createServer(async (request, response) => {
     recordAudit(sessionEmployee.id, 'SALE_CREATED', 'Sale', sale.id, body.deviceId);
     return send(response, 201, sale);
   }
-  if (request.method === 'GET' && path === '/loyalty/settings') return send(response, 200, { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [] });
+  if (request.method === 'GET' && path === '/loyalty/settings') return send(response, 200, { mode: 'DISCOUNT', tiers: [{ minimumMinor: '50000', percent: '7' }, { minimumMinor: '80000', percent: '10' }], bonusEarnPercent: '0', consultantEarnPercent: '0', excludedProductIds: [], excludedBrandIds: [], excludedCategoryIds: [], promotions: [{ id: 'demo-friday', targetType: 'ALL', targetId: '00000000-0000-4000-8000-000000000000', percent: '8', daysOfWeek: [5], startDate: null, endDate: null, active: true }] });
   console.warn('demo 404', request.method, path);
   return error(response, 404, 'Демо-маршрут не найден');
 });
